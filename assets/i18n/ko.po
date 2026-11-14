@@ -219,7 +219,7 @@ msgid "{name}, folder, expanded"
 msgstr "{name}, 폴더, 펼쳐짐"
 
 #: src/ui/player_bar.rs:81
-msgid "Click to change the visualizer"
+msgid "Click to change the visualiser"
 msgstr "클릭하여 시각화 변경"
 
 #: src/ui/player_bar.rs:440 src/ui/lyrics.rs:131 src/ui/lyrics.rs:805
@@ -1678,11 +1678,11 @@ msgid "Custom title bar"
 msgstr "사용자 지정 제목 표시줄"
 
 #: src/ui/settings.rs:1242
-msgid "Player bar visualizer"
+msgid "Player bar visualiser"
 msgstr "플레이어 바 시각화"
 
 #: src/ui/settings.rs:1243
-msgid "Click player bar to change visualizer"
+msgid "Click player bar to change visualiser"
 msgstr "플레이어 바를 클릭하여 시각화 변경"
 
 #: src/ui/settings.rs:1252
@@ -1766,7 +1766,7 @@ msgstr ""
 "다."
 
 #: src/ui/settings.rs:1348
-msgid "Allow clicks on empty player bar space to cycle the visualizer."
+msgid "Allow clicks on empty player bar space to cycle the visualiser."
 msgstr "플레이어 바의 빈 공간을 클릭하면 시각화를 순환합니다."
 
 #: src/ui/settings.rs:1351 src/ui/settings.rs:2141
@@ -1775,7 +1775,7 @@ msgstr "프레임 레이트"
 
 #: src/ui/settings.rs:1354
 msgid ""
-"How often the player bar and mini player visualizers draw. Lower rates use "
+"How often the player bar and mini player visualisers draw. Lower rates use "
 "fewer resources. MilkDrop has its own."
 msgstr ""
 "플레이어 바와 미니 플레이어 시각화를 그리는 빈도입니다. 낮을수록 리소스를 적"
