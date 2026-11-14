@@ -132,6 +132,41 @@ impl PendingRemoteVolume {
     }
 }
 
+/// A volume set here that the device then reported. A speaker may report
+/// its level one step from what was set: a Sonos turned to 1% reports 0%
+/// a moment later while it still plays. A report that close keeps the
+/// chosen volume on screen, so the slider does not slip and the icon does
+/// not read muted.
+struct SettledRemoteVolume {
+    percent: u8,
+    device_id: Option<String>,
+}
+
+impl SettledRemoteVolume {
+    /// Whether `device` may be the one the volume was set on, as
+    /// `PendingRemoteVolume::may_be_on` decides.
+    fn may_be_on(&self, device: &Device) -> bool {
+        device.id.is_none() || device.id == self.device_id
+    }
+
+    /// The chosen volume, while `device` reports one this close to it.
+    fn shown_for(&self, device: Option<&Device>) -> Option<u8> {
+        let device = device.filter(|device| self.may_be_on(device))?;
+        let reported = device.volume_percent?;
+        (reported.abs_diff(self.percent) <= 1).then_some(self.percent)
+    }
+
+    /// Whether `device` reports another device or a volume set elsewhere.
+    fn contradicted_by(&self, device: Option<&Device>) -> bool {
+        device.is_some_and(|device| {
+            !self.may_be_on(device)
+                || device
+                    .volume_percent
+                    .is_some_and(|reported| reported.abs_diff(self.percent) > 1)
+        })
+    }
+}
+
 /// A volume Spotify pushed for the remote device.
 struct PushedVolume {
     percent: u8,
@@ -760,6 +795,7 @@ pub struct App {
     pub shared_grant: bool,
     pending_remote_position: Option<(u32, Instant)>,
     pending_remote_volume: Option<PendingRemoteVolume>,
+    settled_remote_volume: Option<SettledRemoteVolume>,
     soloist_volume_preview: Option<Instant>,
     remote_volume_request: u64,
     /// A volume Spotify pushed for the remote device. A poll already on
@@ -1452,6 +1488,7 @@ impl App {
             shared_grant: false,
             pending_remote_position: None,
             pending_remote_volume: None,
+            settled_remote_volume: None,
             soloist_volume_preview: None,
             remote_volume_request: 0,
             pushed_remote_volume: None,
@@ -2479,8 +2516,11 @@ impl App {
         } else {
             match &self.pending_remote_volume {
                 Some(pending) if pending.may_be_on(device) => pending.percent,
-                _ => device
-                    .and_then(|device| device.volume_percent)
+                _ => self
+                    .settled_remote_volume
+                    .as_ref()
+                    .and_then(|settled| settled.shown_for(device))
+                    .or_else(|| device.and_then(|device| device.volume_percent))
                     .unwrap_or(50),
             }
         };
@@ -3718,6 +3758,7 @@ impl App {
     /// Clears account data while preserving request serials that reject late answers.
     fn reset_data(&mut self) {
         self.pending_remote_volume = None;
+        self.settled_remote_volume = None;
         self.local_transfer_sequence = None;
         self.queue_start_pending = None;
         self.pending_album_queues.clear();
@@ -9823,6 +9864,7 @@ impl App {
                         self.pending_remote_position = None;
                         if matches!(action, RemoteAction::Volume { .. }) {
                             self.pending_remote_volume = None;
+                            self.settled_remote_volume = None;
                         }
                         if matches!(
                             action,
@@ -9923,21 +9965,39 @@ impl App {
         }
         let percent = volume_to_percent(volume);
         device.volume_percent = Some(percent);
+        // Whether the push may come from the device a volume was set on.
+        let pushed_by = |id: Option<&str>| id.is_none_or(|id| id == device_id);
+        // A push from another device, or of a level further off, ends a
+        // settled volume, as a poll's does.
+        if self.settled_remote_volume.as_ref().is_some_and(|settled| {
+            !pushed_by(settled.device_id.as_deref()) || settled.percent.abs_diff(percent) > 1
+        }) {
+            self.settled_remote_volume = None;
+        }
         self.pushed_remote_volume = Some(PushedVolume {
             percent,
             device_id: device_id.to_owned(),
             poll_seq: self.remote_poll_seq,
         });
         // Once the hold has run out, a pushed volume is as current as a
-        // fresh poll's, and ends it without waiting for one.
-        let held = self
-            .pending_remote_volume
-            .as_ref()
-            .and_then(|pending| pending.written_at)
+        // fresh poll's, and ends it without waiting for one. One a step or
+        // less from the volume set here confirms it, as a poll's does.
+        let Some(pending) = &self.pending_remote_volume else {
+            return;
+        };
+        let held = pending
+            .written_at
             .is_none_or(|at| at.elapsed() < PLAYBACK_HOLD);
-        if !held {
-            self.pending_remote_volume = None;
+        if held {
+            return;
         }
+        if pushed_by(pending.device_id.as_deref()) && pending.percent.abs_diff(percent) <= 1 {
+            self.settled_remote_volume = Some(SettledRemoteVolume {
+                percent: pending.percent,
+                device_id: pending.device_id.clone(),
+            });
+        }
+        self.pending_remote_volume = None;
     }
 
     /// When to poll for a change Spotify pushed: after a pending poll
@@ -11248,6 +11308,7 @@ impl App {
             Target::Remote(_) if !settle && !self.previews_remote_volume() => {}
             Target::Remote(device_id) => {
                 self.soloist_volume_preview = Some(Instant::now());
+                self.settled_remote_volume = None;
                 self.remote_volume_request += 1;
                 self.pending_remote_volume = Some(PendingRemoteVolume {
                     percent,
@@ -11283,6 +11344,11 @@ impl App {
     }
 
     fn reconcile_remote_volume(&mut self, seq: u64, state: Option<&PlaybackState>) {
+        if self.settled_remote_volume.as_ref().is_some_and(|settled| {
+            settled.contradicted_by(state.and_then(|state| state.device.as_ref()))
+        }) {
+            self.settled_remote_volume = None;
+        }
         let Some(pending) = &mut self.pending_remote_volume else {
             return;
         };
@@ -11312,7 +11378,14 @@ impl App {
             }
             return;
         };
-        if reported == pending.percent || (pending.mismatches > 0 && !held) {
+        if reported.abs_diff(pending.percent) <= 1 {
+            // Confirmed, give or take the device's own rounding.
+            self.settled_remote_volume = Some(SettledRemoteVolume {
+                percent: pending.percent,
+                device_id: pending.device_id.clone(),
+            });
+            self.pending_remote_volume = None;
+        } else if pending.mismatches > 0 && !held {
             self.pending_remote_volume = None;
         } else {
             if pending.mismatches == 0 {
@@ -11466,6 +11539,13 @@ impl App {
             .is_some_and(|pending| pending.device_id.as_deref() != Some(device_id.as_str()))
         {
             self.pending_remote_volume = None;
+        }
+        if self
+            .settled_remote_volume
+            .as_ref()
+            .is_some_and(|settled| settled.device_id.as_deref() != Some(device_id.as_str()))
+        {
+            self.settled_remote_volume = None;
         }
         if Some(device_id.as_str()) == self.local_device_id.as_deref() {
             self.selected_device = None;
@@ -33088,6 +33168,68 @@ mod tests {
         app.handle_remote_volume("sonos", percent_to_volume(70));
         assert!(app.pending_remote_volume.is_none());
         assert_eq!(app.now_playing().unwrap().volume_percent, 70);
+        app.backend.shutdown();
+    }
+
+    /// A Sonos turned to 1% reports 0% a moment later while it still plays.
+    /// A report one step off confirms the chosen level, which stays shown so
+    /// the slider does not slip and the icon does not read muted, until the
+    /// speaker reports a level set elsewhere.
+    #[test]
+    fn remote_volume_stays_where_it_was_set_when_the_speaker_reports_a_step_off() {
+        let mut app = remote_volume_app();
+        let device = app.remote.as_mut().unwrap().state.device.as_mut().unwrap();
+        device.id = None;
+        app.local_ready = true;
+        app.selected_device = Some("sonos".into());
+        app.set_volume(1, true);
+        app.handle_api(ApiResponse::Remote {
+            action: RemoteAction::Volume {
+                request: app.remote_volume_request,
+            },
+            result: Ok(()),
+        });
+        report_remote_volume(&mut app, 1, Some(0));
+        assert!(app.pending_remote_volume.is_none());
+        assert_eq!(app.now_playing().unwrap().volume_percent, 1);
+        report_remote_volume(&mut app, 2, Some(0));
+        app.handle_remote_volume("sonos", percent_to_volume(0));
+        assert_eq!(app.now_playing().unwrap().volume_percent, 1);
+        // A level set elsewhere shows as reported, by poll or by push.
+        report_remote_volume(&mut app, 3, Some(30));
+        assert!(app.settled_remote_volume.is_none());
+        assert_eq!(app.now_playing().unwrap().volume_percent, 30);
+        app.set_volume(1, true);
+        app.handle_api(ApiResponse::Remote {
+            action: RemoteAction::Volume {
+                request: app.remote_volume_request,
+            },
+            result: Ok(()),
+        });
+        report_remote_volume(&mut app, 4, Some(0));
+        assert_eq!(app.now_playing().unwrap().volume_percent, 1);
+        app.handle_remote_volume("sonos", percent_to_volume(25));
+        assert!(app.settled_remote_volume.is_none());
+        assert_eq!(app.now_playing().unwrap().volume_percent, 25);
+        // A push a step off confirms the level as a poll does, once the
+        // hold has run out with no poll to confirm it.
+        app.set_volume(1, true);
+        app.handle_api(ApiResponse::Remote {
+            action: RemoteAction::Volume {
+                request: app.remote_volume_request,
+            },
+            result: Ok(()),
+        });
+        app.pending_remote_volume.as_mut().unwrap().written_at =
+            Some(Instant::now() - PLAYBACK_HOLD);
+        app.handle_remote_volume("sonos", percent_to_volume(0));
+        assert!(app.pending_remote_volume.is_none());
+        assert_eq!(app.now_playing().unwrap().volume_percent, 1);
+        // A push from another speaker, while the Web API names none, shows
+        // that speaker's own level.
+        app.handle_remote_volume("kitchen", percent_to_volume(0));
+        assert!(app.settled_remote_volume.is_none());
+        assert_eq!(app.now_playing().unwrap().volume_percent, 0);
         app.backend.shutdown();
     }
 
