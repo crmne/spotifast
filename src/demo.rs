@@ -1,4 +1,4 @@
-﻿//! Sample data for screenshots and headless rendering tests.
+//! Sample data for screenshots and headless rendering tests.
 //!
 //! Nothing here talks to Spotify: the backend is switched offline, the
 //! session is marked connected, and every page is filled with plausible

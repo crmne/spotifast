@@ -1,4 +1,4 @@
-﻿//! The application: state, event handling, and the actions views ask for.
+//! The application: state, event handling, and the actions views ask for.
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
