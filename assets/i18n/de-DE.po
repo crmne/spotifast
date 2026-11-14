@@ -223,7 +223,7 @@ msgid "{name}, folder, expanded"
 msgstr "{name}, Ordner, ausgeklappt"
 
 #: src/ui/player_bar.rs:81
-msgid "Click to change the visualizer"
+msgid "Click to change the visualiser"
 msgstr "Klicken, um den Visualizer zu wechseln"
 
 #: src/ui/player_bar.rs:440 src/ui/lyrics.rs:134 src/ui/lyrics.rs:808
@@ -1707,11 +1707,11 @@ msgid "Custom title bar"
 msgstr "Eigene Titelleiste"
 
 #: src/ui/settings.rs:1205
-msgid "Player bar visualizer"
+msgid "Player bar visualiser"
 msgstr "Visualizer in der Wiedergabeleiste"
 
 #: src/ui/settings.rs:1206
-msgid "Click player bar to change visualizer"
+msgid "Click player bar to change visualiser"
 msgstr "Klick auf die Wiedergabeleiste ändert die Visualisierung"
 
 #: src/ui/settings.rs:1215
@@ -1805,7 +1805,7 @@ msgstr ""
 "während er hier läuft."
 
 #: src/ui/settings.rs:1311
-msgid "Allow clicks on empty player bar space to cycle the visualizer."
+msgid "Allow clicks on empty player bar space to cycle the visualiser."
 msgstr ""
 "Klicks auf freie Bereiche der Wiedergabeleiste wechseln die Visualisierung."
 
@@ -1815,7 +1815,7 @@ msgstr "Bildrate"
 
 #: src/ui/settings.rs:1317
 msgid ""
-"How often the player bar and mini player visualizers draw. Lower rates use "
+"How often the player bar and mini player visualisers draw. Lower rates use "
 "fewer resources. MilkDrop has its own."
 msgstr ""
 "Wie oft die Visualisierungen der Wiedergabeleiste und des Mini-Players "

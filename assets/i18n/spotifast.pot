@@ -226,7 +226,7 @@ msgid "{name}, folder, expanded"
 msgstr ""
 
 #: src/ui/player_bar.rs:81
-msgid "Click to change the visualizer"
+msgid "Click to change the visualiser"
 msgstr ""
 
 #: src/ui/player_bar.rs:440 src/ui/lyrics.rs:134 src/ui/lyrics.rs:808
@@ -1656,11 +1656,11 @@ msgid "Custom title bar"
 msgstr ""
 
 #: src/ui/settings.rs:1205
-msgid "Player bar visualizer"
+msgid "Player bar visualiser"
 msgstr ""
 
 #: src/ui/settings.rs:1206
-msgid "Click player bar to change visualizer"
+msgid "Click player bar to change visualiser"
 msgstr ""
 
 #: src/ui/settings.rs:1215
@@ -1738,7 +1738,7 @@ msgid ""
 msgstr ""
 
 #: src/ui/settings.rs:1311
-msgid "Allow clicks on empty player bar space to cycle the visualizer."
+msgid "Allow clicks on empty player bar space to cycle the visualiser."
 msgstr ""
 
 #: src/ui/settings.rs:1314 src/ui/settings.rs:2104
@@ -1747,7 +1747,7 @@ msgstr ""
 
 #: src/ui/settings.rs:1317
 msgid ""
-"How often the player bar and mini player visualizers draw. Lower rates use "
+"How often the player bar and mini player visualisers draw. Lower rates use "
 "fewer resources. MilkDrop has its own."
 msgstr ""
 
