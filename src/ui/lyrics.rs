@@ -560,7 +560,10 @@ fn with_cover(app: &mut App, ui: &mut egui::Ui, rect: Rect, top: f32, controls: 
         let side = (span.height() - 140.0)
             .min(span.width() * 0.5)
             .clamp(min_side, 560.0);
-        let column = Rect::from_center_size(span.center() + vec2(0.0, glide), vec2(side, side + 90.0));
+        let column = Rect::from_center_size(
+            span.center() + vec2(0.0, glide),
+            vec2(side, side + 90.0),
+        );
         big_cover(app, ui, column, Align::Center);
         // Why there are no words, quietly, under the song, or that they
         // are still being fetched. It fades with the player bar, leaving
