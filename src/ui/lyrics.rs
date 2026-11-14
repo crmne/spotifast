@@ -31,6 +31,19 @@ fn show_sung_line(ui: &egui::Ui, line: Rect, animation: Option<egui::style::Scro
 /// How long a line takes to light up or fade.
 const LIGHT_UP_SECONDS: f32 = 0.22;
 
+/// A music note's row, in multiples of the line's font size.
+const MUSIC_NOTE_HEIGHT: f32 = 1.2;
+
+/// A timed line with no words is the band playing on, which Spotify marks
+/// with a music note. It is the icon rather than a "\u{266a}" in the text,
+/// because the interface fonts may have no such glyph. Its size stays put
+/// while it lights up, so the icon is drawn at one size only.
+fn music_note(ui: &mut egui::Ui, size: f32, color: Color32, sense: Sense) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(vec2(size, size * MUSIC_NOTE_HEIGHT), sense);
+    theme::paint_icon(ui, Icon::Music, rect, size * 0.9, color);
+    response
+}
+
 fn blend(from: egui::Color32, to: egui::Color32, t: f32) -> egui::Color32 {
     let t = t.clamp(0.0, 1.0);
     egui::Color32::from(egui::Rgba::from(from) * (1.0 - t) + egui::Rgba::from(to) * t)
@@ -242,18 +255,15 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                 } else {
                     theme::regular(LINE_SIZE)
                 };
-                // A timed line with no words is the band playing on.
-                let text = if line.text.is_empty() && lyrics.synced {
-                    "\u{266a}"
-                } else {
-                    line.text.as_str()
-                };
+                let text = line.text.as_str();
                 let sense = if lyrics.synced {
                     Sense::click()
                 } else {
                     Sense::hover()
                 };
-                let response = if crate::bidi::is_rtl(text) {
+                let response = if text.is_empty() && lyrics.synced {
+                    music_note(ui, LINE_SIZE, color, sense)
+                } else if crate::bidi::is_rtl(text) {
                     let galley = crate::bidi::layout(
                         ui.painter(),
                         text,
@@ -931,25 +941,35 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui) {
                 };
                 let wrap = ui.available_width() / SUNG_LINE_GROWTH * grown;
                 let font = theme::bold(size * grown);
-                // A timed line with no words is the band playing on.
-                let text = if line.text.is_empty() && lyrics.synced {
-                    "\u{266a}"
-                } else {
-                    line.text.as_str()
-                };
                 // Untimed words have nowhere to jump to, but a click on them
                 // is still on a line, so it must not reach the backdrop.
                 let sense = Sense::click();
-                let galley =
-                    crate::bidi::layout(ui.painter(), text, font, color, wrap, usize::MAX, None);
-                let center = ui.cursor().top() + galley.size().y * 0.5;
+                let note = line.text.is_empty() && lyrics.synced;
+                let galley = (!note).then(|| {
+                    crate::bidi::layout(
+                        ui.painter(),
+                        &line.text,
+                        font,
+                        color,
+                        wrap,
+                        usize::MAX,
+                        None,
+                    )
+                });
+                let height = galley
+                    .as_ref()
+                    .map_or(size * MUSIC_NOTE_HEIGHT, |galley| galley.size().y);
+                let center = ui.cursor().top() + height * 0.5;
                 let edge = ((center - viewport.top()).min(viewport.bottom() - center)
                     / (size * 2.0))
                     .clamp(0.0, 1.0);
                 let response = ui
                     .scope(|ui| {
                         ui.multiply_opacity(edge * edge * (3.0 - 2.0 * edge));
-                        ui.add(egui::Label::new(galley).sense(sense))
+                        match galley {
+                            Some(galley) => ui.add(egui::Label::new(galley).sense(sense)),
+                            None => music_note(ui, size, color, sense),
+                        }
                     })
                     .inner;
                 let rect = response.rect;

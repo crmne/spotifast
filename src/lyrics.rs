@@ -78,15 +78,21 @@ impl Lyrics {
 pub fn from_spotify(json: &serde_json::Value) -> Option<Lyrics> {
     let lyrics = json.get("lyrics")?;
     let synced = lyrics.get("syncType").and_then(|value| value.as_str()) == Some("LINE_SYNCED");
-    let lines: Vec<Line> = lyrics
+    let mut lines: Vec<Line> = lyrics
         .get("lines")?
         .as_array()?
         .iter()
         .filter_map(|line| {
             let text = line.get("words")?.as_str()?.trim();
-            if text.is_empty() || text == "\u{266a}" {
+            // Spotify marks a stretch without singing with a line of "♪"
+            // (sometimes an empty one). Timed, it stays as a line without
+            // words, which the panels draw as a music note that lights up
+            // while the band plays on. Untimed, it marks nothing.
+            let gap = text.is_empty() || text == "\u{266a}";
+            if gap && !synced {
                 return None;
             }
+            let text = if gap { "" } else { text };
             let at_ms = line
                 .get("startTimeMs")
                 .and_then(|value| {
@@ -102,10 +108,15 @@ pub fn from_spotify(json: &serde_json::Value) -> Option<Lyrics> {
             })
         })
         .collect();
-    if lines.is_empty() {
+    // One note per stretch: a repeated mark adds nothing to follow.
+    lines.dedup_by(|next, previous| next.text.is_empty() && previous.text.is_empty());
+    if lines.iter().all(|line| line.text.is_empty()) {
         return None;
     }
     let synced = synced && lines.iter().all(|line| line.at_ms.is_some());
+    if !synced {
+        lines.retain(|line| !line.text.is_empty());
+    }
     Some(Lyrics {
         lines,
         synced,

@@ -6426,18 +6426,24 @@ async fn spotify_lyrics(
     cache_dir: &std::path::Path,
 ) -> Option<crate::lyrics::Lyrics> {
     let id = uri.strip_prefix("spotify:track:")?;
-    // Answers from before the request named the cover are kept only for what
-    // they found: nearly all their "none"s were the request's doing.
-    let path = cache_dir.join(format!("spotify-v2-{id}.json"));
-    let before = cache_dir.join(format!("spotify-{id}.json"));
+    // Older answers left out the instrumental breaks, so they are asked
+    // again, and only what they found stands in while Spotify cannot be
+    // reached. Nearly all the first version's "none"s were the request's
+    // doing, as it did not name the cover.
+    let path = cache_dir.join(format!("spotify-v3-{id}.json"));
+    let older = [
+        cache_dir.join(format!("spotify-v2-{id}.json")),
+        cache_dir.join(format!("spotify-{id}.json")),
+    ];
     if let Some(cached) = crate::lyrics::cached(&path) {
         return cached;
     }
-    if let Some(Some(found)) = crate::lyrics::cached(&before) {
-        return Some(found);
-    }
     let found_before = || {
-        crate::lyrics::previously_found(&path).or_else(|| crate::lyrics::previously_found(&before))
+        crate::lyrics::previously_found(&path).or_else(|| {
+            older
+                .iter()
+                .find_map(|before| crate::lyrics::previously_found(before))
+        })
     };
     let Some(engine) = engine else {
         return found_before();
