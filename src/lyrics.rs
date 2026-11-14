@@ -1113,4 +1113,44 @@ mod tests {
         let nothing = Record::default();
         assert!(nothing.lyrics().is_none());
     }
+
+    fn words(of: &Lyrics) -> Vec<&str> {
+        of.lines.iter().map(|line| line.text.as_str()).collect()
+    }
+
+    #[test]
+    fn spotify_gaps_turn_into_one_note_each_only_with_timing() {
+        let answer = |sync: &str| {
+            let lines: Vec<serde_json::Value> = [
+                ("0", "\u{266a}"),
+                ("1000", "First"),
+                ("5000", "\u{266a}"),
+                ("6000", ""),
+                ("9000", "Second"),
+                ("12000", "\u{266a}"),
+            ]
+            .into_iter()
+            .map(|(at, text)| serde_json::json!({ "startTimeMs": at, "words": text }))
+            .collect();
+            serde_json::json!({ "lyrics": { "syncType": sync, "lines": lines } })
+        };
+
+        let timed = from_spotify(&answer("LINE_SYNCED")).unwrap();
+        assert!(timed.synced);
+        assert_eq!(words(&timed), ["", "First", "", "Second", ""]);
+        assert_eq!(timed.lines[2].at_ms, Some(5_000));
+        let sung = timed.without_closing_notes();
+        assert_eq!(words(&sung), ["", "First", "", "Second"]);
+
+        let plain = from_spotify(&answer("UNSYNCED")).unwrap();
+        assert!(!plain.synced);
+        assert_eq!(words(&plain), ["First", "Second"]);
+        assert_eq!(words(&plain.without_closing_notes()), ["First", "Second"]);
+
+        let notes = serde_json::json!({ "lyrics": {
+            "syncType": "LINE_SYNCED",
+            "lines": [{ "startTimeMs": "0", "words": "\u{266a}" }]
+        } });
+        assert!(from_spotify(&notes).is_none());
+    }
 }
