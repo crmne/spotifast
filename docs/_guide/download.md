@@ -2,6 +2,8 @@
 title: Download
 description: Download the app for macOS, Windows, or Linux, with install instructions for each.
 nav_order: 1
+seo:
+  title: Download for Linux, macOS, and Windows
 ---
 
 {% assign v = site.spotifast_version %}

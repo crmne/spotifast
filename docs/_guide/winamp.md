@@ -2,6 +2,8 @@
 title: The Winamp Mini Player
 description: Use Winamp 2 and Windows Media Player skins, with their visualizers, equalizers, and playlists.
 nav_order: 4
+seo:
+  title: "Winamp Skins for Spotify: the Mini Player"
 ---
 
 Open the mini player with Ctrl+M (Cmd+Shift+M on macOS), the shrink button, or

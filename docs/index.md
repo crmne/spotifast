@@ -1,7 +1,9 @@
 ---
 layout: home
 title: Spotifast
-description: A fast, lightweight Spotify app for Linux, macOS, and Windows.
+description: Spotifast is a fast, lightweight Spotify client for Linux, macOS, and Windows, written in Rust with no browser engine. Free and open source.
+seo:
+  title: Native Spotify Client for Linux, macOS and Windows
 permalink: /
 hero:
   name: Spotifast
@@ -58,6 +60,10 @@ features:
     link: https://github.com/crmne/spotifast
     link_text: Read the source
 ---
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Spotifast","url":"https://spotifast.rocks/","downloadUrl":"https://spotifast.rocks/download/","softwareVersion":"{{ site.spotifast_version }}","operatingSystem":"Linux, macOS, Windows","applicationCategory":"MultimediaApplication","license":"https://github.com/crmne/spotifast/blob/main/LICENSE","isAccessibleForFree":true,"offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"image":"https://spotifast.rocks/screenshot.png","author":{"@type":"Person","name":"Carmine Paolino","url":"https://paolino.me"}}
+</script>
+
 
 <video class="hero-film image-src" controls muted loop playsinline preload="metadata" poster="/assets/images/launch-film-poster.jpg" aria-label="Spotifast in a minute: a film of the app, made with its built-in demo content" hidden>
   <source src="/assets/videos/launch-film.mp4" type="video/mp4">
