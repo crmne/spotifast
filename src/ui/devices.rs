@@ -534,6 +534,10 @@ pub fn popup(app: &mut App, ctx: &egui::Context) {
                                 let is_local = device.id.is_some() && device.id == local_id;
                                 let is_soloist = device.id.is_some() && device.id == soloist_id;
                                 let active = device.id.is_some() && device.id == active_id;
+                                let waking = device
+                                    .id
+                                    .as_deref()
+                                    .is_some_and(|id| app.is_waking_device(id));
                                 let name = if is_soloist {
                                     gettext(locale, "This computer").into_owned()
                                 } else if is_local {
@@ -550,7 +554,7 @@ pub fn popup(app: &mut App, ctx: &egui::Context) {
                                 response.widget_info(|| {
                                     egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &name)
                                 });
-                                if response.hovered() {
+                                if response.hovered() && !waking {
                                     ui.painter().rect_filled(
                                         rect,
                                         CornerRadius::same(6),
@@ -577,6 +581,9 @@ pub fn popup(app: &mut App, ctx: &egui::Context) {
                                 );
                                 let status = if is_soloist {
                                     "Soloist".to_owned()
+                                } else if waking {
+                                    // A switch the device has not answered yet.
+                                    gettext(locale, "Connecting…").into_owned()
                                 } else if active {
                                     gettext(locale, "Listening on this device").into_owned()
                                 } else if device.is_restricted {
@@ -597,7 +604,7 @@ pub fn popup(app: &mut App, ctx: &egui::Context) {
                                         palette.secondary
                                     },
                                 );
-                                if active {
+                                if active && !waking {
                                     let dot = pos2(rect.right() - 16.0, rect.center().y);
                                     if is_soloist {
                                         Icon::Check.image(palette.secondary, 16.0).paint_at(ui,
@@ -606,8 +613,22 @@ pub fn popup(app: &mut App, ctx: &egui::Context) {
                                         ui.painter().circle_filled(dot, 4.0, palette.accent);
                                     }
                                 }
+                                if waking {
+                                    let mut spin = ui.new_child(
+                                        egui::UiBuilder::new()
+                                            .max_rect(Rect::from_center_size(
+                                                pos2(rect.right() - 18.0, rect.center().y),
+                                                egui::Vec2::splat(20.0),
+                                            ))
+                                            .layout(egui::Layout::centered_and_justified(
+                                                egui::Direction::LeftToRight,
+                                            )),
+                                    );
+                                    theme::spinner(&mut spin, 16.0, palette.accent);
+                                }
                                 if response.clicked()
                                     && !active
+                                    && !waking
                                     && let Some(id) = &device.id
                                 {
                                     app.actions.push(Action::Transfer(id.clone()));

@@ -521,6 +521,18 @@ save another copy of the credential.
 The receiver then signs in and appears in Spotify's device list. Spotifast
 uses the Web API for subsequent control requests.
 
+### Devices that are listed but asleep
+
+An Echo or another speaker that has been idle for a while can stay in Spotify's
+device list while the Web API still answers a switch to it with "Not found"
+(404). Spotifast does not report that at once. The device's row shows
+**Connecting…** with a spinner and cannot be chosen again, the device list is
+read again, and the switch is retried about every two seconds for up to twenty
+seconds. A device that is missing from two refreshes in a row has left the
+list, so the wait ends early. Either way the usual "Couldn't switch device"
+message appears when the wait gives up. Any other error is reported
+immediately, and choosing a different device ends the wait.
+
 ### Restricted devices and Sonos
 
 Spotify marks some devices as restricted, Sonos players among them. The Web

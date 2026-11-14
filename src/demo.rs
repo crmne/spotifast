@@ -1520,6 +1520,18 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                         app.devices.iter().find(|device| device.is_active).cloned();
                 }
             }
+            // A speaker Spotify lists but cannot reach yet, while a switch to
+            // it is retried.
+            "device-waking" => {
+                app.show_devices = true;
+                app.devices.push(Device {
+                    id: Some("echo-dot".into()),
+                    name: "Echo Dot".into(),
+                    kind: "speaker".into(),
+                    ..Default::default()
+                });
+                app.demo_wake_device("echo-dot");
+            }
             "cast-idle" => cast_devices(app, false),
             "cast-connecting" => cast_devices(app, true),
             // These paired states capture both outcomes of the collection

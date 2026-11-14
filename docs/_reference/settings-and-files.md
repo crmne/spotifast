@@ -488,6 +488,8 @@ registering Spotifast for a listener on a shared grant, and `slow-banner` the
 banner suggesting it when Spotify slows the shared sign-in down. `audio-key-banner` shows the banner for a song
 whose audio key Spotify refused. `audio-outputs` opens the device picker with sample audio
 outputs to choose from, as Spotifast's own output lists them.
+`device-waking` opens it with a speaker that Spotify lists but has not woken
+yet, shown as connecting while the switch is retried.
 `signed-out` and `connecting` show the sign-in card, with the steps for
 registering Spotifast, before and while the session connects;
 `waiting-for-browser` shows it while the browser is open.
