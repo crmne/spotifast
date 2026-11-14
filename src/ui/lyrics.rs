@@ -456,6 +456,10 @@ fn with_cover(app: &mut App, ui: &mut egui::Ui, rect: Rect, top: f32, controls: 
     // stays in the middle, so a song that turns out to have none never
     // moves at all.
     let words = matches!(&app.lyrics, Loadable::Loaded(Some(lyrics)) if !lyrics.instrumental);
+    // The cover keeps to the middle of what shows: as the player bar slides
+    // away it glides down by half the bar, and back as the bar returns. The
+    // lyrics keep their place.
+    let glide = theme::PLAYER_BAR_HEIGHT * (1.0 - controls.clamp(0.0, 1.0)) / 2.0;
     // The queue docks right while its flag is on, in both arrangements.
     // Without it the room below is untouched, preserving the stock layout.
     let gap = 64.0;
@@ -485,7 +489,7 @@ fn with_cover(app: &mut App, ui: &mut egui::Ui, rect: Rect, top: f32, controls: 
             let room = lyrics_end - below.left();
             let side = (room * 0.42).min(below.height() - 90.0).clamp(160.0, 520.0);
             let column = Rect::from_min_size(
-                pos2(below.left(), below.center().y - (side + 90.0) / 2.0),
+                pos2(below.left(), below.center().y + glide - (side + 90.0) / 2.0),
                 vec2(side, side + 90.0),
             );
             big_cover(app, ui, column, Align::Min);
@@ -508,7 +512,7 @@ fn with_cover(app: &mut App, ui: &mut egui::Ui, rect: Rect, top: f32, controls: 
             let lyrics_width = (below.width() - side - gap).min(LYRICS_BESIDE_WIDTH);
             let left = below.center().x - (side + gap + lyrics_width) / 2.0;
             let column = Rect::from_min_size(
-                pos2(left, below.center().y - (side + 90.0) / 2.0),
+                pos2(left, below.center().y + glide - (side + 90.0) / 2.0),
                 vec2(side, side + 90.0),
             );
             big_cover(app, ui, column, Align::Min);
@@ -530,7 +534,7 @@ fn with_cover(app: &mut App, ui: &mut egui::Ui, rect: Rect, top: f32, controls: 
         let side = (span.height() - 140.0)
             .min(span.width() * 0.5)
             .clamp(min_side, 560.0);
-        let column = Rect::from_center_size(span.center(), vec2(side, side + 90.0));
+        let column = Rect::from_center_size(span.center() + vec2(0.0, glide), vec2(side, side + 90.0));
         big_cover(app, ui, column, Align::Center);
         // Why there are no words, quietly, under the song, or that they
         // are still being fetched.
