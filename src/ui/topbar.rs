@@ -570,7 +570,15 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 )
                 .clicked()
                 {
-                    app.actions.push(Action::Open(Page::Settings));
+                    // A second click closes them again, back to where the
+                    // first one came from.
+                    app.actions.push(if app.page() != &Page::Settings {
+                        Action::Open(Page::Settings)
+                    } else if app.can_go_back() {
+                        Action::Back
+                    } else {
+                        Action::Open(Page::Home)
+                    });
                 }
                 if friends
                     && theme::icon_button(
