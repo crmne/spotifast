@@ -6031,17 +6031,10 @@ async fn handle(
             };
             ApiResponse::Remote { action, result }
         }
-        ApiRequest::ShufflePlay { device_id, play } => {
-            let device = device_id.as_deref();
-            let result = match routed!(set_shuffle(true, device)) {
-                Ok(()) => routed!(play(device, Some(&play))),
-                Err(error) => Err(error),
-            };
-            ApiResponse::Remote {
-                action: RemoteAction::Play,
-                result,
-            }
-        }
+        ApiRequest::ShufflePlay { device_id, play } => ApiResponse::Remote {
+            action: RemoteAction::Play,
+            result: routed!(shuffle_play(device_id.as_deref(), &play)),
+        },
         ApiRequest::Transfer { device_id, play } => ApiResponse::Transferred {
             result: routed!(transfer(&device_id, play)),
             device_id,

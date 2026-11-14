@@ -832,6 +832,33 @@ impl ApiClient {
         Ok(())
     }
 
+    /// Turns shuffle on, then starts `request`. Shuffle applies to what is
+    /// playing now, and a context that forbids it, as autoplay's does, gets
+    /// a 403 "Restriction violated" until something replaces it (#1307,
+    /// #1346): then the start goes first, and shuffle follows on the new one.
+    pub async fn shuffle_play(&self, device_id: Option<&str>, request: &PlayRequest) -> Result<()> {
+        match self.set_shuffle(true, device_id).await {
+            Err(ApiError::Status {
+                status: 403,
+                message,
+            }) if message
+                .to_ascii_lowercase()
+                .contains("restriction violated") =>
+            {
+                self.play(device_id, Some(request)).await?;
+                // Playing is what was asked; an unshuffled start beats none.
+                if let Err(error) = self.set_shuffle(true, device_id).await {
+                    log::warn!("Shuffle after starting failed: {error}");
+                }
+                Ok(())
+            }
+            shuffled => {
+                shuffled?;
+                self.play(device_id, Some(request)).await
+            }
+        }
+    }
+
     /// `state` is `off`, `context`, or `track`.
     pub async fn set_repeat(&self, state: &str, device_id: Option<&str>) -> Result<()> {
         let mut query = Self::device_query(device_id);
@@ -1641,6 +1668,78 @@ mod tests {
         );
         assert!(store.lease(slot).load().await.unwrap().grant.is_none());
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// A context that forbids shuffle refuses turning it on as a violated
+    /// restriction (#1346), so Shuffle Play starts first and shuffles after.
+    /// Any other refusal still stops it before it starts.
+    #[tokio::test]
+    async fn shuffle_play_starts_first_when_the_playing_context_forbids_shuffle() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        const OK: &str = "204 No Content";
+        const VIOLATED: &str = "Player command failed: Restriction violated";
+        const PREMIUM: &str = "Player command failed: Premium required";
+        let cases: [(&'static [&'static str], &[&str], bool); 4] = [
+            (&[OK, OK], &["shuffle", "play"], true),
+            (&[VIOLATED, OK, OK], &["shuffle", "play", "shuffle"], true),
+            // Shuffle refused again after the start: an unshuffled start beats none.
+            (
+                &[VIOLATED, OK, VIOLATED],
+                &["shuffle", "play", "shuffle"],
+                true,
+            ),
+            (&[PREMIUM], &["shuffle"], false),
+        ];
+        for (replies, expected, started) in cases {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                let mut paths = Vec::new();
+                for reply in replies {
+                    let (mut socket, _) =
+                        tokio::time::timeout(Duration::from_secs(5), listener.accept())
+                            .await
+                            .unwrap()
+                            .unwrap();
+                    let mut head = Vec::new();
+                    while !head.ends_with(b"\r\n\r\n") {
+                        head.push(socket.read_u8().await.unwrap());
+                    }
+                    let head = String::from_utf8(head).unwrap();
+                    let length = head
+                        .lines()
+                        .find_map(|line| {
+                            line.to_ascii_lowercase()
+                                .strip_prefix("content-length:")
+                                .and_then(|length| length.trim().parse().ok())
+                        })
+                        .unwrap_or(0);
+                    socket.read_exact(&mut vec![0; length]).await.unwrap();
+                    let path = head.split(' ').nth(1).unwrap().split('?').next().unwrap();
+                    paths.push(path.trim_start_matches("/me/player/").to_string());
+                    let response = if *reply == OK {
+                        format!("HTTP/1.1 {OK}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                    } else {
+                        let body = format!(r#"{{"error":{{"status":403,"message":"{reply}"}}}}"#);
+                        format!(
+                            "HTTP/1.1 403 Forbidden\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                            body.len()
+                        )
+                    };
+                    socket.write_all(response.as_bytes()).await.unwrap();
+                }
+                paths
+            });
+            let client = client_with_token(Some(format!("http://{address}")), "test-only");
+            let result = client
+                .shuffle_play(
+                    Some("soloist"),
+                    &PlayRequest::context("spotify:playlist:p1"),
+                )
+                .await;
+            assert_eq!(result.is_ok(), started, "{replies:?}: {result:?}");
+            assert_eq!(server.await.unwrap(), expected, "{replies:?}");
+        }
     }
 
     fn client_with_token(base_url: Option<String>, access_token: &str) -> ApiClient {
