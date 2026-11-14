@@ -6820,13 +6820,17 @@ mod tests {
     }
 
     /// The empty space's tooltip belongs to the empty space: once shown, it
-    /// closes when the pointer moves onto a control drawn over the bar.
+    /// closes when the pointer moves onto a control drawn over the bar. While
+    /// the music plays on another device, it says the visualiser shows only
+    /// music on this computer.
     #[cfg(feature = "demo")]
     #[test]
     fn the_visualizer_tooltip_stays_off_the_player_bar_controls() {
         let (ctx, mut app) = accessible_app("player-bar-tooltip");
         ctx.global_style_mut(|style| style.interaction.tooltip_delay = 0.0);
         app.settings.player_bar_vis = crate::settings::PlayerBarVis::Spectrum;
+        play_here(&mut app);
+        app.local.playback = crate::player::Playback::Playing;
         let mut time = 0.0;
         let mut draw = |app: &mut App, pos: egui::Pos2| {
             time += 1.0;
@@ -6884,6 +6888,18 @@ mod tests {
             draw(&mut app, empty);
         }
         let shown = draw(&mut app, empty);
+        assert!(!shown.iter().any(|text| text == tip), "{shown:?}");
+
+        // #and with the music on another device, it says the visualiser shows
+        // only music playing here
+        app.settings.player_bar_vis = crate::settings::PlayerBarVis::Spectrum;
+        app.local.playback = crate::player::Playback::Stopped;
+        for _ in 0..3 {
+            draw(&mut app, empty);
+        }
+        let shown = draw(&mut app, empty);
+        let elsewhere = "The visualiser shows only music playing on this computer";
+        assert!(shown.iter().any(|text| text == elsewhere), "{shown:?}");
         assert!(!shown.iter().any(|text| text == tip), "{shown:?}");
         app.backend.shutdown();
     }

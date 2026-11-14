@@ -76,12 +76,20 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 // rect, and this one spans the bar: offer it only while the empty
                 // space itself is hovered, not the controls over it, and only
                 // while a visualiser is showing. A click still turns it on.
+                // Music on a speaker or another device never reaches it, so it
+                // says so rather than offering a change that shows nothing.
                 let showing = app.settings.player_bar_vis != crate::settings::PlayerBarVis::Off;
+                let elsewhere = now.as_ref().is_some_and(|now| !now.local)
+                    && !(app.soloist_audio && app.targets_own_soloist());
                 let empty = if showing && empty.hovered() {
-                    empty.on_hover_text_at_pointer(gettext(
-                        app.locale,
-                        "Click to change the visualiser",
-                    ))
+                    empty.on_hover_text_at_pointer(if elsewhere {
+                        gettext(
+                            app.locale,
+                            "The visualiser shows only music playing on this computer",
+                        )
+                    } else {
+                        gettext(app.locale, "Click to change the visualiser")
+                    })
                 } else {
                     empty
                 };

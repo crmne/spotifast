@@ -1303,7 +1303,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             player_bar_vis.clone(),
             gettext(
                 locale,
-                "Show the song moving behind the player bar's controls while it plays here.",
+                "Show the song moving behind the player bar's controls. It shows only music playing on this computer, not on a speaker or another device.",
             ),
         ),
         RowText::new(
