@@ -16,6 +16,7 @@ use objc2_app_kit::{
 use objc2_foundation::{MainThreadMarker, NSData, NSObject, NSPoint, NSRect, NSSize, NSString};
 
 use super::notch::{NotchCommand, NotchTrackInfo, can_toggle_saved, push_command};
+use crate::i18n::{Locale, gettext};
 
 static CONTROLLER: Mutex<Option<NotchController>> = Mutex::new(None);
 /// Generation counter incremented each time an artwork load starts.
@@ -295,9 +296,10 @@ fn inactive_button_tint() -> Retained<NSColor> {
     NSColor::colorWithWhite_alpha(1.0, 0.70)
 }
 
-fn set_button_accessibility_label(button: &NSButton, label: &str) {
+fn set_button_label(button: &NSButton, label: &str) {
     let s = NSString::from_str(label);
     let () = unsafe { objc2::msg_send![button, setAccessibilityLabel: &*s] };
+    let () = unsafe { objc2::msg_send![button, setToolTip: &*s] };
 }
 
 fn set_button_tint(button: &NSButton, tint: &NSColor) {
@@ -323,23 +325,23 @@ fn setup_svg_button(button: &NSButton, image: &NSImage, accessibility: &str) {
     button.setBordered(false);
     button.setImage(Some(image));
     button.setTitle(&NSString::from_str(""));
-    set_button_accessibility_label(button, accessibility);
+    set_button_label(button, accessibility);
 }
 
-fn update_play_button_ui(button: &NSButton, icons: &NotchIcons, playing: bool) {
+fn update_play_button_ui(button: &NSButton, icons: &NotchIcons, locale: Locale, playing: bool) {
     let (img, label) = if playing {
         (&icons.pause_filled, "Pause")
     } else {
         (&icons.play_filled, "Play")
     };
-    setup_svg_button(button, img, label);
+    setup_svg_button(button, img, &gettext(locale, label));
     set_button_tint(
         button,
         &NSColor::colorWithRed_green_blue_alpha(0.06, 0.07, 0.08, 1.0),
     );
 }
 
-fn update_like_button_ui(button: &NSButton, icons: &NotchIcons, saved: bool) {
+fn update_like_button_ui(button: &NSButton, icons: &NotchIcons, locale: Locale, saved: bool) {
     let (img, tint, label) = if saved {
         (
             &icons.heart_filled,
@@ -349,33 +351,38 @@ fn update_like_button_ui(button: &NSButton, icons: &NotchIcons, saved: bool) {
     } else {
         (&icons.heart, inactive_button_tint(), "Save to Liked Songs")
     };
-    setup_svg_button(button, img, label);
+    setup_svg_button(button, img, &gettext(locale, label));
     set_button_tint(button, &tint);
 }
 
-fn update_device_button_ui(button: &NSButton, icons: &NotchIcons, is_remote: bool) {
+fn update_device_button_ui(button: &NSButton, icons: &NotchIcons, locale: Locale, is_remote: bool) {
     let tint = if is_remote {
         green_accent()
     } else {
         inactive_button_tint()
     };
-    setup_svg_button(button, &icons.speaker, "Connect to a device");
+    setup_svg_button(
+        button,
+        &icons.speaker,
+        &gettext(locale, "Connect to a device"),
+    );
     set_button_tint(button, &tint);
 }
 
-fn update_shuffle_button_ui(button: &NSButton, icons: &NotchIcons, shuffle: bool) {
+fn update_shuffle_button_ui(button: &NSButton, icons: &NotchIcons, locale: Locale, shuffle: bool) {
     let tint = if shuffle {
         green_accent()
     } else {
         inactive_button_tint()
     };
-    setup_svg_button(button, &icons.shuffle, "Shuffle");
+    setup_svg_button(button, &icons.shuffle, &gettext(locale, "Shuffle"));
     set_button_tint(button, &tint);
 }
 
 fn update_repeat_button_ui(
     button: &NSButton,
     icons: &NotchIcons,
+    locale: Locale,
     repeat: crate::player::RepeatMode,
 ) {
     let (img, tint, label) = match repeat {
@@ -383,8 +390,66 @@ fn update_repeat_button_ui(
         crate::player::RepeatMode::Context => (&icons.repeat, green_accent(), "Repeat one"),
         crate::player::RepeatMode::Track => (&icons.repeat_1, green_accent(), "Repeat off"),
     };
-    setup_svg_button(button, img, label);
+    setup_svg_button(button, img, &gettext(locale, label));
     set_button_tint(button, &tint);
+}
+
+/// Names every control in the interface language, when the notch is built
+/// and when the language changes. The state-driven buttons follow the track.
+fn relabel(ctrl: &NotchController) {
+    let locale = ctrl.locale;
+    let track = ctrl.track.as_ref();
+    setup_svg_button(
+        &ctrl.prev_button,
+        &ctrl.icons.skip_back,
+        &gettext(locale, "Previous"),
+    );
+    setup_svg_button(
+        &ctrl.next_button,
+        &ctrl.icons.skip_forward,
+        &gettext(locale, "Next"),
+    );
+    set_accessibility_label(&ctrl.canvas_view, &gettext(locale, "Playback position"));
+    set_accessibility_label(&ctrl.art_view, &gettext(locale, "Album artwork"));
+    update_play_button_ui(
+        &ctrl.play_button,
+        &ctrl.icons,
+        locale,
+        track.is_some_and(|t| t.playing),
+    );
+    update_like_button_ui(
+        &ctrl.like_button,
+        &ctrl.icons,
+        locale,
+        track.is_some_and(|t| t.saved),
+    );
+    update_shuffle_button_ui(
+        &ctrl.shuffle_button,
+        &ctrl.icons,
+        locale,
+        track.is_some_and(|t| t.shuffle),
+    );
+    update_repeat_button_ui(
+        &ctrl.repeat_button,
+        &ctrl.icons,
+        locale,
+        track.map_or_else(Default::default, |t| t.repeat),
+    );
+    update_device_button_ui(
+        &ctrl.device_button,
+        &ctrl.icons,
+        locale,
+        track.is_some_and(|t| t.is_remote),
+    );
+    if track.is_none() {
+        ctrl.artist_field
+            .setStringValue(&NSString::from_str(&gettext(locale, "Nothing playing")));
+    }
+}
+
+fn set_accessibility_label(view: &NSView, label: &str) {
+    let label = NSString::from_str(label);
+    let () = unsafe { objc2::msg_send![view, setAccessibilityLabel: &*label] };
 }
 
 define_class!(
@@ -402,7 +467,7 @@ define_class!(
             {
                 track.playing = !track.playing;
                 let is_playing = track.playing;
-                update_play_button_ui(&ctrl.play_button, &ctrl.icons, is_playing);
+                update_play_button_ui(&ctrl.play_button, &ctrl.icons, ctrl.locale, is_playing);
                 ctrl.canvas_view.setNeedsDisplay(true);
             }
             push_command(NotchCommand::PlayPause);
@@ -426,7 +491,7 @@ define_class!(
             {
                 track.shuffle = !track.shuffle;
                 let is_shuffle = track.shuffle;
-                update_shuffle_button_ui(&ctrl.shuffle_button, &ctrl.icons, is_shuffle);
+                update_shuffle_button_ui(&ctrl.shuffle_button, &ctrl.icons, ctrl.locale, is_shuffle);
             }
             push_command(NotchCommand::ToggleShuffle);
         }
@@ -439,7 +504,7 @@ define_class!(
             {
                 track.repeat = track.repeat.next();
                 let repeat_mode = track.repeat;
-                update_repeat_button_ui(&ctrl.repeat_button, &ctrl.icons, repeat_mode);
+                update_repeat_button_ui(&ctrl.repeat_button, &ctrl.icons, ctrl.locale, repeat_mode);
             }
             push_command(NotchCommand::CycleRepeat);
         }
@@ -454,7 +519,7 @@ define_class!(
                 track.saved = !track.saved;
                 let is_saved = track.saved;
                 let uri = track.uri.clone();
-                update_like_button_ui(&ctrl.like_button, &ctrl.icons, is_saved);
+                update_like_button_ui(&ctrl.like_button, &ctrl.icons, ctrl.locale, is_saved);
                 push_command(NotchCommand::ToggleSaved(uri));
             }
         }
@@ -586,6 +651,8 @@ struct NotchController {
     /// Cleared once the animation finishes.
     track_flash_until: Option<Instant>,
     pending_seek: Option<(u32, Instant)>,
+    /// The interface language the labels are in.
+    locale: Locale,
 }
 
 unsafe impl Send for NotchController {}
@@ -803,6 +870,8 @@ pub fn init() {
     window.setHasShadow(true);
     window.setIgnoresMouseEvents(false);
     window.setAcceptsMouseMovedEvents(true);
+    // The notch is mostly used over other apps, where AppKit hides tooltips.
+    window.setAllowsToolTipsWhenApplicationIsInactive(true);
     window.setCollectionBehavior(
         NSWindowCollectionBehavior::CanJoinAllSpaces
             | NSWindowCollectionBehavior::Stationary
@@ -864,9 +933,7 @@ pub fn init() {
     // bar as "Playback Position, slider" and offers arrow-key seek to keyboard users.
     unsafe {
         let role = objc2_foundation::ns_string!("AXSlider");
-        let label = objc2_foundation::ns_string!("Playback Position");
         let () = objc2::msg_send![&*canvas_view, setAccessibilityRole: role];
-        let () = objc2::msg_send![&*canvas_view, setAccessibilityLabel: label];
         let () = objc2::msg_send![&*canvas_view, setAccessibilityElement: true];
     }
     card_view.addSubview(&canvas_view);
@@ -880,8 +947,6 @@ pub fn init() {
     set_view_corner_radius(&art_view, 8.0);
     unsafe {
         let () = objc2::msg_send![&art_view, setImageScaling: 0usize];
-        let label = objc2_foundation::ns_string!("Album artwork");
-        let () = objc2::msg_send![&art_view, setAccessibilityLabel: label];
         let () = objc2::msg_send![&art_view, setAccessibilityElement: true];
     }
     card_view.addSubview(&art_view);
@@ -955,7 +1020,7 @@ pub fn init() {
         mtm.alloc(),
         NSRect::new(NSPoint::new(16.0, 97.0), NSSize::new(30.0, 36.0)),
     );
-    update_like_button_ui(&like_button, &icons, false);
+    update_like_button_ui(&like_button, &icons, Locale::default(), false);
     attach_button_action(
         &like_button,
         &action_handler,
@@ -974,7 +1039,7 @@ pub fn init() {
             NSSize::new(30.0, 36.0),
         ),
     );
-    update_shuffle_button_ui(&shuffle_button, &icons, false);
+    update_shuffle_button_ui(&shuffle_button, &icons, Locale::default(), false);
     attach_button_action(
         &shuffle_button,
         &action_handler,
@@ -988,7 +1053,7 @@ pub fn init() {
         mtm.alloc(),
         NSRect::new(NSPoint::new(center_x - 62.0, 97.0), NSSize::new(30.0, 36.0)),
     );
-    setup_svg_button(&prev_button, &icons.skip_back, "Previous");
+    setup_svg_button(&prev_button, &icons.skip_back, "");
     attach_button_action(
         &prev_button,
         &action_handler,
@@ -1002,7 +1067,7 @@ pub fn init() {
         mtm.alloc(),
         NSRect::new(NSPoint::new(center_x - 18.0, 97.0), NSSize::new(36.0, 36.0)),
     );
-    update_play_button_ui(&play_button, &icons, false);
+    update_play_button_ui(&play_button, &icons, Locale::default(), false);
     attach_button_action(
         &play_button,
         &action_handler,
@@ -1016,7 +1081,7 @@ pub fn init() {
         mtm.alloc(),
         NSRect::new(NSPoint::new(center_x + 32.0, 97.0), NSSize::new(30.0, 36.0)),
     );
-    setup_svg_button(&next_button, &icons.skip_forward, "Next");
+    setup_svg_button(&next_button, &icons.skip_forward, "");
     attach_button_action(
         &next_button,
         &action_handler,
@@ -1030,7 +1095,12 @@ pub fn init() {
         mtm.alloc(),
         NSRect::new(NSPoint::new(center_x + 78.0, 97.0), NSSize::new(30.0, 36.0)),
     );
-    update_repeat_button_ui(&repeat_button, &icons, crate::player::RepeatMode::Off);
+    update_repeat_button_ui(
+        &repeat_button,
+        &icons,
+        Locale::default(),
+        crate::player::RepeatMode::Off,
+    );
     attach_button_action(
         &repeat_button,
         &action_handler,
@@ -1045,7 +1115,7 @@ pub fn init() {
         mtm.alloc(),
         NSRect::new(NSPoint::new(device_x, 97.0), NSSize::new(30.0, 36.0)),
     );
-    update_device_button_ui(&device_button, &icons, false);
+    update_device_button_ui(&device_button, &icons, Locale::default(), false);
     attach_button_action(
         &device_button,
         &action_handler,
@@ -1088,7 +1158,9 @@ pub fn init() {
         collapsing_until: None,
         track_flash_until: None,
         pending_seek: None,
+        locale: Locale::default(),
     };
+    relabel(&ctrl);
 
     if let Ok(mut lock) = CONTROLLER.lock() {
         *lock = Some(ctrl);
@@ -1435,7 +1507,12 @@ pub fn is_active() -> bool {
     false
 }
 
-pub fn sync_state(enabled: bool, is_background: bool, track: Option<&NotchTrackInfo>) {
+pub fn sync_state(
+    enabled: bool,
+    is_background: bool,
+    locale: Locale,
+    track: Option<&NotchTrackInfo>,
+) {
     if enabled && track.is_some() {
         let is_empty = CONTROLLER.lock().map(|l| l.is_none()).unwrap_or(false);
         if is_empty {
@@ -1451,6 +1528,10 @@ pub fn sync_state(enabled: bool, is_background: bool, track: Option<&NotchTrackI
 
     ctrl.enabled = enabled;
     ctrl.is_minimized_or_background = is_background;
+    if ctrl.locale != locale {
+        ctrl.locale = locale;
+        relabel(ctrl);
+    }
 
     // Check pending expand delay (60ms hover dwell + 260ms snappy Apple animation)
     if let Some(due) = ctrl.pending_expand_at {
@@ -1593,11 +1674,11 @@ pub fn sync_state(enabled: bool, is_background: bool, track: Option<&NotchTrackI
                 t.duration_ms,
             );
 
-            update_play_button_ui(&ctrl.play_button, &ctrl.icons, t.playing);
-            update_like_button_ui(&ctrl.like_button, &ctrl.icons, t.saved);
-            update_shuffle_button_ui(&ctrl.shuffle_button, &ctrl.icons, t.shuffle);
-            update_repeat_button_ui(&ctrl.repeat_button, &ctrl.icons, t.repeat);
-            update_device_button_ui(&ctrl.device_button, &ctrl.icons, t.is_remote);
+            update_play_button_ui(&ctrl.play_button, &ctrl.icons, ctrl.locale, t.playing);
+            update_like_button_ui(&ctrl.like_button, &ctrl.icons, ctrl.locale, t.saved);
+            update_shuffle_button_ui(&ctrl.shuffle_button, &ctrl.icons, ctrl.locale, t.shuffle);
+            update_repeat_button_ui(&ctrl.repeat_button, &ctrl.icons, ctrl.locale, t.repeat);
+            update_device_button_ui(&ctrl.device_button, &ctrl.icons, ctrl.locale, t.is_remote);
             ctrl.like_button.setHidden(!can_toggle_saved(t.is_episode));
 
             update_artwork_path(ctrl, t.art_path.clone());
@@ -1605,7 +1686,10 @@ pub fn sync_state(enabled: bool, is_background: bool, track: Option<&NotchTrackI
             ctrl.title_field
                 .setStringValue(&NSString::from_str("Spotifast"));
             ctrl.artist_field
-                .setStringValue(&NSString::from_str("Nothing playing"));
+                .setStringValue(&NSString::from_str(&gettext(
+                    ctrl.locale,
+                    "Nothing playing",
+                )));
             update_time_labels(
                 &ctrl.canvas_view,
                 &ctrl.elapsed_field,
@@ -1613,15 +1697,16 @@ pub fn sync_state(enabled: bool, is_background: bool, track: Option<&NotchTrackI
                 0,
                 0,
             );
-            update_play_button_ui(&ctrl.play_button, &ctrl.icons, false);
-            update_like_button_ui(&ctrl.like_button, &ctrl.icons, false);
-            update_shuffle_button_ui(&ctrl.shuffle_button, &ctrl.icons, false);
+            update_play_button_ui(&ctrl.play_button, &ctrl.icons, ctrl.locale, false);
+            update_like_button_ui(&ctrl.like_button, &ctrl.icons, ctrl.locale, false);
+            update_shuffle_button_ui(&ctrl.shuffle_button, &ctrl.icons, ctrl.locale, false);
             update_repeat_button_ui(
                 &ctrl.repeat_button,
                 &ctrl.icons,
+                ctrl.locale,
                 crate::player::RepeatMode::Off,
             );
-            update_device_button_ui(&ctrl.device_button, &ctrl.icons, false);
+            update_device_button_ui(&ctrl.device_button, &ctrl.icons, ctrl.locale, false);
             ctrl.like_button.setHidden(false);
             ctrl.art_view.setImage(None);
             ctrl.current_art_path = None;
@@ -1651,23 +1736,33 @@ pub fn sync_state(enabled: bool, is_background: bool, track: Option<&NotchTrackI
         }
 
         if changes.play_changed {
-            update_play_button_ui(&ctrl.play_button, &ctrl.icons, latest.playing);
+            update_play_button_ui(&ctrl.play_button, &ctrl.icons, ctrl.locale, latest.playing);
         }
 
         if changes.saved_changed {
-            update_like_button_ui(&ctrl.like_button, &ctrl.icons, latest.saved);
+            update_like_button_ui(&ctrl.like_button, &ctrl.icons, ctrl.locale, latest.saved);
         }
 
         if changes.shuffle_changed {
-            update_shuffle_button_ui(&ctrl.shuffle_button, &ctrl.icons, latest.shuffle);
+            update_shuffle_button_ui(
+                &ctrl.shuffle_button,
+                &ctrl.icons,
+                ctrl.locale,
+                latest.shuffle,
+            );
         }
 
         if changes.repeat_changed {
-            update_repeat_button_ui(&ctrl.repeat_button, &ctrl.icons, latest.repeat);
+            update_repeat_button_ui(&ctrl.repeat_button, &ctrl.icons, ctrl.locale, latest.repeat);
         }
 
         if changes.remote_changed {
-            update_device_button_ui(&ctrl.device_button, &ctrl.icons, latest.is_remote);
+            update_device_button_ui(
+                &ctrl.device_button,
+                &ctrl.icons,
+                ctrl.locale,
+                latest.is_remote,
+            );
         }
 
         if changes.progress_changed || changes.duration_changed {
