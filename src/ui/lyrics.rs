@@ -324,7 +324,8 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
     app.lyrics_line_shown = Some(active);
 }
 
-/// How long full screen lyrics keep the player bar after the last input.
+/// How long full screen lyrics keep their controls, the player bar and the
+/// scroll bar, after the last input.
 const CONTROLS_LINGER_SECONDS: f64 = 3.0;
 /// How long the player bar takes to slide away or back.
 const CONTROLS_SLIDE_SECONDS: f32 = 0.3;
@@ -333,7 +334,7 @@ fn controls_id() -> egui::Id {
     egui::Id::new("fullscreen-lyrics-last-input")
 }
 
-/// How much of the player bar over full screen lyrics shows: 1 while there has been
+/// How much of full screen lyrics' controls shows: 1 while there has been
 /// input in the last three seconds, the pointer rests on the player bar, or
 /// a menu or popup is open; 0 once they have gone. In between they are
 /// sliding or fading.
@@ -387,8 +388,9 @@ pub fn forget_fullscreen_controls(ctx: &egui::Context) {
 
 /// Full screen lyrics over the whole window. The player bar comes and goes
 /// over the bottom of it, so the room the layout uses stops above the bar
-/// and never moves (see [`fullscreen_controls`]).
-pub fn fullscreen(app: &mut App, ui: &mut egui::Ui) {
+/// and never moves; `controls` is how much of the bar and the scroll bar
+/// shows (see [`fullscreen_controls`]).
+pub fn fullscreen(app: &mut App, ui: &mut egui::Ui, controls: f32) {
     egui::CentralPanel::default()
         .frame(Frame::new().fill(theme::Palette::dark().window))
         .show(ui, |ui| {
@@ -411,7 +413,7 @@ pub fn fullscreen(app: &mut App, ui: &mut egui::Ui) {
             }
             let top = theme::titlebar_inset(ui.ctx()) + 24.0;
             if app.now_playing().is_some() && room.width() >= COVER_BESIDE_MIN_WIDTH {
-                with_cover(app, ui, room, top);
+                with_cover(app, ui, room, top, controls);
                 return;
             }
             let width = fullscreen_content_width(room.width());
@@ -424,12 +426,13 @@ pub fn fullscreen(app: &mut App, ui: &mut egui::Ui) {
             content.add_space(20.0);
             track_heading(app, &mut content);
             content.add_space(16.0);
-            fullscreen_contents(app, &mut content);
+            fullscreen_contents(app, &mut content, room.right(), controls);
         });
 }
 
-/// The widest the lyrics get beside the cover, so lines stay easy to read.
-const LYRICS_BESIDE_WIDTH: f32 = 640.0;
+/// The widest the lyrics get beside the cover, so lines stay easy to read:
+/// at the largest size, about forty characters.
+const LYRICS_BESIDE_WIDTH: f32 = 960.0;
 
 /// The narrowest window that shows the cover beside the lyrics; narrower
 /// ones keep a single column with a small cover in the heading.
@@ -438,7 +441,7 @@ const COVER_BESIDE_MIN_WIDTH: f32 = 900.0;
 /// Full screen with the cover large: beside the lyrics when there are
 /// words to follow, and alone in the middle when there are none, a calm
 /// view of what is playing.
-fn with_cover(app: &mut App, ui: &mut egui::Ui, rect: Rect, top: f32) {
+fn with_cover(app: &mut App, ui: &mut egui::Ui, rect: Rect, top: f32, controls: f32) {
     let outer = Rect::from_min_max(
         pos2(rect.left() + 48.0, rect.top() + top),
         pos2(rect.right() - 48.0, rect.bottom() - 40.0),
@@ -496,7 +499,7 @@ fn with_cover(app: &mut App, ui: &mut egui::Ui, rect: Rect, top: f32) {
                 pos2(lyrics_x + lyrics_width, below.bottom()),
             );
             let mut content = ui.new_child(UiBuilder::new().max_rect(lyrics));
-            fullscreen_contents(app, &mut content);
+            fullscreen_contents(app, &mut content, lyrics_end, controls);
         } else {
             // The cover and the lyrics are one group, centred in the window.
             let side = (below.width() * 0.38)
@@ -514,7 +517,7 @@ fn with_cover(app: &mut App, ui: &mut egui::Ui, rect: Rect, top: f32) {
                 pos2(column.right() + gap + lyrics_width, below.bottom()),
             );
             let mut content = ui.new_child(UiBuilder::new().max_rect(lyrics));
-            fullscreen_contents(app, &mut content);
+            fullscreen_contents(app, &mut content, rect.right(), controls);
         }
     } else {
         let span = Rect::from_min_max(
@@ -877,7 +880,10 @@ fn track_heading(app: &mut App, ui: &mut egui::Ui) {
     }
 }
 
-fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui) {
+/// The words in `ui`'s column. Their scroll area runs on to `scroll_right`,
+/// so its bar sits at the window's edge, or the queue's, rather than in the
+/// space beside the words; it shows as much as the player bar does.
+fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui, scroll_right: f32, controls: f32) {
     let palette = theme::Palette::dark();
     let Some(now) = app.now_playing() else {
         widgets::empty_state(
@@ -943,7 +949,14 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui) {
     {
         app.actions.push(Action::LyricsLineShown(active));
     }
-    let viewport = ui.available_rect_before_wrap();
+    let column = ui.available_width();
+    let column_rect = ui.available_rect_before_wrap();
+    let viewport = Rect::from_min_max(
+        column_rect.min,
+        pos2(scroll_right.max(column_rect.right()), column_rect.bottom()),
+    );
+    let mut ui = ui.new_child(UiBuilder::new().max_rect(viewport));
+    let ui = &mut ui;
     let manual_scroll = ui.rect_contains_pointer(viewport)
         && ui.input(|input| {
             input.smooth_scroll_delta.y != 0.0
@@ -952,7 +965,7 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui) {
     let following = app.lyrics_following && !manual_scroll;
     let follow = following && app.lyrics_line_shown != Some(active);
     let animation = crate::motion::scroll(ui.ctx(), 0.45);
-    let size = (ui.available_width() * 0.046).clamp(28.0, 42.0);
+    let size = (column * 0.046).clamp(28.0, 44.0);
     // The line being sung takes the theme's accent, though the view is
     // always dark, and grows; each line wraps
     // for its full size all along, so growing can't rewrap its words.
@@ -965,7 +978,12 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui) {
         } else {
             0.42
         });
-    ui.spacing_mut().scroll.fade.strength = 0.0;
+    let scroll = &mut ui.spacing_mut().scroll;
+    scroll.fade.strength = 0.0;
+    // The bar shows with the player bar, still lighting up under the pointer.
+    scroll.dormant_handle_opacity = scroll.active_handle_opacity * controls;
+    scroll.active_handle_opacity *= controls;
+    scroll.interact_handle_opacity *= controls;
     egui::ScrollArea::vertical()
         .id_salt(("fullscreen-lyrics-scroll", &now.uri))
         .auto_shrink([false, false])
@@ -1008,7 +1026,7 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui) {
                 } else {
                     1.0
                 };
-                let wrap = ui.available_width() / SUNG_LINE_GROWTH * grown;
+                let wrap = column / SUNG_LINE_GROWTH * grown;
                 let font = theme::bold(size * grown);
                 // Untimed words have nowhere to jump to, but a click on them
                 // is still on a line, so it must not reach the backdrop.

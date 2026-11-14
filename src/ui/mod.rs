@@ -95,7 +95,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         // The player bar slides away while nothing happens and comes back
         // with any input, over the lyrics rather than beside them.
         let controls = lyrics::fullscreen_controls(app, ctx);
-        lyrics::fullscreen(app, ui);
+        lyrics::fullscreen(app, ui, controls);
         player_bar::overlay(app, ui, 1.0 - controls);
     } else {
         lyrics::forget_fullscreen_controls(ctx);
