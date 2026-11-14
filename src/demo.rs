@@ -10087,8 +10087,12 @@ mod tests {
         app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
         app.show_lyrics_panel = true;
         frame(&ctx, &mut app);
+        let palette = app.palette;
         app.lyrics_fullscreen = Some(false);
         frame(&ctx, &mut app);
+        // The queue beside full screen lyrics borrows dark colours only
+        // while it draws.
+        assert_eq!(app.palette, palette);
         app.lyrics_fullscreen = None;
         app.show_lyrics_panel = false;
         for dialog in [

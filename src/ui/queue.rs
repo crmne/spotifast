@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use egui::{Align, Frame, Layout, Margin, Rect, UiBuilder};
+use egui::{Align, Color32, Frame, Layout, Margin, Rect, UiBuilder};
 
 use crate::api::models::PlayableItem;
 use crate::app::App;
@@ -161,16 +161,52 @@ pub(crate) fn fullscreen_column_drag_width(saved: f32, delta_x: f32) -> f32 {
 }
 
 /// The queue as the right column of lyrics fullscreen: the same rows as
-/// the side panel, without the resizable panel chrome. The caller provides
-/// the rect; everything here draws inside it.
-pub fn fullscreen_column(app: &mut App, ui: &mut egui::Ui) {
+/// the side panel, on a pane of tinted glass over the backdrop instead of
+/// the panel's chrome. The caller provides the rect; everything here draws
+/// inside it. Its scroll bar shows with the player bar (`controls`), as the
+/// words' bar does.
+pub fn fullscreen_column(app: &mut App, ui: &mut egui::Ui, controls: f32) {
+    // Full screen lyrics are dark in every theme, and so is the queue
+    // beside them, whatever the window's own theme.
+    let own = app.palette;
+    app.palette = over_lyrics(&own);
+    column(app, ui, controls);
+    app.palette = own;
+}
+
+/// The colours of the queue over full screen lyrics: the dark theme's,
+/// with see-through surfaces so the backdrop shows through the chips and
+/// rows, and the app's own accent, as the words light up in.
+fn over_lyrics(own: &theme::Palette) -> theme::Palette {
+    theme::Palette {
+        surface: Color32::from_white_alpha(18),
+        surface_hover: Color32::from_white_alpha(32),
+        surface_active: Color32::from_white_alpha(40),
+        outline: Color32::from_white_alpha(20),
+        accent: own.accent,
+        accent_hover: own.accent_hover,
+        on_accent: own.on_accent,
+        ..theme::Palette::dark()
+    }
+}
+
+fn column(app: &mut App, ui: &mut egui::Ui, controls: f32) {
     let palette = app.palette;
+    let card = ui.max_rect();
+    ui.painter()
+        .rect_filled(card, 14.0, Color32::from_black_alpha(72));
+    ui.painter().rect_stroke(
+        card,
+        14.0,
+        egui::Stroke::new(1.0, Color32::from_white_alpha(16)),
+        egui::StrokeKind::Inside,
+    );
     // Drag strip on the column's left edge: same persisted width the side
     // panel uses, so both follow each resize. Explicit id, stable across
     // frames for the whole drag gesture.
     let strip = egui::Rect::from_min_size(
-        egui::pos2(ui.max_rect().left() - 4.0, ui.max_rect().top()),
-        egui::vec2(8.0, ui.max_rect().height()),
+        egui::pos2(card.left() - 4.0, card.top()),
+        egui::vec2(8.0, card.height()),
     );
     let grip = ui.interact(
         strip,
@@ -180,11 +216,12 @@ pub fn fullscreen_column(app: &mut App, ui: &mut egui::Ui) {
     if grip.hovered() || grip.dragged() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeColumn);
     }
-    // Gutter between the divider and the content, mirroring the side
-    // panel's frame margin, so headings never touch the edge.
+    // The pane's padding, as the side panel's frame margin, so headings
+    // never touch its edge. The scroll bar keeps clear of the rounded
+    // corners on the right.
     let mut inner = ui.new_child(UiBuilder::new().max_rect(Rect::from_min_max(
-        egui::pos2(ui.max_rect().left() + 12.0, ui.max_rect().top()),
-        ui.max_rect().max,
+        egui::pos2(card.left() + 12.0, card.top() + 12.0),
+        egui::pos2(card.right() - 6.0, card.bottom() - 10.0),
     )));
     let ui = &mut inner;
     // The handle stays invisible until hovered, then fades a slim edge in:
@@ -263,6 +300,10 @@ pub fn fullscreen_column(app: &mut App, ui: &mut egui::Ui) {
     {
         app.actions.push(Action::LoadMoreRecents);
     }
+    let scroll = &mut ui.spacing_mut().scroll;
+    scroll.dormant_handle_opacity = scroll.active_handle_opacity * controls;
+    scroll.active_handle_opacity *= controls;
+    scroll.interact_handle_opacity *= controls;
     crate::autoscroll::show(
         ui,
         egui::ScrollArea::vertical()
@@ -761,4 +802,22 @@ fn queue_row(app: &mut App, ui: &mut egui::Ui, index: usize, compact: bool, shif
             position: None,
         },
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::over_lyrics;
+    use crate::theme::Palette;
+
+    /// Beside full screen lyrics, which are dark in every theme, the queue
+    /// reads light on dark in the light theme too, in the app's accent.
+    #[test]
+    fn the_queue_over_lyrics_is_dark_in_the_light_theme() {
+        let light = Palette::light();
+        let over = over_lyrics(&light);
+        assert!(over.dark);
+        assert_eq!(over.text, Palette::dark().text);
+        assert_eq!(over.accent, light.accent);
+        assert!(over.surface.a() < 255, "the backdrop shows through");
+    }
 }

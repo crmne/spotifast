@@ -518,7 +518,7 @@ fn with_cover(app: &mut App, ui: &mut egui::Ui, rect: Rect, top: f32, controls: 
             pos2(below.right(), below.bottom()),
         );
         let mut queue_ui = ui.new_child(UiBuilder::new().max_rect(queue_rect));
-        super::queue::fullscreen_column(app, &mut queue_ui);
+        super::queue::fullscreen_column(app, &mut queue_ui, controls);
     }
     if words {
         if app.show_queue_panel {
