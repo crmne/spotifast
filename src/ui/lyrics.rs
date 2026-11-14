@@ -537,7 +537,13 @@ fn with_cover(app: &mut App, ui: &mut egui::Ui, rect: Rect, top: f32, controls: 
         let column = Rect::from_center_size(span.center() + vec2(0.0, glide), vec2(side, side + 90.0));
         big_cover(app, ui, column, Align::Center);
         // Why there are no words, quietly, under the song, or that they
-        // are still being fetched.
+        // are still being fetched. It fades with the player bar, leaving
+        // the song alone; a failure keeps its Try again in view.
+        let fade = if matches!(app.lyrics, Loadable::Failed(_)) {
+            1.0
+        } else {
+            controls.clamp(0.0, 1.0)
+        };
         let (heading, detail) = match &app.lyrics {
             Loadable::Loaded(Some(_)) => (
                 gettext(app.locale, "Instrumental"),
@@ -566,7 +572,7 @@ fn with_cover(app: &mut App, ui: &mut egui::Ui, rect: Rect, top: f32, controls: 
             egui::Align2::CENTER_TOP,
             heading,
             theme::semibold(13.0),
-            Color32::from_gray(200),
+            Color32::from_gray(200).gamma_multiply(fade),
         );
         if matches!(app.lyrics, Loadable::Failed(_)) {
             let retry = Rect::from_center_size(
@@ -589,7 +595,7 @@ fn with_cover(app: &mut App, ui: &mut egui::Ui, rect: Rect, top: f32, controls: 
             egui::Align2::CENTER_TOP,
             detail,
             theme::regular(13.0),
-            Color32::from_gray(170),
+            Color32::from_gray(170).gamma_multiply(fade),
         );
     }
 }
@@ -973,7 +979,10 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui, scroll_right: f32, cont
             }
             return;
         }
+        // Saying there are no words fades with the player bar, as the
+        // cover's note does.
         Loadable::Loaded(None) => {
+            ui.multiply_opacity(controls.clamp(0.0, 1.0));
             widgets::empty_state(
                 ui,
                 &palette,
@@ -984,6 +993,7 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui, scroll_right: f32, cont
             return;
         }
         Loadable::Loaded(Some(lyrics)) if lyrics.instrumental => {
+            ui.multiply_opacity(controls.clamp(0.0, 1.0));
             widgets::empty_state(
                 ui,
                 &palette,
