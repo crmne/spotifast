@@ -1596,6 +1596,12 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                     ..Default::default()
                 }));
             }
+            "clear-caches" => {
+                app.dialog = Some(Dialog::Storage(crate::model::StorageAction::ClearCaches))
+            }
+            "reset-app" => {
+                app.dialog = Some(Dialog::Storage(crate::model::StorageAction::ResetApp))
+            }
             "shortcuts" => app.dialog = Some(Dialog::Shortcuts),
             "premium" => app.dialog = Some(Dialog::PremiumNeeded),
             "edit" => {
@@ -10092,6 +10098,8 @@ mod tests {
         app.lyrics_fullscreen = None;
         app.show_lyrics_panel = false;
         for dialog in [
+            Dialog::Storage(crate::model::StorageAction::ClearCaches),
+            Dialog::Storage(crate::model::StorageAction::ResetApp),
             Dialog::Shortcuts,
             Dialog::CreatePlaylist {
                 name: "x".into(),

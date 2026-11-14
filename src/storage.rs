@@ -226,6 +226,127 @@ fn audio_file_id(root: &Path, path: &Path) -> Option<librespot_core::file_id::Fi
     Some(librespot_core::file_id::FileId::from_raw(&id))
 }
 
+pub(crate) fn validate_roots(dirs: &AppDirs, reset: bool) -> io::Result<()> {
+    let roots = if reset {
+        vec![dirs.cache.clone(), dirs.config.clone(), dirs.state.clone()]
+    } else {
+        vec![
+            dirs.cache.clone(),
+            dirs.state.clone(),
+            dirs.state.join("soloist"),
+            dirs.state.join("soloist/accounts"),
+        ]
+    };
+    for root in roots {
+        validate_directory(&root)?;
+    }
+    Ok(())
+}
+
+fn validate_directory(path: &Path) -> io::Result<()> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_dir() => Ok(()),
+        Ok(_) => Err(io::Error::other(format!(
+            "{} is not a regular directory",
+            path.display()
+        ))),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+fn cache_roots(dirs: &AppDirs) -> io::Result<Vec<std::path::PathBuf>> {
+    let mut roots = vec![dirs.cache.clone()];
+    match std::fs::read_dir(dirs.state.join("soloist/accounts")) {
+        Ok(entries) => {
+            for entry in entries {
+                let entry = entry?;
+                if entry.file_type()?.is_dir() {
+                    let cache = entry.path().join("cache");
+                    validate_directory(&cache)?;
+                    roots.push(cache);
+                }
+            }
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+    }
+    Ok(roots)
+}
+
+pub(crate) fn contains_music_folder(dirs: &AppDirs, reset: bool, music: &Path) -> io::Result<bool> {
+    let chosen = std::path::absolute(music)?;
+    let music = match music.canonicalize() {
+        Ok(music) => music,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error),
+    };
+    let roots = if reset {
+        vec![dirs.cache.clone(), dirs.config.clone(), dirs.state.clone()]
+    } else {
+        cache_roots(dirs)?
+    };
+    for root in roots {
+        if chosen.starts_with(std::path::absolute(&root)?) {
+            return Ok(true);
+        }
+        match root.canonicalize() {
+            Ok(root) if music.starts_with(&root) => return Ok(true),
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(false)
+}
+
+pub(crate) fn clear_after_shutdown(dirs: &AppDirs, reset: bool) -> io::Result<()> {
+    validate_roots(dirs, reset)?;
+    if reset {
+        let keep = dirs.state.join("instance");
+        let roots = std::collections::BTreeSet::from([&dirs.cache, &dirs.config, &dirs.state]);
+        for root in roots {
+            remove_contents(root, std::slice::from_ref(&keep))?;
+        }
+    } else {
+        let keep = [
+            dirs.cache.join("winamp.ron"),
+            dirs.cache.join("demo-window.ron"),
+        ];
+        for root in cache_roots(dirs)? {
+            remove_contents(&root, &keep)?;
+        }
+    }
+    Ok(())
+}
+
+fn remove_contents(root: &Path, keep: &[std::path::PathBuf]) -> io::Result<()> {
+    let entries = match std::fs::read_dir(root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+        if keep.contains(&path) {
+            continue;
+        }
+        let result = if entry.file_type()?.is_dir() {
+            std::fs::remove_dir_all(&path)
+        } else {
+            std::fs::remove_file(&path)
+        };
+        if let Err(error) = result {
+            return Err(io::Error::new(
+                error.kind(),
+                format!("{}: {error}", path.display()),
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Decimal units. Keep nonempty
 /// files visibly nonzero, even below one kilobyte.
 pub(crate) fn format_bytes(bytes: u64) -> String {
@@ -267,6 +388,129 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+
+    fn fixture(root: &Path, shared: bool) -> AppDirs {
+        let dirs = AppDirs {
+            config: root.join("config"),
+            state: root.join(if shared { "config" } else { "state" }),
+            cache: root.join("cache"),
+        };
+        dirs.ensure().unwrap();
+        for path in [
+            dirs.settings_file(),
+            dirs.history_file(),
+            dirs.session_file(),
+            dirs.config.join("themes/custom.json"),
+            dirs.config.join("skins/custom.wsz"),
+            dirs.config.join("milkdrop/preset.milk"),
+            dirs.state.join("instance/lock"),
+            dirs.state.join("soloist/accounts/account/pairing"),
+            dirs.state.join("soloist/accounts/account/cache/audio"),
+            dirs.state.join("soloist/builds/player"),
+            dirs.cache.join("winamp.ron"),
+            dirs.art_cache_dir().join("cover"),
+            dirs.audio_cache_dir().join("ab/song"),
+            dirs.lyrics_cache_dir().join("words"),
+            dirs.cache.join("home/account.json"),
+            dirs.cache.join("library/account.json"),
+            dirs.cache.join("liked-songs/account.json"),
+            dirs.playlist_cache_dir().join("account/playlist.json"),
+        ] {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, "fixture").unwrap();
+        }
+        dirs
+    }
+
+    #[test]
+    fn clearing_caches_keeps_the_profile_and_soloist_pairing_and_can_repeat() {
+        for shared in [false, true] {
+            let root = TestDir::new();
+            let dirs = fixture(root.path(), shared);
+            for _ in 0..2 {
+                clear_after_shutdown(&dirs, false).unwrap();
+                assert_eq!(measure(&dirs.cache, true).unwrap(), 7);
+                assert!(dirs.settings_file().exists());
+                assert!(dirs.history_file().exists());
+                assert!(dirs.session_file().exists());
+                assert!(dirs.state.join("soloist/accounts/account/pairing").exists());
+                assert!(dirs.state.join("soloist/builds/player").exists());
+                assert!(dirs.config.join("themes/custom.json").exists());
+                assert!(
+                    !dirs
+                        .state
+                        .join("soloist/accounts/account/cache/audio")
+                        .exists()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn reset_clears_shared_or_separate_roots_but_keeps_the_live_instance_lock() {
+        for shared in [false, true] {
+            let root = TestDir::new();
+            let dirs = fixture(root.path(), shared);
+            for _ in 0..2 {
+                clear_after_shutdown(&dirs, true).unwrap();
+                assert_eq!(measure(&dirs.cache, true).unwrap(), 0);
+                assert_eq!(measure(&dirs.state, true).unwrap(), 7);
+                assert!(!dirs.settings_file().exists());
+                assert!(!dirs.history_file().exists());
+                assert!(dirs.state.join("instance/lock").exists());
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cleanup_never_follows_directory_links_or_a_linked_profile_root() {
+        use std::os::unix::fs::symlink;
+        let root = TestDir::new();
+        let dirs = fixture(root.path(), false);
+        let music = root.path().join("original-music");
+        std::fs::create_dir(&music).unwrap();
+        std::fs::write(music.join("song"), "keep").unwrap();
+        symlink(&music, dirs.cache.join("linked-music")).unwrap();
+        clear_after_shutdown(&dirs, false).unwrap();
+        assert_eq!(std::fs::read_to_string(music.join("song")).unwrap(), "keep");
+        std::fs::remove_file(dirs.cache.join("winamp.ron")).unwrap();
+        std::fs::remove_dir(&dirs.cache).unwrap();
+        symlink(&music, &dirs.cache).unwrap();
+        assert!(clear_after_shutdown(&dirs, true).is_err());
+        assert!(dirs.settings_file().exists());
+        assert!(music.join("song").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn original_music_protection_resolves_aliases_without_blocking_unrelated_folders() {
+        let root = TestDir::new();
+        let dirs = fixture(root.path(), false);
+        let music = dirs.config.join("original-music");
+        std::fs::create_dir(&music).unwrap();
+        let alias = root.path().join("music-alias");
+        std::os::unix::fs::symlink(&music, &alias).unwrap();
+        assert!(contains_music_folder(&dirs, true, &alias).unwrap());
+        assert!(!contains_music_folder(&dirs, false, &alias).unwrap());
+        let cache_alias = dirs.cache.join("music-alias");
+        std::os::unix::fs::symlink(&music, &cache_alias).unwrap();
+        assert!(contains_music_folder(&dirs, false, &cache_alias).unwrap());
+        assert!(!contains_music_folder(&dirs, true, root.path()).unwrap());
+        assert!(!contains_music_folder(&dirs, true, &root.path().join("missing")).unwrap());
+    }
+
+    #[test]
+    fn missing_storage_is_already_clear() {
+        let root = TestDir::new();
+        let dirs = AppDirs {
+            config: root.path().join("config"),
+            state: root.path().join("state"),
+            cache: root.path().join("cache"),
+        };
+        clear_after_shutdown(&dirs, false).unwrap();
+        clear_after_shutdown(&dirs, true).unwrap();
     }
 
     #[test]

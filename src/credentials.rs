@@ -615,6 +615,30 @@ pub struct Loaded {
 }
 
 impl Store {
+    #[cfg(feature = "demo")]
+    pub(crate) fn demo(dirs: AppDirs) -> Self {
+        #[derive(Default)]
+        struct Session(std::collections::HashMap<String, Vec<u8>>);
+
+        impl ProtectedStore for Session {
+            fn read(&mut self, key: &str) -> Result<Option<Vec<u8>>, Error> {
+                Ok(self.0.get(key).cloned())
+            }
+
+            fn write(&mut self, key: &str, value: &[u8]) -> Result<(), Error> {
+                self.0.insert(key.to_owned(), value.to_vec());
+                Ok(())
+            }
+
+            fn delete(&mut self, key: &str) -> Result<(), Error> {
+                self.0.remove(key);
+                Ok(())
+            }
+        }
+
+        Self::with_backend(dirs, Box::<Session>::default())
+    }
+
     pub fn new(dirs: AppDirs) -> Self {
         #[cfg(windows)]
         let backend = Box::new(WithSealedCopy {
@@ -757,6 +781,19 @@ impl Store {
             }
         }
         error.map_or(Ok(()), Err)
+    }
+
+    pub async fn clear_all(&self) -> Result<(), Error> {
+        let mut result = self.revoke_spotify();
+        if let Err(error) = self.revoke(Slot::Proxy) {
+            result = Err(error);
+        }
+        for slot in Slot::ALL {
+            if let Err(error) = self.lease(slot).delete().await {
+                result = Err(error);
+            }
+        }
+        result
     }
 
     fn marker_path(&self, slot: Slot) -> PathBuf {
@@ -1519,6 +1556,104 @@ mod tests {
             assert!(loaded.grant == Some(expected));
             assert_eq!(loaded.warning, None);
         }
+    }
+
+    #[cfg(feature = "demo")]
+    #[tokio::test]
+    async fn resetting_a_demo_copy_keeps_the_source_profiles_credentials() {
+        let source = Fixture::new();
+        let grants = [
+            web(SHARED_CLIENT),
+            web("dummy-personal-client"),
+            playback(),
+            proxy_password(),
+            Grant::Soloist(crate::soloist::Key {
+                account: "dummy-account".into(),
+                value: "dummy-key".into(),
+            }),
+        ];
+        for (slot, grant) in Slot::ALL.into_iter().zip(&grants) {
+            source.store.lease(slot).save(grant.clone()).await.unwrap();
+        }
+        let original = source.fake.lock().unwrap().values.clone();
+        for adopted in [false, true] {
+            let copy = Fixture::new();
+            let profile = if adopted {
+                copy.store.inner.profile.clone()
+            } else {
+                source.store.inner.profile.clone()
+            };
+            std::fs::write(copy.dirs.state.join(PROFILE_FILE), profile).unwrap();
+            std::fs::write(
+                copy.dirs.state.join(ADOPT_FILE),
+                &source.store.inner.profile,
+            )
+            .unwrap();
+            let demo = Store::demo(copy.dirs.clone());
+            for (slot, grant) in Slot::ALL.into_iter().zip(&grants) {
+                assert!(demo.lease(slot).load().await.unwrap().grant.is_none());
+                demo.lease(slot).save(grant.clone()).await.unwrap();
+            }
+            demo.clear_all().await.unwrap();
+            crate::storage::clear_after_shutdown(&copy.dirs, true).unwrap();
+            for slot in Slot::ALL {
+                assert!(demo.marker(slot).unwrap().is_none());
+            }
+            assert_eq!(source.fake.lock().unwrap().values, original);
+        }
+        let restarted = source.restart();
+        for (slot, grant) in Slot::ALL.into_iter().zip(grants) {
+            assert!(restarted.lease(slot).load().await.unwrap().grant == Some(grant));
+        }
+    }
+
+    #[tokio::test]
+    async fn full_reset_deletes_every_grant_and_invalidates_old_leases() {
+        let f = Fixture::new();
+        let grants = [
+            web(SHARED_CLIENT),
+            web("dummy-personal-client"),
+            playback(),
+            proxy_password(),
+            Grant::Soloist(crate::soloist::Key {
+                account: "dummy-account".into(),
+                value: "dummy-key".into(),
+            }),
+        ];
+        let old = f.store.lease(Slot::Proxy);
+        for (slot, grant) in Slot::ALL.into_iter().zip(grants) {
+            f.store.lease(slot).save(grant).await.unwrap();
+        }
+        f.store.clear_all().await.unwrap();
+        assert!(!old.current());
+        assert!(f.fake.lock().unwrap().values.is_empty());
+        let restarted = f.restart();
+        for slot in Slot::ALL {
+            assert!(restarted.lease(slot).load().await.unwrap().grant.is_none());
+        }
+        f.store.clear_all().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn failed_reset_deletion_keeps_revocation_markers_and_cannot_restore_grants() {
+        let f = Fixture::new();
+        f.store
+            .lease(Slot::Proxy)
+            .save(proxy_password())
+            .await
+            .unwrap();
+        f.fake.lock().unwrap().delete_error = Some(Error::Locked);
+        assert_eq!(f.store.clear_all().await, Err(Error::Locked));
+        assert!(f.dirs.state.join("credential-storage").exists());
+        assert!(
+            f.restart()
+                .lease(Slot::Proxy)
+                .load()
+                .await
+                .unwrap()
+                .grant
+                .is_none()
+        );
     }
 
     #[tokio::test]

@@ -14,7 +14,11 @@
 //! optional projectM preset packs. No presets are bundled.
 
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+    mpsc,
+};
 use std::time::{Duration, Instant};
 
 /// The MilkDrop child process: its own window, context, and event loop.
@@ -150,7 +154,13 @@ pub struct Presets {
     pending: Option<Request>,
     /// When the playing preset was asked for, which its time counts from.
     started: Instant,
-    download: Option<(&'static str, mpsc::Receiver<Result<usize, String>>)>,
+    download: Option<PresetDownload>,
+}
+
+struct PresetDownload {
+    name: &'static str,
+    cancelled: Arc<AtomicBool>,
+    done: mpsc::Receiver<Result<usize, String>>,
 }
 
 impl Default for Presets {
@@ -320,20 +330,7 @@ impl Presets {
         ctx: egui::Context,
         proxy: crate::settings::ProxyConfig,
     ) {
-        if self.download.is_some() {
-            return;
-        }
-        let (sender, receiver) = mpsc::channel();
-        let spawned = std::thread::Builder::new()
-            .name("milkdrop-presets".into())
-            .spawn(move || {
-                let _ = sender.send(fetch_pack(pack, &folder, &proxy));
-                ctx.request_repaint();
-            });
-        match spawned {
-            Ok(_) => self.download = Some((pack.name, receiver)),
-            Err(error) => log::warn!("could not start fetching presets: {error}"),
-        }
+        self.start_download(pack.name, std::slice::from_ref(pack), folder, ctx, proxy);
     }
 
     /// Fetches every pack in one go, for a first open with nothing
@@ -344,17 +341,30 @@ impl Presets {
         ctx: egui::Context,
         proxy: crate::settings::ProxyConfig,
     ) {
+        self.start_download("the preset packs", &PACKS, folder, ctx, proxy);
+    }
+
+    fn start_download(
+        &mut self,
+        name: &'static str,
+        packs: &'static [Pack],
+        folder: PathBuf,
+        ctx: egui::Context,
+        proxy: crate::settings::ProxyConfig,
+    ) {
         if self.download.is_some() {
             return;
         }
         let (sender, receiver) = mpsc::channel();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let worker_cancelled = Arc::clone(&cancelled);
         let spawned = std::thread::Builder::new()
             .name("milkdrop-presets".into())
             .spawn(move || {
                 let mut total = 0usize;
                 let mut failed = None;
-                for pack in &PACKS {
-                    match fetch_pack(pack, &folder, &proxy) {
+                for pack in packs {
+                    match fetch_pack_with_cancel(pack, &folder, &proxy, &worker_cancelled) {
                         Ok(count) => total += count,
                         Err(error) => {
                             failed = Some(error);
@@ -370,20 +380,46 @@ impl Presets {
                 ctx.request_repaint();
             });
         match spawned {
-            Ok(_) => self.download = Some(("the preset packs", receiver)),
+            Ok(_) => {
+                self.download = Some(PresetDownload {
+                    name,
+                    cancelled,
+                    done: receiver,
+                });
+            }
             Err(error) => log::warn!("could not start fetching presets: {error}"),
         }
     }
 
+    pub(crate) fn stop_download_for_storage(&mut self, timeout: Duration) -> Result<(), String> {
+        let Some(download) = &self.download else {
+            return Ok(());
+        };
+        download.cancelled.store(true, Ordering::Relaxed);
+        // An in-flight blocking request or write may outlast cancellation.
+        // Keep storage until the worker has actually stopped writing.
+        if matches!(
+            download.done.recv_timeout(timeout),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        ) {
+            return Err(
+                "MilkDrop preset work did not stop in time. No storage folders were cleared."
+                    .into(),
+            );
+        }
+        self.download = None;
+        self.listed = None;
+        Ok(())
+    }
+
     /// The pack on its way, if one is.
     pub fn downloading(&self) -> Option<&'static str> {
-        self.download.as_ref().map(|(name, _)| *name)
+        self.download.as_ref().map(|download| download.name)
     }
 
     /// How a download went, once it has: the number of presets added.
     pub fn poll(&mut self) -> Option<Result<usize, String>> {
-        let (_, receiver) = self.download.as_ref()?;
-        match receiver.try_recv() {
+        match self.download.as_ref()?.done.try_recv() {
             Ok(result) => {
                 self.download = None;
                 // The folder has changed under the listing.
@@ -487,6 +523,16 @@ pub fn fetch_pack(
     folder: &Path,
     proxy: &crate::settings::ProxyConfig,
 ) -> Result<usize, String> {
+    fetch_pack_with_cancel(pack, folder, proxy, &AtomicBool::new(false))
+}
+
+fn fetch_pack_with_cancel(
+    pack: &Pack,
+    folder: &Path,
+    proxy: &crate::settings::ProxyConfig,
+    cancelled: &AtomicBool,
+) -> Result<usize, String> {
+    check_download_cancelled(cancelled)?;
     let http = crate::http::build_blocking(proxy, Duration::from_secs(300))
         .map_err(|error| error.to_string())?;
     let bytes = http
@@ -495,15 +541,33 @@ pub fn fetch_pack(
         .and_then(|response| response.error_for_status())
         .and_then(|response| response.bytes())
         .map_err(|error| format!("{}: {error}", pack.name))?;
-    unpack_presets(&bytes, folder)
+    unpack_presets_with_cancel(&bytes, folder, cancelled)
 }
 
 /// Writes the `.milk` files of a zip into the folder.
 pub fn unpack_presets(zip: &[u8], folder: &Path) -> Result<usize, String> {
+    unpack_presets_with_cancel(zip, folder, &AtomicBool::new(false))
+}
+
+fn check_download_cancelled(cancelled: &AtomicBool) -> Result<(), String> {
+    if cancelled.load(Ordering::Relaxed) {
+        return Err("MilkDrop preset download was cancelled.".into());
+    }
+    Ok(())
+}
+
+fn unpack_presets_with_cancel(
+    zip: &[u8],
+    folder: &Path,
+    cancelled: &AtomicBool,
+) -> Result<usize, String> {
+    check_download_cancelled(cancelled)?;
     let archive = crate::skin::zip::Archive::parse(zip).map_err(|error| error.to_string())?;
+    check_download_cancelled(cancelled)?;
     std::fs::create_dir_all(folder).map_err(|error| error.to_string())?;
     let mut written = 0;
     for entry in archive.entries() {
+        check_download_cancelled(cancelled)?;
         if entry.is_dir() {
             continue;
         }
@@ -512,6 +576,7 @@ pub fn unpack_presets(zip: &[u8], folder: &Path) -> Result<usize, String> {
             continue;
         }
         let bytes = archive.read(entry).map_err(|error| error.to_string())?;
+        check_download_cancelled(cancelled)?;
         std::fs::write(folder.join(file_name), bytes).map_err(|error| error.to_string())?;
         written += 1;
     }
@@ -521,6 +586,42 @@ pub fn unpack_presets(zip: &[u8], folder: &Path) -> Result<usize, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn storage_cleanup_cancels_presets_and_refuses_to_clear_while_the_worker_is_live() {
+        let mut presets = Presets::new();
+        let (sender, done) = mpsc::channel();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        presets.download = Some(PresetDownload {
+            name: PACKS[0].name,
+            cancelled: Arc::clone(&cancelled),
+            done,
+        });
+
+        assert!(presets.stop_download_for_storage(Duration::ZERO).is_err());
+        assert!(cancelled.load(Ordering::Relaxed));
+        assert_eq!(presets.downloading(), Some(PACKS[0].name));
+
+        sender.send(Err("cancelled".into())).unwrap();
+        presets.stop_download_for_storage(Duration::ZERO).unwrap();
+        assert!(presets.downloading().is_none());
+    }
+
+    #[test]
+    fn a_cancelled_preset_pack_does_not_create_its_folder() {
+        let folder = std::env::temp_dir().join(format!(
+            "spotifast-cancelled-presets-{}-{:x}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        let zip = crate::skin::zip::write(&[("test.milk", b"preset", false)]);
+        let result = unpack_presets_with_cancel(&zip, &folder, &AtomicBool::new(true));
+        assert_eq!(
+            result.unwrap_err(),
+            "MilkDrop preset download was cancelled."
+        );
+        assert!(!folder.exists());
+    }
 
     /// Presets that have just started the first of `files`.
     fn playing(files: &[&str]) -> Presets {

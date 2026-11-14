@@ -349,6 +349,7 @@ struct Threads {
     link: Arc<Link>,
     updates: Receiver<Update>,
     pictures: Receiver<Decoded>,
+    drawing_done: Receiver<()>,
     generation: Option<u64>,
 }
 
@@ -366,11 +367,15 @@ fn start(cache: PathBuf, ctx: &egui::Context) -> Option<Threads> {
     });
     let (update_sender, updates) = channel();
     let (picture_sender, pictures) = sync_channel(DECODED_WAITING);
+    let (drawing_done, finished_drawing) = channel();
     let (for_drawing, context) = (link.clone(), ctx.clone());
     let spawn = std::thread::Builder::new()
         .name("skin-previews".into())
         .stack_size(DRAWING_STACK)
-        .spawn(move || drawing_thread(for_drawing, cache, update_sender, context));
+        .spawn(move || {
+            drawing_thread(for_drawing, cache, update_sender, context);
+            let _ = drawing_done.send(());
+        });
     let (for_decoding, context) = (link.clone(), ctx.clone());
     let spawn = spawn.and_then(|_| {
         std::thread::Builder::new()
@@ -378,6 +383,8 @@ fn start(cache: PathBuf, ctx: &egui::Context) -> Option<Threads> {
             .spawn(move || decoding_thread(for_decoding, picture_sender, context))
     });
     if let Err(error) = spawn {
+        link.work().closed = true;
+        link.changed.notify_all();
         log::warn!("could not start drawing skin previews: {error}");
         return None;
     }
@@ -385,6 +392,7 @@ fn start(cache: PathBuf, ctx: &egui::Context) -> Option<Threads> {
         link,
         updates,
         pictures,
+        drawing_done: finished_drawing,
         generation: None,
     })
 }
@@ -401,6 +409,18 @@ pub struct SkinPreviews {
 }
 
 impl SkinPreviews {
+    pub(crate) fn stop_for_storage(&mut self) -> Result<(), String> {
+        let Some(threads) = self.threads.take() else {
+            return Ok(());
+        };
+        threads.link.work().closed = true;
+        threads.link.changed.notify_all();
+        threads
+            .drawing_done
+            .recv_timeout(Duration::from_secs(10))
+            .map_err(|_| "Skin previews did not stop. No storage folders were cleared.".to_string())
+    }
+
     /// Starts a frame of Settings: takes in what the threads finished and,
     /// when the skins folder has been listed again, tells them.
     pub fn begin(
@@ -614,6 +634,26 @@ mod tests {
 
     fn is_picture(thumb: Thumb) -> bool {
         matches!(thumb, Thumb::Picture(..))
+    }
+
+    #[test]
+    fn storage_cleanup_stops_preview_writes_before_removing_the_cache() {
+        let root = folder("storage-shutdown");
+        let cache = root.join("cache");
+        std::fs::create_dir_all(&cache).unwrap();
+        let ctx = egui::Context::default();
+        let mut previews = SkinPreviews::default();
+        frames(&mut previews, &ctx, &cache, &[], 1, |previews| {
+            is_picture(previews.thumb(BUILT_IN))
+        });
+        let link = previews.threads.as_ref().unwrap().link.clone();
+        previews.stop_for_storage().unwrap();
+        assert!(link.work().closed);
+        assert!(previews.threads.is_none());
+        assert!(std::fs::read_dir(&cache).unwrap().next().is_some());
+        std::fs::remove_dir_all(&cache).unwrap();
+        previews.stop_for_storage().unwrap();
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

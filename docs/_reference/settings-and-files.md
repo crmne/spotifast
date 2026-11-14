@@ -72,6 +72,42 @@ Playback keeps responding during a clear, and a connection that starts during
 one waits for it to finish. Files still open for playback may keep disk space
 until closed, and ongoing playback can populate the cache again.
 
+**Clear caches** removes the artwork, audio, lyrics and account library caches
+in one action, including Soloist's account audio caches. It keeps sign-in,
+settings, local play history, themes, skins, MilkDrop presets, window positions
+and Soloist's player downloads and pairing. Spotifast quits first so active
+players and disk workers cannot restore deleted files. Reopen it to listen;
+caches fill again as needed. The confirmation explains this before you choose
+**Clear caches and quit**. The separate clear buttons above remain available
+without quitting.
+
+**Reset app** asks for confirmation before quitting and removing the profile's
+local data: settings, history, session, caches, themes, skins, MilkDrop presets,
+Soloist downloads and pairing, and saved window state. It removes all five
+credential types, including the proxy password and Soloist key, and turns off
+start at login, when the running copy supports it. Your Spotify library and
+the original local music folder are not changed. If your selected music folder
+is inside storage that would be cleared, cleanup refuses before deleting
+credentials or files. Move that folder outside Spotifast storage first.
+Reopen Spotifast to set it up again. This cannot be undone.
+
+Both actions request cancellation of MilkDrop preset downloads and wait for
+playback, skin work and handed-over file writes to stop before clearing files.
+If a worker misses its shutdown deadline, cleanup reports an error and leaves
+the storage folders in place. A blocked request or file write may finish while
+the app exits. Reset checks the file writer and turns off start at login before
+deleting saved credentials or profile files.
+Missing files are already clear. Symbolic links are never followed; linked
+profile roots are refused. A failed cleanup shows a
+native error dialog. A failed credential deletion keeps the profile and its
+revocation markers so it cannot silently sign back in. A partial filesystem
+failure can leave some files removed; repeat the action after correcting the
+reported error. The running-instance lock stays until the process exits.
+Demo mode enables these actions only with an explicit `--demo-data` profile
+and never changes the real login entry or saved main-window state. Demo runs
+use an in-memory credential store, so resetting a copied profile cannot remove
+the original profile's saved sign-ins from the system credential store.
+
 Clearing caches never signs you out. Sign-out from Settings covers the shared
 and personal Web API grants and the independent playback credential. It also
 removes the cached library of every account: playlist pages, the playlist
@@ -472,7 +508,7 @@ settings.
 
 `--demo-page` opens a page, such as `home`, `playlist:pl1`, or `artist:art0`,
 and `--demo-show` adds surfaces on top of it: a comma separated list of
-`queue`, `playing-next`, `devices`, `home-loading`, `audio-outputs`, `shortcuts`, `premium`, `create`, `duplicate`, `light`, `system-light`, `system-dark`,
+`queue`, `playing-next`, `devices`, `home-loading`, `audio-outputs`, `shortcuts`, `clear-caches`, `reset-app`, `premium`, `create`, `duplicate`, `light`, `system-light`, `system-dark`,
 `focus`, `winamp`, `playlist`, `eq`, `eq-shade`, `compact`, `update`, `personal-app`, `slow-banner`, `audio-key-banner`,
 `collection-loading`, `shuffle-selected`, `shuffle-started`, `library-list`,
 `library-list-narrow`, `library-list-wide`, `library-grid`, `library-grid-narrow`,
