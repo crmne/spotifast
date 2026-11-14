@@ -219,7 +219,7 @@ msgid "{name}, folder, expanded"
 msgstr "{name}，文件夹，已展开"
 
 #: src/ui/player_bar.rs:81
-msgid "Click to change the visualizer"
+msgid "Click to change the visualiser"
 msgstr "点击切换可视化效果"
 
 #: src/ui/player_bar.rs:440 src/ui/lyrics.rs:131 src/ui/lyrics.rs:805
@@ -1653,11 +1653,11 @@ msgid "Custom title bar"
 msgstr "自定义标题栏"
 
 #: src/ui/settings.rs:1242
-msgid "Player bar visualizer"
+msgid "Player bar visualiser"
 msgstr "播放栏可视化效果"
 
 #: src/ui/settings.rs:1243
-msgid "Click player bar to change visualizer"
+msgid "Click player bar to change visualiser"
 msgstr "点击播放栏切换可视化效果"
 
 #: src/ui/settings.rs:1252
@@ -1737,7 +1737,7 @@ msgid ""
 msgstr "歌曲在本机播放时，在播放栏控件后方显示它的律动。"
 
 #: src/ui/settings.rs:1348
-msgid "Allow clicks on empty player bar space to cycle the visualizer."
+msgid "Allow clicks on empty player bar space to cycle the visualiser."
 msgstr "允许点击播放栏的空白区域来切换可视化效果。"
 
 #: src/ui/settings.rs:1351 src/ui/settings.rs:2141
@@ -1746,7 +1746,7 @@ msgstr "帧率"
 
 #: src/ui/settings.rs:1354
 msgid ""
-"How often the player bar and mini player visualizers draw. Lower rates use "
+"How often the player bar and mini player visualisers draw. Lower rates use "
 "fewer resources. MilkDrop has its own."
 msgstr ""
 "播放栏和迷你播放器可视化效果的绘制频率。帧率越低占用资源越少。MilkDrop 有单独"

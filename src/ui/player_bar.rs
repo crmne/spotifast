@@ -74,11 +74,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 );
                 // An open tooltip stays while the pointer is inside its widget's
                 // rect, and this one spans the bar: offer it only while the empty
-                // space itself is hovered, not the controls over it.
-                let empty = if empty.hovered() {
+                // space itself is hovered, not the controls over it, and only
+                // while a visualiser is showing. A click still turns it on.
+                let showing = app.settings.player_bar_vis != crate::settings::PlayerBarVis::Off;
+                let empty = if showing && empty.hovered() {
                     empty.on_hover_text_at_pointer(gettext(
                         app.locale,
-                        "Click to change the visualizer",
+                        "Click to change the visualiser",
                     ))
                 } else {
                     empty

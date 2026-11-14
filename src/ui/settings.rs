@@ -1239,8 +1239,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let middle_click = gettext(locale, "Middle-click autoscroll");
     let custom_titlebar = gettext(locale, "Custom title bar");
     let show_custom_titlebar = cfg!(target_os = "linux") || app.windows_controls_visible();
-    let player_bar_vis = gettext(locale, "Player bar visualizer");
-    let player_bar_vis_click = gettext(locale, "Click player bar to change visualizer");
+    let player_bar_vis = gettext(locale, "Player bar visualiser");
+    let player_bar_vis_click = gettext(locale, "Click player bar to change visualiser");
     // Follow system's own light and dark palettes. Omarchy's palette already
     // follows the desktop, so they are offered only without it.
     let show_pair = app.settings.custom_theme.is_none()
@@ -1345,13 +1345,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         ),
         RowText::new(
             player_bar_vis_click.clone(),
-            gettext(locale, "Allow clicks on empty player bar space to cycle the visualizer."),
+            gettext(locale, "Allow clicks on empty player bar space to cycle the visualiser."),
         ),
         RowText::new(
             gettext(locale, "Frame rate"),
             gettext(
                 locale,
-                "How often the player bar and mini player visualizers draw. Lower rates use fewer resources. MilkDrop has its own.",
+                "How often the player bar and mini player visualisers draw. Lower rates use fewer resources. MilkDrop has its own.",
             ),
         ),
         pair_row(fastframe_theme::Base::Light),
