@@ -206,6 +206,22 @@ pub fn playing_cover_stands_in(
     stand_in(shown.as_ref(), url, now).is_some() && !url.is_some_and(|url| art.has_copy(url))
 }
 
+/// Called after [`playing_cover`] painted `url`'s in a place laid out while
+/// the last song's cover stood in for it (`stood_in`, from
+/// [`playing_cover_stands_in`]). The new cover can be made while it paints,
+/// and would then show in the last one's place, so that frame is drawn again
+/// with the new cover in its own.
+pub fn settle_playing_cover(
+    ui: &Ui,
+    art: &crate::images::ArtLoader,
+    url: Option<&str>,
+    stood_in: bool,
+) {
+    if stood_in && url.is_some_and(|url| art.has_copy(url)) {
+        ui.ctx().request_discard("the new song's cover takes its own place");
+    }
+}
+
 /// Paints the playing song's cover. A new song's cover still being made
 /// keeps the last song's in its place for a moment, so a change of song
 /// does not pass through the placeholder. `key` tells apart the places that

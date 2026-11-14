@@ -528,7 +528,7 @@ fn with_cover(app: &mut App, ui: &mut egui::Ui, rect: Rect, top: f32, controls: 
                 pos2(below.left(), below.center().y + glide - (side + 90.0) / 2.0),
                 vec2(side, side + 90.0),
             );
-            big_cover(app, ui, column, Align::Min);
+            big_cover(app, ui, column, Align::Min, stands_in);
             let lyrics_avail = lyrics_end - column.right() - gap;
             let lyrics_width = lyrics_avail.clamp(80.0, LYRICS_BESIDE_WIDTH);
             // Centre the block between the cover and the queue when there is
@@ -551,7 +551,7 @@ fn with_cover(app: &mut App, ui: &mut egui::Ui, rect: Rect, top: f32, controls: 
                 pos2(left, below.center().y + glide - (side + 90.0) / 2.0),
                 vec2(side, side + 90.0),
             );
-            big_cover(app, ui, column, Align::Min);
+            big_cover(app, ui, column, Align::Min, stands_in);
             let lyrics = Rect::from_min_max(
                 pos2(column.right() + gap, below.top()),
                 pos2(column.right() + gap + lyrics_width, below.bottom()),
@@ -572,7 +572,7 @@ fn with_cover(app: &mut App, ui: &mut egui::Ui, rect: Rect, top: f32, controls: 
             .clamp(min_side, 560.0);
         let column =
             Rect::from_center_size(span.center() + vec2(0.0, glide), vec2(side, side + 90.0));
-        big_cover(app, ui, column, Align::Center);
+        big_cover(app, ui, column, Align::Center, stands_in);
         // Why there are no words, quietly, under the song, or that they
         // are still being fetched. It fades with the player bar, leaving
         // the song alone; a failure keeps its Try again in view.
@@ -640,8 +640,9 @@ fn with_cover(app: &mut App, ui: &mut egui::Ui, rect: Rect, top: f32, controls: 
 }
 
 /// The playing song's cover filling the top of `column`, with its title and
-/// artists beneath, aligned to its left edge or centred.
-fn big_cover(app: &mut App, ui: &mut egui::Ui, column: Rect, align: Align) {
+/// artists beneath, aligned to its left edge or centred. `stands_in` says
+/// `column` was placed for the last song's cover standing in for this one's.
+fn big_cover(app: &mut App, ui: &mut egui::Ui, column: Rect, align: Align, stands_in: bool) {
     let Some(now) = app.now_playing() else {
         return;
     };
@@ -657,15 +658,17 @@ fn big_cover(app: &mut App, ui: &mut egui::Ui, column: Rect, align: Align) {
         }
         .as_shape(cover, radius),
     );
+    let url = now.art_url.as_deref().or(now.art_small.as_deref());
     widgets::playing_cover(
         ui,
         &theme::Palette::dark(),
         app.backend.art(),
         COVER_KEY,
-        now.art_url.as_deref().or(now.art_small.as_deref()),
+        url,
         cover,
         radius,
     );
+    widgets::settle_playing_cover(ui, app.backend.art(), url, stands_in);
     let art = now.art_url.is_some() || now.art_small.is_some();
     cover_opens_immersive(app, ui, cover, art);
     let words = Rect::from_min_max(pos2(column.left(), cover.bottom() + 18.0), column.max);
