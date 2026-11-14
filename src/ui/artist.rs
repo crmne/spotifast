@@ -41,7 +41,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
                         .map(|track| track.uri.clone())
                         .collect::<Vec<_>>()
                         .into();
-                    let context = RowContext::Uris(Arc::clone(&uris));
+                    let context = RowContext::View {
+                        uris: Arc::clone(&uris),
+                        context_uri: artist.uri.clone(),
+                        editable_playlist: None,
+                    };
                     let items: Vec<PlayableItem> =
                         tracks.iter().cloned().map(PlayableItem::Track).collect();
                     let limit = if page.show_all_top { items.len() } else { 5 };
