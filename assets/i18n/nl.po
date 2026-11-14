@@ -2885,6 +2885,10 @@ msgstr "Gezamenlijke playlist"
 msgid "Public Playlist"
 msgstr "Openbare playlist"
 
+#: src/ui/collection.rs:2328
+msgid "Private Playlist"
+msgstr "Privéplaylist"
+
 #: src/ui/collection.rs:2398
 msgid "Save to Your Library"
 msgstr "Opslaan in Jouw bibliotheek"

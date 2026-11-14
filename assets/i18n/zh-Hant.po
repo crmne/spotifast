@@ -2769,6 +2769,10 @@ msgstr "協作播放清單"
 msgid "Public Playlist"
 msgstr "公開播放清單"
 
+#: src/ui/collection.rs:2328
+msgid "Private Playlist"
+msgstr "私人播放清單"
+
 #: src/ui/collection.rs:2398
 msgid "Save to Your Library"
 msgstr "儲存至你的音樂庫"

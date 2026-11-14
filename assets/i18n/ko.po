@@ -2832,6 +2832,10 @@ msgstr "공동 작업 플레이리스트"
 msgid "Public Playlist"
 msgstr "공개 플레이리스트"
 
+#: src/ui/collection.rs:2328
+msgid "Private Playlist"
+msgstr "비공개 플레이리스트"
+
 #: src/ui/collection.rs:2398
 msgid "Save to Your Library"
 msgstr "내 라이브러리에 저장"
