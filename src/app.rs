@@ -14870,6 +14870,7 @@ impl App {
                 self.leave_lyrics_fullscreen(ctx);
             }
         }
+        crate::window::keep_shadow_out_of_fullscreen(ctx, fastframe_titlebar::enabled());
         // Switch to the main window when sign-in is required.
         let needs_sign_in = !(self.is_connected() && self.user.is_some())
             && !matches!(self.auth, AuthStatus::Connecting | AuthStatus::Starting)
