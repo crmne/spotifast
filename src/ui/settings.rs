@@ -55,7 +55,7 @@ impl<'a> RowText<'a> {
         self
     }
 
-    fn matches(&self, needle: &str, section: &str) -> bool {
+    pub(super) fn matches(&self, needle: &str, section: &str) -> bool {
         self.available
             && (needle.is_empty()
                 || section.to_lowercase().contains(needle)
