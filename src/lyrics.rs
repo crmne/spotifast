@@ -65,8 +65,7 @@ impl Lyrics {
     /// there, so a note would only stand for its closing seconds.
     pub fn without_closing_notes(mut self) -> Self {
         if self.synced {
-            while self.lines.len() > 1
-                && self.lines.last().is_some_and(|line| line.text.is_empty())
+            while self.lines.len() > 1 && self.lines.last().is_some_and(|line| line.text.is_empty())
             {
                 self.lines.pop();
             }

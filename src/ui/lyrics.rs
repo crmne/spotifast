@@ -359,7 +359,10 @@ fn controls_shown(ctx: &egui::Context, open: bool) -> f32 {
     });
     let viewport = ctx.viewport_rect();
     let bar = Rect::from_min_max(
-        pos2(viewport.left(), viewport.bottom() - theme::PLAYER_BAR_HEIGHT),
+        pos2(
+            viewport.left(),
+            viewport.bottom() - theme::PLAYER_BAR_HEIGHT,
+        ),
         viewport.max,
     );
     let over_bar = ctx
@@ -567,10 +570,8 @@ fn with_cover(app: &mut App, ui: &mut egui::Ui, rect: Rect, top: f32, controls: 
         let side = (span.height() - 140.0)
             .min(span.width() * 0.5)
             .clamp(min_side, 560.0);
-        let column = Rect::from_center_size(
-            span.center() + vec2(0.0, glide),
-            vec2(side, side + 90.0),
-        );
+        let column =
+            Rect::from_center_size(span.center() + vec2(0.0, glide), vec2(side, side + 90.0));
         big_cover(app, ui, column, Align::Center);
         // Why there are no words, quietly, under the song, or that they
         // are still being fetched. It fades with the player bar, leaving
@@ -915,12 +916,7 @@ fn fullscreen_header(app: &mut App, ui: &mut egui::Ui, controls: f32) {
     let palette = theme::Palette::dark();
     let faded = palette.text.gamma_multiply(controls.clamp(0.0, 1.0));
     ui.horizontal(|ui| {
-        theme::text(
-            ui,
-            gettext(app.locale, "Lyrics"),
-            theme::bold(18.0),
-            faded,
-        );
+        theme::text(ui, gettext(app.locale, "Lyrics"), theme::bold(18.0), faded);
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             if theme::icon_button(
                 ui,
@@ -1283,11 +1279,11 @@ mod tests {
         use super::cover_beside;
 
         // #given a song with words, then one without
-        assert!(cover_beside(false, Some(true), true), "the last cover stays");
-        assert!(!cover_beside(false, Some(true), false), "the new one centres");
+        assert!(cover_beside(false, Some(true), true), "last cover stays");
+        assert!(!cover_beside(false, Some(true), false), "new one centres");
         // #given a song without words, then one with
-        assert!(!cover_beside(true, Some(false), true), "the last cover stays");
-        assert!(cover_beside(true, Some(false), false), "the new one moves");
+        assert!(!cover_beside(true, Some(false), true), "last cover stays");
+        assert!(cover_beside(true, Some(false), false), "new one moves");
         // #then the first frame follows the words
         assert!(cover_beside(true, None, true));
         assert!(!cover_beside(false, None, true));

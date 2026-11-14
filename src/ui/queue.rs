@@ -450,8 +450,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
                 );
                 match from.page {
                     Some(page) => {
-                        if theme::link(ui, from.name, theme::semibold(13.0), palette.text)
-                            .clicked()
+                        if theme::link(ui, from.name, theme::semibold(13.0), palette.text).clicked()
                         {
                             app.actions.push(Action::Open(page));
                         }
