@@ -396,6 +396,18 @@ fn laid_out_rows(clip: Rect, start_y: f32, count: usize, row_height: f32) -> (us
     (first, last)
 }
 
+/// The rows wholly inside `clip`, as a range's start and end. A row's
+/// cover lies within the row, so the list paints, and so asks for, the
+/// cover of every one of them. A row only partly on screen, or one
+/// [`laid_out_rows`] adds for Tab, may have its cover outside the clip,
+/// where nothing asks for it.
+fn whole_rows(clip: Rect, start_y: f32, count: usize, row_height: f32) -> (usize, usize) {
+    let row = |y: f32| ((y - start_y) / row_height).max(0.0);
+    let first = (row(clip.top()).ceil() as usize).min(count);
+    let last = (row(clip.bottom()).floor() as usize).clamp(first, count);
+    (first, last)
+}
+
 /// How far past the rows on screen song covers are fetched and made, in
 /// heights of the visible list each way.
 const COVERS_AHEAD: f32 = 2.0;
@@ -406,11 +418,12 @@ const COVERS_AHEAD: f32 = 2.0;
 /// `virtual_rows`, with the same row count and height; `item` gives the
 /// song in a row, if it is loaded.
 ///
-/// The rows on screen come first: nothing further is asked for until their
-/// own covers have arrived, and each of them is asked for again after these
-/// in the frame, so the cover scaler, which makes the copies asked for
-/// last first, keeps them ahead. The nearest rows ahead are asked for last
-/// for the same reason.
+/// The rows wholly on screen come first: nothing further is asked for until
+/// their own covers have arrived, and each of them is asked for again after
+/// these in the frame, so the cover scaler, which makes the copies asked
+/// for last first, keeps them ahead. The nearest rows ahead are asked for
+/// last for the same reason. Rows only partly on screen are among the
+/// nearest, so their covers are asked for whether or not they show.
 pub fn warm_row_covers<'a>(
     ui: &Ui,
     app: &App,
@@ -428,7 +441,7 @@ pub fn warm_row_covers<'a>(
     let pixels = app.art_px(size);
     let art = app.backend.art();
     let url = |row: usize| item(row).and_then(|item| app.item_image(item, pixels));
-    let (first, last) = laid_out_rows(clip, start_y, count, row_height);
+    let (first, last) = whole_rows(clip, start_y, count, row_height);
     let settled = |url: String| art.is_settled(&url);
     if !(first..last).filter_map(&url).all(settled) {
         return;
@@ -4078,7 +4091,7 @@ mod tests {
     use crate::settings::Settings;
 
     /// Covers are fetched two screens past the rows on screen each way,
-    /// nearest last, and never for a row already on screen or past the list.
+    /// nearest last, and never for a row wholly on screen or past the list.
     #[test]
     fn covers_ahead_reach_two_screens_each_way_nearest_last() {
         let clip = Rect::from_min_size(pos2(0.0, 0.0), vec2(400.0, 100.0));
@@ -4087,21 +4100,52 @@ mod tests {
             let clip = clip.translate(vec2(0.0, shift));
             laid_out_rows(clip, -500.0, 100, 10.0)
         };
-        let (first, last) = rows_at(0.0);
-        assert_eq!((first, last), (49, 61));
+        assert_eq!(rows_at(0.0), (49, 61));
+        let (first, last) = whole_rows(clip, -500.0, 100, 10.0);
+        assert_eq!((first, last), (50, 60));
         let reach = clip.height() * COVERS_AHEAD;
         let (above, below) = (rows_at(-reach).0, rows_at(reach).1);
         assert_eq!((above, below), (29, 81));
         let ahead: Vec<usize> = rows_ahead(first, last, above, below).collect();
-        assert_eq!(ahead.len(), 40);
+        assert_eq!(ahead.len(), 42);
         assert_eq!(&ahead[..2], &[29, 80], "the farthest first");
-        assert_eq!(&ahead[38..], &[48, 61], "the nearest last");
+        assert_eq!(&ahead[40..], &[49, 60], "the nearest last");
         assert!(ahead.iter().all(|row| !(first..last).contains(row)));
         // At the top of the list only the rows below are fetched.
-        let ahead: Vec<usize> = rows_ahead(0, 11, 0, 31).collect();
-        assert_eq!(ahead, (11..31).rev().collect::<Vec<_>>());
+        let ahead: Vec<usize> = rows_ahead(0, 10, 0, 31).collect();
+        assert_eq!(ahead, (10..31).rev().collect::<Vec<_>>());
         // A list shorter than the screen fetches nothing more.
         assert_eq!(rows_ahead(0, 5, 0, 5).count(), 0);
+    }
+
+    /// Covers are fetched ahead once those of the rows wholly on screen
+    /// have arrived. The list paints, and so asks for, the cover of each of
+    /// those rows, but not of a row whose cover is off screen: the one
+    /// `virtual_rows` lays out on either side for Tab, or one only partly
+    /// on screen. Waiting on those would wait forever.
+    #[test]
+    fn covers_ahead_wait_only_for_covers_the_list_asks_for() {
+        let clip = Rect::from_min_size(pos2(0.0, 0.0), vec2(400.0, 100.0));
+        // Scrolled 50.5 rows of 10 points down a list of 100, so rows 50
+        // and 60 are half on screen and 49 and 61 wholly off it.
+        let start_y = -505.0;
+        assert_eq!(laid_out_rows(clip, start_y, 100, 10.0), (49, 62));
+        let (first, last) = whole_rows(clip, start_y, 100, 10.0);
+        assert_eq!((first, last), (51, 60));
+        for row in first..last {
+            let top = start_y + row as f32 * 10.0;
+            assert!(clip.top() <= top && top + 10.0 <= clip.bottom(), "row {row}");
+        }
+        let ahead: Vec<usize> = rows_ahead(first, last, 29, 82).collect();
+        assert_eq!(&ahead[ahead.len() - 4..], &[49, 61, 50, 60], "the nearest last");
+        // A list shorter than a row waits for nothing, and fetches every
+        // row within reach.
+        let sliver = Rect::from_min_size(pos2(0.0, 0.0), vec2(400.0, 5.0));
+        let (first, last) = whole_rows(sliver, -502.0, 100, 10.0);
+        assert_eq!(first, last);
+        let mut ahead: Vec<usize> = rows_ahead(first, last, 48, 53).collect();
+        ahead.sort_unstable();
+        assert_eq!(ahead, (48..53).collect::<Vec<_>>());
     }
 
     #[test]
