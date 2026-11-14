@@ -396,21 +396,29 @@ pub enum ApiRequest {
     /// the host's player, over the playback session.
     JamStart {
         local_device_id: Option<String>,
+        generation: u64,
     },
     /// Joins the Jam an invite token names.
     JamJoin {
         token: String,
+        generation: u64,
     },
     /// Leaves the Jam named by its session id.
     JamLeave {
         session_id: String,
+        generation: u64,
     },
     /// Ends the Jam as its owner; every member leaves with it.
     JamEnd {
         session_id: String,
+        generation: u64,
     },
-    /// Asks which Jam this account is in, if any.
-    JamRefresh,
+    /// Asks which Jam this account is in, if any. The generation lets
+    /// the interface discard answers that left before a newer join,
+    /// leave or end.
+    JamRefresh {
+        generation: u64,
+    },
     /// Reads who added each song of the Jam's shared queue and every
     /// member's portrait, for the queue's rows and the member list.
     JamDetail {
@@ -676,12 +684,17 @@ pub enum ApiResponse {
         result: ApiResult<()>,
     },
     /// The Jam this account is in after a start, a join, or a refresh;
-    /// `None` when there is none.
+    /// `None` when there is none. The generation is the request's, so a
+    /// stale answer cannot overwrite a newer departure.
     JamState {
+        generation: u64,
         result: ApiResult<Option<crate::jam::JamSession>>,
     },
-    /// A leave or an end was sent, whether Spotify still had the session.
+    /// A leave or an end was sent, whether Spotify still had the
+    /// session. The generation is the request's, for the same staleness
+    /// guard as JamState.
     JamGone {
+        generation: u64,
         result: ApiResult<()>,
     },
     /// Who added each Jam queue song, and each adder's portrait.
@@ -5141,7 +5154,7 @@ fn operation_for(api: &ApiGateway, request: &ApiRequest) -> Operation {
         | ApiRequest::JamJoin { .. }
         | ApiRequest::JamLeave { .. }
         | ApiRequest::JamEnd { .. }
-        | ApiRequest::JamRefresh
+        | ApiRequest::JamRefresh { .. }
         | ApiRequest::JamDetail { .. } => Operation::Playback,
         ApiRequest::RecentlyPlayed { .. }
         | ApiRequest::TopTracks { .. }
@@ -5637,7 +5650,11 @@ async fn handle(
             Vec::new(),
         );
     }
-    if let ApiRequest::JamStart { local_device_id } = request {
+    if let ApiRequest::JamStart {
+        local_device_id,
+        generation,
+    } = request
+    {
         let result = match jam_session(api, engine) {
             Ok(session) => crate::jam::start(session, local_device_id.as_deref())
                 .await
@@ -5645,9 +5662,9 @@ async fn handle(
                 .map_err(|error| ApiError::Network(format!("{error:#}"))),
             Err(error) => Err(error),
         };
-        return (ApiResponse::JamState { result }, Vec::new());
+        return (ApiResponse::JamState { generation, result }, Vec::new());
     }
-    if let ApiRequest::JamJoin { token } = request {
+    if let ApiRequest::JamJoin { token, generation } = request {
         let result = match jam_session(api, engine) {
             Ok(session) => crate::jam::join(session, &token)
                 .await
@@ -5655,34 +5672,42 @@ async fn handle(
                 .map_err(|error| ApiError::Network(format!("{error:#}"))),
             Err(error) => Err(error),
         };
-        return (ApiResponse::JamState { result }, Vec::new());
+        return (ApiResponse::JamState { generation, result }, Vec::new());
     }
-    if let ApiRequest::JamRefresh = request {
+    if let ApiRequest::JamRefresh { generation } = request {
         let result = match jam_session(api, engine) {
             Ok(session) => crate::jam::current(session)
                 .await
                 .map_err(|error| ApiError::Network(format!("{error:#}"))),
             Err(error) => Err(error),
         };
-        return (ApiResponse::JamState { result }, Vec::new());
+        return (ApiResponse::JamState { generation, result }, Vec::new());
     }
-    if let ApiRequest::JamLeave { session_id } = request {
+    if let ApiRequest::JamLeave {
+        session_id,
+        generation,
+    } = request
+    {
         let result = match jam_session(api, engine) {
             Ok(session) => crate::jam::leave(session, &session_id)
                 .await
                 .map_err(|error| ApiError::Network(format!("{error:#}"))),
             Err(error) => Err(error),
         };
-        return (ApiResponse::JamGone { result }, Vec::new());
+        return (ApiResponse::JamGone { generation, result }, Vec::new());
     }
-    if let ApiRequest::JamEnd { session_id } = request {
+    if let ApiRequest::JamEnd {
+        session_id,
+        generation,
+    } = request
+    {
         let result = match jam_session(api, engine) {
             Ok(session) => crate::jam::end(session, &session_id)
                 .await
                 .map_err(|error| ApiError::Network(format!("{error:#}"))),
             Err(error) => Err(error),
         };
-        return (ApiResponse::JamGone { result }, Vec::new());
+        return (ApiResponse::JamGone { generation, result }, Vec::new());
     }
     if let ApiRequest::JamDetail {
         session_id,
@@ -5842,7 +5867,7 @@ async fn handle(
         | ApiRequest::JamJoin { .. }
         | ApiRequest::JamLeave { .. }
         | ApiRequest::JamEnd { .. }
-        | ApiRequest::JamRefresh
+        | ApiRequest::JamRefresh { .. }
         | ApiRequest::JamDetail { .. } => unreachable!("handled before Web API routing"),
         ApiRequest::MyPlaylists { offset, generation } => ApiResponse::MyPlaylists {
             offset,

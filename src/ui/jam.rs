@@ -38,15 +38,23 @@ fn code(
     // phones read best, standing out against the dark window on its own.
     // Light themes reverse: dark modules straight on the window colour,
     // no card, the way the rest of the light interface sits on its
-    // surface. Quiet zone of fifteen points either way.
+    // surface. Quiet zone of fifteen points, or four modules when the
+    // code grows past the point where fifteen would undercut that
+    // minimum.
     let dark_theme = palette.text.r() > 128;
     if dark_theme {
         painter.rect_filled(rect, CornerRadius::same(6), Color32::WHITE);
     }
     if let Ok(qr) = QRBuilder::new(text.as_bytes()).ecl(ECL::M).build() {
         let modules = qr.size as f32;
-        let quiet = 15.0;
-        let module = (side - 2.0 * quiet) / modules;
+        // Fifteen points of quiet zone on every side, but never less
+        // than the four modules scanners expect: the floor rises with
+        // the code, so a fullscreen code keeps a scannable edge.
+        // side = 2*quiet + modules*module, quiet = max(15, 4*module)
+        // solves to module = side / (modules + 8) when 15 <= 4*module,
+        // and to module = (side - 30) / modules otherwise.
+        let module = ((side - 30.0) / modules).min(side / (modules + 8.0));
+        let quiet = 15.0_f32.max(4.0 * module);
         let origin = rect.min + (quiet, quiet).into();
         let dark = if dark_theme {
             Color32::BLACK
@@ -211,8 +219,7 @@ pub fn section(app: &mut App, ui: &mut egui::Ui) {
             .jam_polled_at
             .is_none_or(|polled| polled.elapsed() >= POLL);
         if due && !app.jam_working {
-            app.jam_polled_at = Some(std::time::Instant::now());
-            app.actions.push(Action::JamRefresh);
+            app.actions.push(Action::JamPollDue);
         }
         ui.ctx().request_repaint_after(POLL);
     }
@@ -229,62 +236,63 @@ fn members_column(
     owner_id: Option<&str>,
 ) {
     let palette = app.palette;
-    for member in members {
-        let is_owner = owner_id.is_some_and(|owner| member.uri.ends_with(owner));
-        let image = member_image(app, member, owner_id);
-        let (rect, response) =
-            ui.allocate_exact_size(vec2(ui.available_width(), 26.0), Sense::hover());
-        if response.hovered() {
-            ui.painter()
-                .rect_filled(rect, CornerRadius::same(6), palette.surface_hover);
-        }
-        let face =
-            Rect::from_center_size(pos2(rect.left() + 11.0, rect.center().y), Vec2::splat(18.0));
-        match image.as_deref() {
-            Some(url) => paint_avatar(ui, app, url, face),
-            None => Icon::User.image(palette.secondary, 14.0).paint_at(ui, face),
-        }
-        ui.painter().with_clip_rect(rect).text(
-            pos2(rect.left() + 26.0, rect.center().y),
-            egui::Align2::LEFT_CENTER,
-            &member.name,
-            theme::regular(12.0),
-            palette.text,
-        );
-        if is_owner {
-            Icon::Check.image(palette.secondary, 12.0).paint_at(
-                ui,
-                Rect::from_center_size(
-                    pos2(rect.right() - 8.0, rect.center().y),
-                    Vec2::splat(12.0),
-                ),
-            );
-        }
-    }
+    // Every member stays reachable: rows past the window's height scroll
+    // instead of pushing the picker past the screen edge.
+    egui::ScrollArea::vertical()
+        .id_salt("jam-members")
+        .auto_shrink([false, true])
+        .max_height(156.0)
+        .show(ui, |ui| {
+            for member in members {
+                let is_owner = owner_id.is_some_and(|owner| member.uri.ends_with(owner));
+                let image = member_image(app, member);
+                let (rect, response) =
+                    ui.allocate_exact_size(vec2(ui.available_width(), 26.0), Sense::hover());
+                if response.hovered() {
+                    ui.painter()
+                        .rect_filled(rect, CornerRadius::same(6), palette.surface_hover);
+                }
+                let face = Rect::from_center_size(
+                    pos2(rect.left() + 11.0, rect.center().y),
+                    Vec2::splat(18.0),
+                );
+                match image.as_deref() {
+                    Some(url) => paint_avatar(ui, app, url, face),
+                    None => Icon::User.image(palette.secondary, 14.0).paint_at(ui, face),
+                }
+                ui.painter().with_clip_rect(rect).text(
+                    pos2(rect.left() + 26.0, rect.center().y),
+                    egui::Align2::LEFT_CENTER,
+                    &member.name,
+                    theme::regular(12.0),
+                    palette.text,
+                );
+                if is_owner {
+                    Icon::Check.image(palette.secondary, 12.0).paint_at(
+                        ui,
+                        Rect::from_center_size(
+                            pos2(rect.right() - 8.0, rect.center().y),
+                            Vec2::splat(12.0),
+                        ),
+                    );
+                }
+            }
+        });
 }
 
 /// A member's portrait: the session's profile reads first; the signed-in
 /// account's own picture for their row, matched by the session's owner
 /// mark, the account id, or the display name, since Spotify names the
 /// same person in several id shapes across its services.
-fn member_image(
-    app: &App,
-    member: &crate::jam::JamMember,
-    owner_id: Option<&str>,
-) -> Option<String> {
+fn member_image(app: &App, member: &crate::jam::JamMember) -> Option<String> {
     if let Some(url) = app.jam_member_images.get(&member.uri) {
         return Some(url.clone());
     }
-    let by_id = app
-        .user_id()
-        .is_some_and(|id| member.uri.ends_with(id) || owner_id.is_some_and(|owner| owner == id));
-    let own = by_id
-        || owner_id.is_some_and(|owner| member.uri.ends_with(owner))
-        || app
-            .user
-            .as_ref()
-            .and_then(|user| user.display_name.as_deref())
-            .is_some_and(|name| name == member.name);
+    // Only the member that IS the signed-in account takes its picture:
+    // the session names member uris in several shapes, so both the full
+    // uri and its trailing id are compared against the account's.
+    let id = app.user_id()?;
+    let own = member.uri.ends_with(&format!(":{id}")) || member.uri.ends_with(id);
     if !own {
         return None;
     }
@@ -331,7 +339,9 @@ fn join_row(app: &mut App, ui: &mut egui::Ui) {
 /// five-point border above and below it.
 pub fn fullscreen(app: &mut App, ui: &mut egui::Ui) {
     let Some(jam) = app.jam.clone() else {
-        app.jam_fullscreen = false;
+        // The session ended while the QR stood open: stand down through
+        // an action, as the draw code may not write state itself.
+        app.actions.push(Action::SetJamFullscreen(false));
         return;
     };
     let palette = app.palette;

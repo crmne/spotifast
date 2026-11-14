@@ -1293,6 +1293,9 @@ pub enum Action {
     /// Joins the Jam an invite names, pasted into the device picker.
     JamJoin(String),
     JamRefresh,
+    /// The picker's poll clock ran out: stamp the poll and ask Spotify
+    /// who is in the session now. Draw code never writes state itself.
+    JamPollDue,
     JamLeave,
     JamEnd,
     /// Shows or hides the Jam QR, big enough to scan across a room.

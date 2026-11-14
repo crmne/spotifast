@@ -2294,7 +2294,9 @@ fn track_row_contents(
     if !portrait.is_empty() {
         let size = 18.0;
         let portrait_rect = Rect::from_center_size(
-            pos2(x + cols.more - 14.0, rect.center().y),
+            // Centred in the twenty points the duration gave up for it,
+            // clear of both the duration text and the More column.
+            pos2(x - 10.0, rect.center().y),
             Vec2::splat(size),
         );
         app.backend.art().touch(portrait);

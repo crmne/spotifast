@@ -567,6 +567,9 @@ pub struct App {
     /// each adder's portrait: the queue's rows paint both.
     pub jam_detail: std::collections::HashMap<String, crate::jam::JamMember>,
     pub jam_member_images: std::collections::HashMap<String, String>,
+    /// Rises with every Jam action, so answers that left before the
+    /// newest action cannot overwrite its result.
+    jam_generation: u64,
     pub selected_device: Option<String>,
     pub queue: Loadable<Queue>,
     queue_fetched_at: Option<Instant>,
@@ -1336,6 +1339,7 @@ impl App {
             jam_polled_at: None,
             jam_detail: std::collections::HashMap::new(),
             jam_member_images: std::collections::HashMap::new(),
+            jam_generation: 0,
             selected_device: None,
             queue: match &session.last_track {
                 Some(current) if !session.last_queue_rows.is_empty() => {
@@ -3756,6 +3760,17 @@ impl App {
         self.last_album_queue = None;
         self.cover_uploads.clear();
         self.uploaded_covers.clear();
+        // The Jam belongs to the signed-out account: its session, invite
+        // and portraits go with it, before a refresh can name the next
+        // account's membership.
+        self.jam = None;
+        self.jam_working = false;
+        self.jam_fullscreen = false;
+        self.jam_invite_draft.clear();
+        self.jam_polled_at = None;
+        self.jam_detail.clear();
+        self.jam_member_images.clear();
+        self.jam_generation += 1;
         // Questions about the signed-out account's playlists go with it.
         self.duplicate_prompts.clear();
         if matches!(self.dialog, Some(Dialog::ConfirmPlaylistDuplicates { .. })) {
@@ -9947,53 +9962,70 @@ impl App {
                 }
                 self.refresh_queue(true);
             }
-            ApiResponse::JamState { result } => match result {
-                Ok(Some(session)) => {
-                    let fresh = self
-                        .jam
-                        .as_ref()
-                        .is_none_or(|current| current.id != session.id);
-                    self.jam = Some(session.clone());
-                    self.jam_working = false;
-                    self.jam_polled_at = Some(Instant::now());
-                    // Joining changes nothing about where music plays: the
-                    // session decides that, and the picker shows the same
-                    // devices as before. A new session asks for a device
-                    // list refresh and everyone's portraits.
-                    if fresh {
-                        self.refresh_devices();
-                        self.request_jam_detail();
+            ApiResponse::JamState { generation, result } => {
+                // An answer that left before the newest action carries an
+                // older generation: applying it would undo a join, a
+                // departure or a fresh start that has already happened.
+                if generation < self.jam_generation {
+                    return;
+                }
+                match result {
+                    Ok(Some(session)) => {
+                        let fresh = self
+                            .jam
+                            .as_ref()
+                            .is_none_or(|current| current.id != session.id);
+                        self.jam = Some(session.clone());
+                        self.jam_working = false;
+                        self.jam_polled_at = Some(Instant::now());
+                        // Joining changes nothing about where music plays:
+                        // the session decides that, and the picker shows
+                        // the same devices as before. A new session asks
+                        // for a device list refresh and everyone's
+                        // portraits.
+                        if fresh {
+                            self.refresh_devices();
+                            self.request_jam_detail();
+                        }
+                    }
+                    Ok(None) => {
+                        self.jam = None;
+                        self.jam_working = false;
+                        self.jam_polled_at = Some(Instant::now());
+                        self.jam_detail.clear();
+                        self.jam_member_images.clear();
+                    }
+                    Err(error) => {
+                        self.jam_working = false;
+                        self.jam_polled_at = Some(Instant::now());
+                        self.toast_error(
+                            // Translators: {error} is an error message.
+                            gettext(self.locale, "Couldn't open the Jam: {error}")
+                                .replace("{error}", &error.to_string()),
+                        );
                     }
                 }
-                Ok(None) => {
-                    self.jam = None;
-                    self.jam_working = false;
-                    self.jam_polled_at = Some(Instant::now());
-                    self.jam_detail.clear();
-                    self.jam_member_images.clear();
-                }
-                Err(error) => {
-                    self.jam_working = false;
-                    self.jam_polled_at = Some(Instant::now());
-                    self.toast_error(
-                        // Translators: {error} is an error message.
-                        gettext(self.locale, "Couldn't open the Jam: {error}")
-                            .replace("{error}", &error.to_string()),
-                    );
-                }
-            },
-            ApiResponse::JamGone { result } => {
-                self.jam = None;
+            }
+            ApiResponse::JamGone { generation, result } => {
                 self.jam_working = false;
-                self.jam_detail.clear();
-                self.jam_member_images.clear();
+                // A stale departure answer cannot clear a jam this
+                // account has already rejoined.
+                if generation < self.jam_generation {
+                    return;
+                }
                 if let Err(error) = result {
+                    // The departure never landed: keep the session and
+                    // its portraits so the picker keeps the retry
+                    // controls and the poll keeps running.
                     self.toast_error(
                         // Translators: {error} is an error message.
                         gettext(self.locale, "Couldn't leave the Jam: {error}")
                             .replace("{error}", &error.to_string()),
                     );
                 } else {
+                    self.jam = None;
+                    self.jam_detail.clear();
+                    self.jam_member_images.clear();
                     self.refresh_devices();
                 }
             }
@@ -10823,7 +10855,11 @@ impl App {
                 ));
                 self.show_devices = true;
                 self.refresh_devices();
-                self.backend.api(ApiRequest::JamRefresh);
+                if self.local_ready {
+                    self.backend.api(ApiRequest::JamRefresh {
+                        generation: self.jam_generation,
+                    });
+                }
             }
             // With no id, the play names no device and goes to the one
             // playing, which a Sonos is.
@@ -13364,28 +13400,51 @@ impl App {
                     crate::app::Target::Local => self.local_device_id.clone(),
                     crate::app::Target::Remote(id) => id.clone(),
                 };
+                self.jam_generation += 1;
                 self.jam_working = true;
-                self.backend.api(ApiRequest::JamStart { local_device_id });
+                self.backend.api(ApiRequest::JamStart {
+                    local_device_id,
+                    generation: self.jam_generation,
+                });
             }
             Action::JamJoin(token) => {
+                self.jam_generation += 1;
                 self.jam_working = true;
                 self.jam_invite_draft.clear();
-                self.backend.api(ApiRequest::JamJoin { token });
+                self.backend.api(ApiRequest::JamJoin {
+                    token,
+                    generation: self.jam_generation,
+                });
             }
             Action::JamRefresh => {
-                self.backend.api(ApiRequest::JamRefresh);
+                self.backend.api(ApiRequest::JamRefresh {
+                    generation: self.jam_generation,
+                });
+            }
+            Action::JamPollDue => {
+                self.jam_polled_at = Some(Instant::now());
+                self.backend.api(ApiRequest::JamRefresh {
+                    generation: self.jam_generation,
+                });
             }
             Action::JamLeave => {
                 if let Some(jam) = self.jam.clone() {
+                    self.jam_generation += 1;
                     self.jam_working = true;
-                    self.backend
-                        .api(ApiRequest::JamLeave { session_id: jam.id });
+                    self.backend.api(ApiRequest::JamLeave {
+                        session_id: jam.id,
+                        generation: self.jam_generation,
+                    });
                 }
             }
             Action::JamEnd => {
                 if let Some(jam) = self.jam.clone() {
+                    self.jam_generation += 1;
                     self.jam_working = true;
-                    self.backend.api(ApiRequest::JamEnd { session_id: jam.id });
+                    self.backend.api(ApiRequest::JamEnd {
+                        session_id: jam.id,
+                        generation: self.jam_generation,
+                    });
                 }
             }
             Action::SetJamFullscreen(on) => {
@@ -13649,8 +13708,13 @@ impl App {
                     // Web API, so look for them ourselves.
                     self.backend.send(Command::DiscoverReceivers);
                     // A Jam's member list moves while people join; the
-                    // picker asks once at open and again on its timer.
-                    self.backend.api(ApiRequest::JamRefresh);
+                    // picker asks once at open and again on its timer,
+                    // and only when the session a Jam travels over exists.
+                    if self.local_ready {
+                        self.backend.api(ApiRequest::JamRefresh {
+                            generation: self.jam_generation,
+                        });
+                    }
                 }
             }
             Action::CheckForUpdates => self.check_for_updates(true),

@@ -4753,7 +4753,7 @@ msgstr "Jam"
 #. Translators: {count} is how many people are in the Jam.
 #, rust-format
 msgid "{count} listening"
-msgstr "{count} słucha"
+msgstr "Słuchających: {count}"
 
 #: src/ui/jam.rs
 msgid "End Jam"
