@@ -801,14 +801,16 @@ fn add_to_playlist_menu(ui: &mut Ui, app: &mut App, items: &[PlayableItem]) {
     }
 }
 
-/// The heart's choices while its menu is open: whether the playing song
-/// stays in Liked Songs and which playlists should hold it. Nothing changes
-/// until Done.
+/// The heart's choices while its menu is open: whether the song is in
+/// Liked Songs and which playlists should hold it. Nothing changes until
+/// Done.
 #[derive(Clone)]
 pub(crate) struct PlaylistChecks {
     /// The song the menu opened for.
     pub uri: String,
     pub liked: bool,
+    /// Whether the song was in Liked Songs when the menu opened.
+    liked_before: bool,
     /// The playlists known to hold the song when the menu opened.
     holding: std::collections::BTreeSet<String>,
     /// The playlists not read far enough to tell. Done never takes the song
@@ -827,28 +829,45 @@ pub(crate) enum Mark {
 }
 
 impl PlaylistChecks {
-    /// A liked song, with a check on each playlist known to hold it.
-    pub(crate) fn new(app: &App, item: &PlayableItem) -> Self {
+    /// A check on Liked Songs when the song is liked, and on each playlist
+    /// known to hold it. `containing` is the playlist the heart's row sits
+    /// in, which holds the song whatever the index has read.
+    pub(crate) fn new(app: &App, item: &PlayableItem, containing: Option<&str>) -> Self {
         let mut holding = std::collections::BTreeSet::new();
         let mut unread = std::collections::BTreeSet::new();
         for (id, _) in app.editable_playlists() {
-            match app.local_playlist_duplicates(&id, std::slice::from_ref(item)) {
-                Some(found) if found.is_empty() => {}
-                Some(_) => {
+            let held = if containing == Some(id.as_str()) {
+                Some(true)
+            } else {
+                app.playlist_holds(&id, item.uri()).or_else(|| {
+                    app.local_playlist_duplicates(&id, std::slice::from_ref(item))
+                        .map(|found| !found.is_empty())
+                })
+            };
+            match held {
+                Some(true) => {
                     holding.insert(id);
                 }
+                Some(false) => {}
                 None => {
                     unread.insert(id);
                 }
             }
         }
+        let liked = app.is_saved(item.uri()) == Some(true);
         Self {
             uri: item.uri().to_string(),
-            liked: true,
+            liked,
+            liked_before: liked,
             chosen: holding.clone(),
             holding,
             unread,
         }
+    }
+
+    /// Whether any check differs from when the menu opened.
+    pub(crate) fn changed(&self) -> bool {
+        self.liked != self.liked_before || self.chosen != self.holding
     }
 
     pub(crate) fn mark(&self, id: &str) -> Mark {
@@ -865,6 +884,26 @@ impl PlaylistChecks {
         if !self.chosen.remove(id) {
             self.chosen.insert(id.to_string());
         }
+    }
+
+    /// What Done asks: Liked Songs changed when its check did, then the
+    /// playlists. Unliking takes out every saved copy of the song, as the
+    /// heart does, since any of them shows it as liked.
+    pub(crate) fn done(&self, app: &App, item: &PlayableItem) -> Vec<Action> {
+        let mut actions = Vec::new();
+        if self.liked != self.liked_before {
+            let uris = if self.liked {
+                vec![self.uri.clone()]
+            } else {
+                app.saved_toggle_targets(&self.uri)
+            };
+            actions.push(Action::SetSavedMany {
+                uris,
+                saved: self.liked,
+            });
+        }
+        actions.extend(self.changes(app, item));
+        actions
     }
 
     /// What Done asks of the playlists, as one action: `item` added to each
@@ -891,6 +930,106 @@ impl PlaylistChecks {
     }
 }
 
+const HEART_MENU_OPEN: &str = "heart-menu-open";
+const HEART_MENU_WHEEL: &str = "heart-menu-wheel";
+
+/// Takes the wheel from every list while a heart's menu is open, so the
+/// page under the menu stays put; the menu hands it to its own list. Runs
+/// once a frame, before anything is drawn.
+pub(crate) fn hold_wheel_for_heart_menu(ctx: &egui::Context) {
+    let open = ctx
+        .data(|data| data.get_temp::<egui::Id>(egui::Id::new(HEART_MENU_OPEN)))
+        .is_some_and(|id| egui::Popup::is_id_open(ctx, id));
+    let wheel = open.then(|| {
+        ctx.input_mut(|input| std::mem::replace(&mut input.smooth_scroll_delta, Vec2::ZERO))
+    });
+    ctx.data_mut(|data| data.insert_temp(egui::Id::new(HEART_MENU_WHEEL), wheel));
+}
+
+/// A heart's menu for `item`, opened by the heart's `response`: a
+/// checklist of Liked Songs and the account's playlists, as Spotify's
+/// phone app has. Checks change nothing until Done, and a click outside
+/// drops them; the button reads Cancel until something is checked or
+/// unchecked. `containing` is the playlist the heart's row sits in.
+/// Returns whether the menu is open.
+pub(crate) fn heart_menu(
+    ui: &mut Ui,
+    app: &mut App,
+    response: &egui::Response,
+    popup_id: egui::Id,
+    item: &PlayableItem,
+    containing: Option<&str>,
+) -> bool {
+    let palette = app.palette;
+    let query_id = popup_id.with("query");
+    let checks_id = popup_id.with("checks");
+    let shown = egui::Popup::menu(response)
+        .id(popup_id)
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+        .frame(menu_frame(&palette))
+        .show(|ui| {
+            ui.data_mut(|data| data.insert_temp(egui::Id::new(HEART_MENU_OPEN), popup_id));
+            let wheel = ui
+                .data(|data| data.get_temp::<Option<Vec2>>(egui::Id::new(HEART_MENU_WHEEL)))
+                .flatten();
+            if let Some(wheel) = wheel {
+                ui.input_mut(|input| input.smooth_scroll_delta = wheel);
+            }
+            let stored = ui.data(|data| data.get_temp::<String>(query_id));
+            let fresh = stored.is_none();
+            let mut query = stored.unwrap_or_default();
+            let mut checks = ui
+                .data(|data| data.get_temp::<PlaylistChecks>(checks_id))
+                .filter(|checks| checks.uri == item.uri())
+                .unwrap_or_else(|| PlaylistChecks::new(app, item, containing));
+            let before = app.actions.len();
+            let field = playlist_picker(
+                ui,
+                app,
+                std::slice::from_ref(item),
+                &mut query,
+                Some(&mut checks),
+            );
+            if fresh {
+                field.request_focus();
+            }
+            menu_separator(ui, &palette);
+            let changed = checks.changed();
+            let label = if changed {
+                gettext(app.locale, "Done")
+            } else {
+                gettext(app.locale, "Cancel")
+            };
+            let done = ui
+                .with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    theme::pill_button(ui, &palette, &label, changed)
+                })
+                .inner
+                .clicked();
+            if done && changed {
+                let actions = checks.done(app, item);
+                app.actions.extend(actions);
+            }
+            ui.data_mut(|data| {
+                data.insert_temp(query_id, query);
+                data.insert_temp(checks_id, checks);
+            });
+            // Done, Cancel or New playlist closes it.
+            if done || app.actions.len() > before {
+                ui.close();
+            }
+            // What the menu's list left of the wheel stays out of the page.
+            ui.input_mut(|input| input.smooth_scroll_delta = Vec2::ZERO);
+        });
+    if shown.is_none() {
+        ui.data_mut(|data| {
+            data.remove::<String>(query_id);
+            data.remove::<PlaylistChecks>(checks_id);
+        });
+    }
+    shown.is_some()
+}
+
 /// Shared by single-item and selection menus. Filtering is local and keeps
 /// the existing playlist edit permissions and library order. With `checks`,
 /// as the heart's menu, Liked Songs leads the list and a click or Enter
@@ -904,27 +1043,37 @@ pub(crate) fn playlist_picker(
 ) -> egui::Response {
     let palette = app.palette;
     let locale = app.locale;
-    ui.set_min_width(220.0);
-    ui.set_max_width(300.0);
+    ui.set_min_width(260.0);
+    ui.set_max_width(340.0);
     let width = ui.available_width();
     let field_id = ui.make_persistent_id("playlist-filter");
     let highlight_id = ui.make_persistent_id("playlist-highlight");
     let playlists = app.editable_playlists();
+    // Liked Songs, pinned as in the library, joins the checklist's rows.
+    // The filter matches it like any playlist.
+    let liked_name = gettext(locale, "Liked Songs");
+    let with_liked = checks.is_some();
+    let liked_matches = |needle: &str| with_liked && liked_name.to_lowercase().contains(needle);
     let matching = |query: &str| {
         let needle = query.trim().to_lowercase();
-        playlists
+        let found = playlists
             .iter()
-            .filter(move |(_, name)| name.to_lowercase().contains(&needle))
-            .count()
+            .filter(|(_, name)| name.to_lowercase().contains(&needle))
+            .count();
+        found + usize::from(liked_matches(&needle))
     };
     // The keyboard's choice among the matches, for the filter it was made
     // under. Typing chooses the first match; Up and Down move the choice
     // and Enter adds to it. The keys are taken before the field sees them.
     // Like the filter itself, the choice lasts while the menu is drawn.
     let frame = ui.ctx().cumulative_frame_nr();
-    let (mut highlighted, chosen_for) = ui
+    let last_drawn = ui
         .data(|data| data.get_temp::<(u64, Option<usize>, String)>(highlight_id))
-        .filter(|(last_frame, _, _)| frame.saturating_sub(*last_frame) <= 1)
+        .filter(|(last_frame, _, _)| frame.saturating_sub(*last_frame) <= 1);
+    // Not drawn last frame: the menu has just opened, so its list starts
+    // at the top, however far it was scrolled when it last closed.
+    let opened = last_drawn.is_none();
+    let (mut highlighted, chosen_for) = last_drawn
         .map(|(_, highlighted, query)| (highlighted, query))
         .unwrap_or_default();
     let mut moved = false;
@@ -980,42 +1129,46 @@ pub(crate) fn playlist_picker(
     }
     menu_separator(ui, &palette);
     let needle = query.trim().to_lowercase();
-    let matches: Vec<_> = playlists
+    let mut matches: Vec<_> = playlists
         .iter()
         .filter(|(_, name)| name.to_lowercase().contains(&needle))
         .collect();
-    highlighted = highlighted.filter(|index| *index < matches.len());
+    // The playlists that held the song when the menu opened come first, so
+    // its own are found at once. The order stays put while checks change.
+    let held = |id: &String| {
+        checks
+            .as_deref()
+            .is_some_and(|checks| checks.holding.contains(id))
+    };
+    matches.sort_by_key(|(id, _)| !held(id));
+    let held_count = matches.iter().take_while(|(id, _)| held(id)).count();
+    let found = matches.len();
+    // Every row in order, Liked Songs as `None`. It leads the other
+    // playlists, and the song's own too when the song is liked.
+    let mut rows: Vec<Option<&(String, String)>> = matches.into_iter().map(Some).collect();
+    let liked_shown = liked_matches(&needle);
+    if liked_shown {
+        let liked_before = checks.as_deref().is_some_and(|checks| checks.liked_before);
+        rows.insert(if liked_before { 0 } else { held_count }, None);
+    }
+    highlighted = highlighted.filter(|index| *index < rows.len());
     ui.data_mut(|data| data.insert_temp(highlight_id, (frame, highlighted, query.clone())));
-    if enter && let Some((id, name)) = highlighted.and_then(|index| matches.get(index)) {
-        if let Some(checks) = checks.as_deref_mut() {
-            checks.toggle(id);
-        } else {
-            app.actions.push(Action::AddToPlaylist {
-                playlist_id: id.clone(),
-                playlist_name: name.clone(),
-                items: items.to_vec(),
-            });
-            ui.close();
+    if enter && let Some(row) = highlighted.and_then(|index| rows.get(index).copied()) {
+        match (row, checks.as_deref_mut()) {
+            (None, Some(checks)) => checks.liked = !checks.liked,
+            (Some((id, _)), Some(checks)) => checks.toggle(id),
+            (Some((id, name)), None) => {
+                app.actions.push(Action::AddToPlaylist {
+                    playlist_id: id.clone(),
+                    playlist_name: name.clone(),
+                    items: items.to_vec(),
+                });
+                ui.close();
+            }
+            (None, None) => {}
         }
     }
-    if let Some(checks) = checks.as_deref_mut() {
-        let (_, clicked) = picker_row(
-            ui,
-            &palette,
-            |ui, rect| super::sidebar::liked_cover(ui, rect, 4.0),
-            &gettext(locale, "Liked Songs"),
-            false,
-            Some(if checks.liked {
-                Mark::Checked
-            } else {
-                Mark::Unchecked
-            }),
-        );
-        if clicked {
-            checks.liked = !checks.liked;
-        }
-    }
-    if matches.is_empty() {
+    if found == 0 && (needle.is_empty() || !liked_shown) {
         theme::subtle(
             ui,
             &palette,
@@ -1029,7 +1182,7 @@ pub(crate) fn playlist_picker(
     // The popup lays out within last frame's size, so a list a filter has
     // shrunk would stay that short once the filter is cleared. Asking for
     // the full height lets it grow back; it still shrinks to fit its rows.
-    let list_height = 320.0;
+    let list_height = 360.0;
     let art = app.backend.art().clone();
     // Every row's cover, read in one pass over the library.
     let covers: std::collections::HashMap<String, String> = app
@@ -1043,109 +1196,168 @@ pub(crate) fn playlist_picker(
             Some((playlist.id.clone(), image.to_string()))
         })
         .collect();
-    crate::autoscroll::show(
-        ui,
-        egui::ScrollArea::vertical()
-            .id_salt("filtered-playlists")
-            .max_height(list_height)
-            .min_scrolled_height(list_height),
-        egui::Vec2b::new(false, true),
-        |ui| {
-            for (index, (id, name)) in matches.into_iter().enumerate() {
-                ui.push_id(id, |ui| {
-                    let chosen = highlighted == Some(index);
-                    let image = covers.get(id).map(String::as_str);
-                    let (row, clicked) = picker_row(
-                        ui,
-                        &palette,
-                        |ui, rect| {
-                            paint_cover(ui, &palette, image, rect, 4.0, Icon::Music, Some(&art))
-                        },
-                        name,
-                        chosen,
-                        checks.as_deref().map(|checks| checks.mark(id)),
-                    );
+    let mut list = egui::ScrollArea::vertical()
+        .id_salt("filtered-playlists")
+        .max_height(list_height)
+        .min_scrolled_height(list_height);
+    if opened {
+        list = list.vertical_scroll_offset(0.0);
+    }
+    crate::autoscroll::show(ui, list, egui::Vec2b::new(false, true), |ui| {
+        for (index, row) in rows.into_iter().enumerate() {
+            let chosen = highlighted == Some(index);
+            let Some((id, name)) = row else {
+                if let Some(checks) = checks.as_deref_mut() {
+                    let row = liked_picker_row(ui, &palette, &liked_name, chosen, checks);
                     if chosen && moved {
                         row.scroll_to_me(None);
                     }
-                    if clicked {
-                        if let Some(checks) = checks.as_deref_mut() {
-                            checks.toggle(id);
-                        } else {
-                            app.actions.push(Action::AddToPlaylist {
-                                playlist_id: id.clone(),
-                                playlist_name: name.clone(),
-                                items: items.to_vec(),
-                            });
-                        }
+                }
+                continue;
+            };
+            ui.push_id(id, |ui| {
+                let image = covers.get(id).map(String::as_str);
+                let (row, clicked) = picker_row(
+                    ui,
+                    &palette,
+                    |ui, rect| paint_cover(ui, &palette, image, rect, 4.0, Icon::Music, Some(&art)),
+                    name,
+                    false,
+                    chosen,
+                    checks.as_deref().map(|checks| checks.mark(id)),
+                );
+                if chosen && moved {
+                    row.scroll_to_me(None);
+                }
+                if clicked {
+                    if let Some(checks) = checks.as_deref_mut() {
+                        checks.toggle(id);
+                    } else {
+                        app.actions.push(Action::AddToPlaylist {
+                            playlist_id: id.clone(),
+                            playlist_name: name.clone(),
+                            items: items.to_vec(),
+                        });
                     }
-                });
-            }
-        },
-    );
+                }
+            });
+        }
+    });
     field
 }
 
-/// A playlist in the picker, with its cover. A row with a `mark` shows a
-/// check that a click turns on or off, leaving the menu open; otherwise a
-/// click closes the menu.
+/// Liked Songs in the picker's checklist, with the library's pin.
+fn liked_picker_row(
+    ui: &mut Ui,
+    palette: &Palette,
+    name: &str,
+    highlighted: bool,
+    checks: &mut PlaylistChecks,
+) -> egui::Response {
+    ui.push_id("liked-songs", |ui| {
+        let (row, clicked) = picker_row(
+            ui,
+            palette,
+            |ui, rect| super::sidebar::liked_cover(ui, rect, 4.0),
+            name,
+            true,
+            highlighted,
+            Some(if checks.liked {
+                Mark::Checked
+            } else {
+                Mark::Unchecked
+            }),
+        );
+        if clicked {
+            checks.liked = !checks.liked;
+        }
+        row
+    })
+    .inner
+}
+
+/// The check at the end of a checklist row, centred on `center`.
+fn paint_mark(ui: &Ui, palette: &Palette, center: egui::Pos2, mark: Mark) {
+    match mark {
+        Mark::Checked => {
+            ui.painter().circle_filled(center, 9.0, palette.accent);
+            Icon::Check
+                .image(palette.on_accent, 12.0)
+                .paint_at(ui, Rect::from_center_size(center, Vec2::splat(12.0)));
+        }
+        Mark::Unchecked => {
+            ui.painter()
+                .circle_stroke(center, 8.5, Stroke::new(1.5, palette.secondary));
+        }
+        Mark::Unknown => {
+            let faint = palette.secondary.gamma_multiply(0.4);
+            ui.painter()
+                .circle_stroke(center, 8.5, Stroke::new(1.5, faint));
+        }
+    }
+}
+
+/// The pin beside a pinned row's name, as the library list shows it.
+const PICKER_PIN: f32 = 13.0;
+
+/// A playlist in the picker, with its cover. A `pinned` row shows the
+/// library's pin beside its name. A row with a `mark` shows a check that a
+/// click turns on or off, leaving the menu open; otherwise a click closes
+/// the menu.
 fn picker_row(
     ui: &mut Ui,
     palette: &Palette,
     cover: impl FnOnce(&Ui, Rect),
     label: &str,
+    pinned: bool,
     highlighted: bool,
     mark: Option<Mark>,
 ) -> (egui::Response, bool) {
     let width = ui.available_width();
-    let (rect, response) = ui.allocate_exact_size(vec2(width, 36.0), Sense::click());
+    let (rect, response) = ui.allocate_exact_size(vec2(width, 48.0), Sense::click());
     if ui.is_rect_visible(rect) {
         if response.hovered() || highlighted {
             ui.painter()
                 .rect_filled(rect, CornerRadius::same(6), palette.surface_hover);
         }
         let cover_rect =
-            Rect::from_center_size(pos2(rect.left() + 20.0, rect.center().y), Vec2::splat(28.0));
+            Rect::from_center_size(pos2(rect.left() + 24.0, rect.center().y), Vec2::splat(40.0));
         cover(ui, cover_rect);
-        let x = cover_rect.right() + 10.0;
+        let x = cover_rect.right() + 12.0;
         let right = rect.right() - if mark.is_some() { 36.0 } else { 10.0 };
+        let pin_room = if pinned { PICKER_PIN + 6.0 } else { 0.0 };
         let galley = crate::bidi::layout(
             ui.painter(),
             label,
-            theme::regular(13.5),
+            theme::regular(15.0),
             palette.text,
-            (right - x).max(0.0),
+            (right - x - pin_room).max(0.0),
             1,
             Some(crate::bidi::ELLIPSIS),
         );
         let text_rect = Rect::from_min_max(
             pos2(x, rect.center().y - galley.size().y / 2.0),
-            pos2(right, rect.center().y + galley.size().y / 2.0),
+            pos2(right - pin_room, rect.center().y + galley.size().y / 2.0),
         );
-        ui.painter().galley(
-            crate::bidi::galley_pos(text_rect, &galley),
-            galley,
-            palette.text,
-        );
+        let text_pos = crate::bidi::galley_pos(text_rect, &galley);
+        let text_right = text_pos.x + galley.rect.right();
+        ui.painter().galley(text_pos, galley, palette.text);
+        if pinned {
+            Icon::Pin.image(palette.secondary, PICKER_PIN).paint_at(
+                ui,
+                Rect::from_center_size(
+                    pos2(text_right + 6.0 + PICKER_PIN / 2.0, rect.center().y),
+                    Vec2::splat(PICKER_PIN),
+                ),
+            );
+        }
         if let Some(mark) = mark {
-            let center = pos2(rect.right() - 20.0, rect.center().y);
-            match mark {
-                Mark::Checked => {
-                    ui.painter().circle_filled(center, 9.0, palette.accent);
-                    Icon::Check
-                        .image(palette.on_accent, 12.0)
-                        .paint_at(ui, Rect::from_center_size(center, Vec2::splat(12.0)));
-                }
-                Mark::Unchecked => {
-                    ui.painter()
-                        .circle_stroke(center, 8.5, Stroke::new(1.5, palette.secondary));
-                }
-                Mark::Unknown => {
-                    let faint = palette.secondary.gamma_multiply(0.4);
-                    ui.painter()
-                        .circle_stroke(center, 8.5, Stroke::new(1.5, faint));
-                }
-            }
+            paint_mark(
+                ui,
+                palette,
+                pos2(rect.right() - 20.0, rect.center().y),
+                mark,
+            );
         }
     }
     response.widget_info(|| match mark {
@@ -1616,6 +1828,10 @@ pub struct TrackRow<'a> {
     pub picked_positions: &'a [u32],
     /// This row's position in its playlist, whatever the view's order.
     pub position: Option<u32>,
+    /// Whether a song in Liked Songs or one of the account's playlists
+    /// shows its green heart without the pointer: an artist's popular
+    /// songs. Other lists show the heart only under the pointer.
+    pub show_saved_heart: bool,
 }
 
 /// Draw each credited artist separately so its Spotify id remains clickable.
@@ -2235,37 +2451,51 @@ fn track_row_contents(
         x += cols.plays;
     }
 
-    // Heart.
+    // Heart: green when the song is in Liked Songs or any of the
+    // account's playlists, and a click opens the checklist of them.
     if cols.heart > 0.0 {
-        let saved = app.is_saved(row.item.uri());
         let heart_rect = Rect::from_min_size(pos2(x, rect.top()), vec2(cols.heart, row_height));
         if row.item.is_track() {
+            let saved = app.saved_anywhere(row.item.uri());
+            let popup_id = ui.id().with(("row-heart", row.index));
             let mut child = ui.new_child(
                 UiBuilder::new()
                     .max_rect(heart_rect)
                     .layout(Layout::centered_and_justified(egui::Direction::LeftToRight)),
             );
             if !hovered
-                && saved != Some(true)
+                && !(saved && row.show_saved_heart)
+                && !egui::Popup::is_id_open(ui.ctx(), popup_id)
                 && !child.memory(|memory| memory.has_focus(child.next_auto_id()))
             {
                 child.set_opacity(0.0);
             }
-            // A liked heart stays green under the pointer.
-            let (icon, color, hover) = if saved == Some(true) {
+            // A green heart stays green under the pointer.
+            let (icon, color, hover) = if saved {
                 (Icon::HeartFilled, palette.accent, palette.accent_hover)
             } else {
                 (Icon::Heart, palette.secondary, palette.text)
             };
-            let tooltip = if saved == Some(true) {
-                gettext(app.locale, "Remove from Liked Songs")
-            } else {
-                gettext(app.locale, "Save to Liked Songs")
+            let response = theme::icon_button(
+                &mut child,
+                icon,
+                16.0,
+                color,
+                hover,
+                &gettext(app.locale, "Add to playlist"),
+            );
+            let containing = match row.context {
+                RowContext::Context {
+                    editable_playlist: Some((id, _)),
+                    ..
+                }
+                | RowContext::View {
+                    editable_playlist: Some((id, _)),
+                    ..
+                } => Some(id.as_str()),
+                _ => None,
             };
-            if theme::icon_button(&mut child, icon, 16.0, color, hover, &tooltip).clicked() {
-                app.actions
-                    .push(Action::ToggleSaved(row.item.uri().to_string()));
-            }
+            heart_menu(ui, app, &response, popup_id, row.item, containing);
         }
         x += cols.heart;
     }
@@ -4681,6 +4911,7 @@ mod tests {
                                     picked_songs: &[],
                                     picked_positions: &[],
                                     position: None,
+                                    show_saved_heart: false,
                                 },
                             );
                             rect = response.rect;

@@ -592,6 +592,10 @@ pub struct App {
     pub queue_tab: QueueTab,
     pub search: SearchState,
     pub playlist_pages: HashMap<String, PlaylistPage>,
+    /// Which of the account's own playlists hold each song, for the hearts.
+    pub(crate) membership: crate::playlist_membership::Membership,
+    /// When the index last looked for playlists to read.
+    membership_checked_at: Option<Instant>,
     /// One checkpoint snapshot at a time, including pages evicted while it writes.
     playlist_cache_write_in_flight: bool,
     load_generation: u64,
@@ -1357,6 +1361,8 @@ impl App {
                 .unwrap_or_default(),
             search: SearchState::default(),
             playlist_pages: HashMap::new(),
+            membership: Default::default(),
+            membership_checked_at: None,
             playlist_cache_write_in_flight: false,
             load_generation: 0,
             album_pages: HashMap::new(),
@@ -1931,7 +1937,7 @@ impl App {
         }
     }
 
-    fn saved_toggle_targets(&self, uri: &str) -> Vec<String> {
+    pub(crate) fn saved_toggle_targets(&self, uri: &str) -> Vec<String> {
         let Some(key) = self.track_recordings.get(uri) else {
             return vec![uri.to_string()];
         };
@@ -3727,6 +3733,8 @@ impl App {
         self.uploaded_covers.clear();
         // Questions about the signed-out account's playlists go with it.
         self.duplicate_prompts.clear();
+        self.membership = Default::default();
+        self.membership_checked_at = None;
         if matches!(self.dialog, Some(Dialog::ConfirmPlaylistDuplicates { .. })) {
             self.dialog = None;
         }
@@ -8807,6 +8815,9 @@ impl App {
                     return;
                 }
                 if let Ok(playlist) = &mut result {
+                    // A page read at a snapshot the playlist index has not
+                    // seen means the playlist changed since its read.
+                    self.membership.seen(&id, playlist.snapshot_id.as_deref());
                     // A header read over the streaming session lacks what
                     // the Web API gave: the account's own name, and the
                     // library list's public flag, owner name, and cover.
@@ -9017,6 +9028,8 @@ impl App {
                         if let Some(Dialog::CreatePlaylist { add_uris, .. }) = self.dialog.take()
                             && !add_uris.is_empty()
                         {
+                            self.membership
+                                .add(&playlist.id, add_uris.iter().map(String::as_str));
                             self.backend.api(ApiRequest::AddToPlaylist {
                                 playlist_id: playlist.id.clone(),
                                 playlist_name: playlist.name.clone(),
@@ -9108,6 +9121,12 @@ impl App {
                     }
                 }
             }
+            ApiResponse::PlaylistUris { id, result } => {
+                self.membership
+                    .receive(&id, result.map_err(|error| error.to_string()));
+                // The next read may start at once.
+                self.membership_checked_at = None;
+            }
             ApiResponse::PlaylistDuplicatesChecked {
                 playlist_id,
                 playlist_name,
@@ -9143,6 +9162,10 @@ impl App {
                 self.playlist_busy = false;
                 if let Some(page) = self.playlist_pages.get_mut(&id) {
                     page.pending_writes = page.pending_writes.saturating_sub(1);
+                }
+                match &result {
+                    Ok(snapshot) => self.membership.edit_confirmed(&id, snapshot.clone()),
+                    Err(_) => self.membership.edit_failed(&id),
                 }
                 match result {
                     Ok(snapshot) => {
@@ -12145,6 +12168,8 @@ impl App {
     ) {
         rows.sort_by_key(|row| std::cmp::Reverse(row.position));
         rows.dedup_by_key(|row| row.position);
+        self.membership
+            .remove_rows(&playlist_id, rows.iter().map(|row| row.uri.as_str()));
         self.prepare_playlist_mutation(&playlist_id);
         if let Some(page) = self.playlist_pages.get_mut(&playlist_id) {
             for row in &rows {
@@ -12257,6 +12282,8 @@ impl App {
             }
         }
 
+        self.membership
+            .add(&playlist_id, items.iter().map(|item| item.uri()));
         self.prepare_playlist_mutation(&playlist_id);
         let added = items.len().try_into().unwrap_or(u32::MAX);
         let added_by = self.user_id().map(|id| UserRef {
@@ -13028,6 +13055,8 @@ impl App {
                     .get(&playlist_id)
                     .and_then(|page| page.playlist.get())
                     .and_then(|playlist| playlist.snapshot_id.clone());
+                self.membership
+                    .remove_all(&playlist_id, uris.iter().map(String::as_str));
                 self.prepare_playlist_mutation(&playlist_id);
                 if let Some(page) = self.playlist_pages.get_mut(&playlist_id) {
                     page.local_additions
@@ -13067,6 +13096,7 @@ impl App {
                     .get(&playlist_id)
                     .and_then(|page| page.playlist.get())
                     .and_then(|playlist| playlist.snapshot_id.clone());
+                self.membership.edit_started(&playlist_id);
                 self.prepare_playlist_mutation(&playlist_id);
                 if let Some(page) = self.playlist_pages.get_mut(&playlist_id) {
                     let base = page.items.base_offset;
@@ -14477,6 +14507,44 @@ impl App {
         })
     }
 
+    /// Reads the account's own playlists the hearts' index lacks or holds
+    /// at an older snapshot, a few at a time, while the session is up.
+    fn sync_playlist_membership(&mut self) {
+        if !self.local_ready || !self.network_reachable || self.user_id().is_none() {
+            return;
+        }
+        if self
+            .membership_checked_at
+            .is_some_and(|at| at.elapsed() < Duration::from_millis(500))
+        {
+            return;
+        }
+        self.membership_checked_at = Some(Instant::now());
+        let Some(playlists) = self.library.playlists.get() else {
+            return;
+        };
+        let editable: Vec<(String, Option<String>)> = playlists
+            .iter()
+            .filter(|playlist| self.can_edit_playlist(playlist))
+            .map(|playlist| (playlist.id.clone(), playlist.snapshot_id.clone()))
+            .collect();
+        for id in self.membership.start_reads(&editable) {
+            self.backend.api(ApiRequest::PlaylistUris { id });
+        }
+    }
+
+    /// Whether `uri` is in Liked Songs or any of the account's own
+    /// playlists, which turns its heart green.
+    pub fn saved_anywhere(&self, uri: &str) -> bool {
+        self.is_saved(uri) == Some(true) || self.membership.holds_anywhere(uri)
+    }
+
+    /// Whether the account's playlist `id` holds `uri`; `None` while the
+    /// index has not read it.
+    pub fn playlist_holds(&self, id: &str, uri: &str) -> Option<bool> {
+        self.membership.holds(id, uri)
+    }
+
     /// The library's playlists that take songs, as id and name pairs.
     pub fn editable_playlists(&self) -> Vec<(String, String)> {
         if self.user_id().is_none() {
@@ -14523,6 +14591,7 @@ impl App {
             self.sync_milkdrop_pane();
         }
         self.apply_actions(ctx);
+        self.sync_playlist_membership();
         self.sync_media_controls(ctx);
         self.sync_window_title(ctx);
         self.remember_geometry(ctx);
@@ -14855,6 +14924,7 @@ impl App {
         } else {
             self.scrolling.apply(ctx);
         }
+        crate::ui::widgets::hold_wheel_for_heart_menu(ctx);
         if self.lyrics_fullscreen_restoring.is_some()
             && self.lyrics_fullscreen_restoring == ctx.input(|input| input.viewport().fullscreen)
             && (!self.lyrics_restore_maximized
@@ -16106,7 +16176,7 @@ mod tests {
         }
         for (role, label) in [
             (Role::Link, None),
-            (Role::Button, Some("Save to Liked Songs")),
+            (Role::Button, Some("Add to playlist")),
             (Role::Button, Some("More")),
         ] {
             let ctx = egui::Context::default();
@@ -30517,6 +30587,32 @@ mod tests {
 
         assert_eq!(app.is_saved(playing_uri), Some(true));
         assert_eq!(app.saved_toggle_targets(playing_uri), vec![saved_uri]);
+    }
+
+    #[test]
+    fn unliking_in_a_hearts_checklist_takes_out_every_saved_copy() {
+        let mut app = headless_app();
+        let recording = |uri: &str| Track {
+            uri: uri.into(),
+            external_ids: crate::api::models::ExternalIds {
+                isrc: Some("GBUM71029604".into()),
+            },
+            ..Default::default()
+        };
+        let saved_uri = "spotify:track:original";
+        let playing = recording("spotify:track:playable");
+        app.remember_track_recording(&recording(saved_uri));
+        app.set_saved_state(saved_uri.into(), true);
+        app.remember_track_recording(&playing);
+        let item = PlayableItem::Track(playing);
+
+        let mut checks = crate::ui::widgets::PlaylistChecks::new(&app, &item, None);
+        assert!(checks.liked, "liked through the other copy");
+        checks.liked = false;
+        assert!(matches!(
+            checks.done(&app, &item).as_slice(),
+            [Action::SetSavedMany { uris, saved: false }] if *uris == [saved_uri]
+        ));
     }
 
     #[test]

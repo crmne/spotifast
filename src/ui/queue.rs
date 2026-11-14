@@ -433,6 +433,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
                 picked_songs: &[],
                 picked_positions: &[],
                 position: None,
+                show_saved_heart: false,
             },
         );
         ui.add_space(SECTION_GAP);
@@ -694,6 +695,7 @@ fn recents_contents(app: &mut App, ui: &mut egui::Ui) {
                 picked_songs: &[],
                 picked_positions: &[],
                 position: None,
+                show_saved_heart: false,
             },
         );
     });
@@ -759,6 +761,7 @@ fn queue_row(app: &mut App, ui: &mut egui::Ui, index: usize, compact: bool, shif
             picked_songs: &[],
             picked_positions: &[],
             position: None,
+            show_saved_heart: false,
         },
     );
 }

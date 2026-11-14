@@ -633,7 +633,10 @@ pub async fn remove_playlist_rows(
 
 /// The list's revision and every row's URI, read page by page from the
 /// same revision.
-async fn playlist_uris(session: &Session, id: &str) -> anyhow::Result<(Vec<u8>, Vec<String>)> {
+pub(crate) async fn playlist_uris(
+    session: &Session,
+    id: &str,
+) -> anyhow::Result<(Vec<u8>, Vec<String>)> {
     const PAGE: u32 = 1000;
     let failed = |failure: Failure| match failure {
         Failure::Definitive(error) => anyhow::anyhow!("{error}"),
@@ -652,8 +655,10 @@ async fn playlist_uris(session: &Session, id: &str) -> anyhow::Result<(Vec<u8>, 
             ),
         }
         let page = rows(&list, from, PAGE);
+        let total = total(&list);
+        complete(page.len(), from, PAGE, total).map_err(failed)?;
         uris.extend(page.iter().map(|row| row.id.to_uri()));
-        if page.is_empty() || uris.len() as u32 >= total(&list) {
+        if page.is_empty() || uris.len() as u32 >= total {
             break;
         }
     }
