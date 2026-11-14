@@ -338,25 +338,35 @@ fn controls_id() -> egui::Id {
 /// How much of full screen lyrics' controls shows: 1 while there has been
 /// input in the last three seconds, the pointer rests on the player bar, or
 /// a menu or popup is open; 0 once they have gone. In between they are
-/// sliding or fading.
-pub fn fullscreen_controls(app: &App, ctx: &egui::Context) -> f32 {
-    controls_shown(ctx, egui::Popup::is_any_open(ctx) || app.show_devices)
+/// sliding or fading. `typed` is [`typed`], read before the shortcuts took
+/// their keys.
+pub fn fullscreen_controls(app: &App, ctx: &egui::Context, typed: bool) -> f32 {
+    let open = egui::Popup::is_any_open(ctx) || app.show_devices;
+    controls_shown(ctx, open, typed)
+}
+
+/// Whether this frame carries a key or typed text. A shortcut takes its key
+/// out of the frame, so this is read before the shortcuts run.
+pub fn typed(ctx: &egui::Context) -> bool {
+    ctx.input(|input| {
+        input
+            .events
+            .iter()
+            .any(|event| matches!(event, egui::Event::Key { .. } | egui::Event::Text(_)))
+    })
 }
 
 /// [`fullscreen_controls`], where `open` says a menu or the device list
 /// holds the controls.
-fn controls_shown(ctx: &egui::Context, open: bool) -> f32 {
+fn controls_shown(ctx: &egui::Context, open: bool, typed: bool) -> f32 {
     let now = ctx.input(|input| input.time);
-    let input = ctx.input(|input| {
+    let moved = ctx.input(|input| {
         input.pointer.delta() != egui::Vec2::ZERO
             || input.pointer.any_down()
             || input.pointer.any_released()
             || input.smooth_scroll_delta != egui::Vec2::ZERO
-            || input
-                .events
-                .iter()
-                .any(|event| matches!(event, egui::Event::Key { .. } | egui::Event::Text(_)))
     });
+    let input = typed || moved;
     let viewport = ctx.viewport_rect();
     let bar = Rect::from_min_max(
         pos2(
@@ -1304,6 +1314,68 @@ mod tests {
         assert!(!cover_beside(false, None, true));
     }
 
+    /// A held seek key keeps full screen lyrics' player bar up, though its
+    /// shortcut takes the key out of the frame before the bar looks.
+    #[test]
+    fn a_held_seek_key_keeps_the_player_bar() {
+        use crate::app::{App, AppOptions};
+
+        let root =
+            std::env::temp_dir().join(format!("spotifast-held-seek-test-{}", std::process::id()));
+        let dirs = crate::paths::AppDirs {
+            config: root.join("config"),
+            state: root.join("state"),
+            cache: root.join("cache"),
+        };
+        let mut app = App::new(
+            &crate::backend::Waker::default(),
+            dirs,
+            crate::settings::Settings::default(),
+            AppOptions {
+                media_controls: false,
+                restore_sign_in: false,
+                tray: false,
+                autostart: false,
+            },
+        );
+        let ctx = egui::Context::default();
+        app.attach(&ctx);
+        crate::demo::populate(&mut app);
+        app.lyrics_fullscreen = Some(false);
+        let seek = |repeat| egui::Event::Key {
+            key: egui::Key::ArrowLeft,
+            physical_key: None,
+            pressed: true,
+            repeat,
+            modifiers: egui::Modifiers::SHIFT,
+        };
+        let screen = Rect::from_min_size(pos2(0.0, 0.0), egui::vec2(1280.0, 800.0));
+        // A whole frame at `time` with no pointer over the bar, answering
+        // whether the bar shows.
+        let frame = |app: &mut App, time: f64, events: Vec<egui::Event>| {
+            let input = egui::RawInput {
+                screen_rect: Some(screen),
+                time: Some(time),
+                events,
+                ..Default::default()
+            };
+            let mut output = ctx.run_ui(input, |ui| app.frame_ui(ui));
+            output.textures_delta.clear();
+            ctx.data(|data| data.get_temp::<(f64, bool)>(super::controls_id()))
+                .is_some_and(|(_, shown)| shown)
+        };
+        // #given the seek key goes down
+        assert!(frame(&mut app, 0.0, vec![seek(false)]));
+        // #when it is held for longer than the bar lingers #then it stays
+        for step in 1_u8..=10 {
+            let time = f64::from(step) * 0.5;
+            assert!(frame(&mut app, time, vec![seek(true)]), "at {time} s");
+        }
+        // #when the key is let go #then the bar goes three seconds later
+        assert!(!frame(&mut app, 8.6, Vec::new()));
+        app.backend.shutdown();
+    }
+
     /// One frame at `time` of a window 800 points wide and `height` high,
     /// answering how much of the full screen controls shows.
     fn controls_at(
@@ -1323,7 +1395,10 @@ mod tests {
             ..Default::default()
         };
         let mut shown = f32::NAN;
-        let mut output = ctx.run_ui(input, |ui| shown = super::controls_shown(ui.ctx(), open));
+        let mut output = ctx.run_ui(input, |ui| {
+            let typed = super::typed(ui.ctx());
+            shown = super::controls_shown(ui.ctx(), open, typed);
+        });
         output.textures_delta.clear();
         shown
     }
