@@ -24124,6 +24124,66 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// A second click on the top bar's Settings closes them, back to the
+    /// page the first click came from.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn a_second_click_on_settings_closes_them() {
+        use egui::accesskit::{Action as AccessibleAction, ActionRequest, Role, TreeId};
+        fn draw(
+            ctx: &egui::Context,
+            app: &mut App,
+            events: Vec<egui::Event>,
+        ) -> egui::accesskit::TreeUpdate {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 800.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| app.frame_ui(ui),
+            );
+            output.textures_delta.clear();
+            output.platform_output.accesskit_update.unwrap()
+        }
+        fn click_settings(ctx: &egui::Context, app: &mut App) {
+            let tree = draw(ctx, app, Vec::new());
+            let id = tree
+                .nodes
+                .iter()
+                .find(|(_, node)| {
+                    node.role() == Role::Button
+                        && node.label().is_some_and(|text| text.starts_with("Settings"))
+                })
+                .expect("the Settings button")
+                .0;
+            draw(
+                ctx,
+                app,
+                vec![egui::Event::AccessKitActionRequest(ActionRequest {
+                    target_tree: TreeId::ROOT,
+                    target_node: id,
+                    action: AccessibleAction::Click,
+                    data: None,
+                })],
+            );
+        }
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut app = test_app("settings-second-click");
+        app.attach(&ctx);
+        crate::demo::populate(&mut app);
+        app.apply(Action::Open(Page::Playlist("pl0".into())), &ctx);
+        click_settings(&ctx, &mut app);
+        assert_eq!(app.page(), &Page::Settings);
+        click_settings(&ctx, &mut app);
+        assert_eq!(app.page(), &Page::Playlist("pl0".into()));
+        app.backend.shutdown();
+    }
+
     /// Long titles truncate instead of widening Friend activity: the panel
     /// keeps the narrow width chosen for it.
     #[cfg(feature = "demo")]
