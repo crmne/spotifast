@@ -340,6 +340,12 @@ fn controls_id() -> egui::Id {
 /// a menu or popup is open; 0 once they have gone. In between they are
 /// sliding or fading.
 pub fn fullscreen_controls(app: &App, ctx: &egui::Context) -> f32 {
+    controls_shown(ctx, egui::Popup::is_any_open(ctx) || app.show_devices)
+}
+
+/// [`fullscreen_controls`], where `open` says a menu or the device list
+/// holds the controls.
+fn controls_shown(ctx: &egui::Context, open: bool) -> f32 {
     let now = ctx.input(|input| input.time);
     let input = ctx.input(|input| {
         input.pointer.delta() != egui::Vec2::ZERO
@@ -359,18 +365,19 @@ pub fn fullscreen_controls(app: &App, ctx: &egui::Context) -> f32 {
     let over_bar = ctx
         .input(|input| input.pointer.hover_pos())
         .is_some_and(|pointer| bar.contains(pointer));
-    let previous = ctx.data(|data| data.get_temp::<f64>(controls_id()));
+    // The last input and whether the controls showed on the last frame.
+    let previous = ctx.data(|data| data.get_temp::<(f64, bool)>(controls_id()));
     // The pointer holds the bar only once it is there to hold: resting where
     // a hidden bar would be does not bring it back.
-    let was_shown = previous.is_none_or(|last| now - last < CONTROLS_LINGER_SECONDS);
-    let held = (was_shown && over_bar) || egui::Popup::is_any_open(ctx) || app.show_devices;
+    let was_shown = previous.is_none_or(|(_, shown)| shown);
+    let held = (was_shown && over_bar) || open;
     let last = match previous {
-        Some(last) if !input && !held => last,
+        Some((last, _)) if !input && !held => last,
         _ => now,
     };
-    ctx.data_mut(|data| data.insert_temp(controls_id(), last));
     let left = CONTROLS_LINGER_SECONDS - (now - last);
     let shown = left > 0.0;
+    ctx.data_mut(|data| data.insert_temp(controls_id(), (last, shown)));
     if shown {
         ctx.request_repaint_after(std::time::Duration::from_secs_f64(left));
     }
@@ -384,7 +391,7 @@ pub fn fullscreen_controls(app: &App, ctx: &egui::Context) -> f32 {
 /// Forget the last input once full screen lyrics close, so they open with
 /// their controls showing.
 pub fn forget_fullscreen_controls(ctx: &egui::Context) {
-    ctx.data_mut(|data| data.remove::<f64>(controls_id()));
+    ctx.data_mut(|data| data.remove::<(f64, bool)>(controls_id()));
 }
 
 /// Full screen lyrics over the whole window. The player bar comes and goes
@@ -1284,5 +1291,73 @@ mod tests {
         // #then the first frame follows the words
         assert!(cover_beside(true, None, true));
         assert!(!cover_beside(false, None, true));
+    }
+
+    /// One frame at `time` of a window 800 points wide and `height` high,
+    /// answering how much of the full screen controls shows.
+    fn controls_at(
+        ctx: &egui::Context,
+        time: f64,
+        height: f32,
+        events: Vec<egui::Event>,
+        open: bool,
+    ) -> f32 {
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(
+                pos2(0.0, 0.0),
+                egui::vec2(800.0, height),
+            )),
+            time: Some(time),
+            events,
+            ..Default::default()
+        };
+        let mut shown = f32::NAN;
+        let mut output = ctx.run_ui(input, |ui| shown = super::controls_shown(ui.ctx(), open));
+        output.textures_delta.clear();
+        shown
+    }
+
+    #[test]
+    fn the_player_bar_goes_after_three_quiet_seconds_and_comes_back_with_input() {
+        let ctx = egui::Context::default();
+        let at = |time, events, open| controls_at(&ctx, time, 600.0, events, open);
+        let key = || vec![egui::Event::Text("a".into())];
+        // #given full screen lyrics just opened
+        assert_eq!(at(0.0, Vec::new(), false), 1.0);
+        assert_eq!(at(2.9, Vec::new(), false), 1.0);
+        // #when nothing happens for three seconds #then the bar slides away
+        at(3.1, Vec::new(), false);
+        assert_eq!(at(3.6, Vec::new(), false), 0.0);
+        // #when a key is pressed #then it slides back for three seconds
+        at(4.0, key(), false);
+        assert_eq!(at(4.5, Vec::new(), false), 1.0);
+        assert_eq!(at(6.9, Vec::new(), false), 1.0);
+        // #when a menu stays open #then the bar stays with it
+        assert_eq!(at(8.0, Vec::new(), true), 1.0);
+        assert_eq!(at(10.9, Vec::new(), false), 1.0);
+        at(11.1, Vec::new(), false);
+        assert_eq!(at(11.6, Vec::new(), false), 0.0);
+    }
+
+    #[test]
+    fn the_pointer_holds_the_bar_only_where_it_shows() {
+        let ctx = egui::Context::default();
+        let at = |time, height, events| controls_at(&ctx, time, height, events, false);
+        let moved = |to| vec![egui::Event::PointerMoved(to)];
+        let middle = pos2(400.0, 300.0);
+        // #given the pointer comes to rest on the bar while it shows
+        at(0.0, 600.0, moved(middle));
+        at(0.1, 600.0, moved(pos2(400.0, 580.0)));
+        // #then the bar stays, also on the frame its three seconds run out
+        assert_eq!(at(3.1, 600.0, Vec::new()), 1.0);
+        assert_eq!(at(9.0, 600.0, Vec::new()), 1.0);
+        // #given the pointer leaves and the bar slides away
+        at(9.1, 600.0, moved(middle));
+        at(12.2, 600.0, Vec::new());
+        assert_eq!(at(12.7, 600.0, Vec::new()), 0.0);
+        // #when the window shrinks until the bar's place is under the pointer
+        // #then the bar stays away
+        assert_eq!(at(13.0, 320.0, Vec::new()), 0.0);
+        assert_eq!(at(20.0, 320.0, Vec::new()), 0.0);
     }
 }
