@@ -430,6 +430,19 @@ pub fn fullscreen(app: &mut App, ui: &mut egui::Ui, controls: f32) {
         });
 }
 
+/// The key of the large cover in full screen, for [`widgets::playing_cover`].
+const COVER_KEY: &str = "fullscreen-lyrics";
+
+/// Whether the large cover sits beside the lyrics: when there are `words`,
+/// except that while the last song's cover `stands_in` for the new one's it
+/// keeps the place it `held`.
+fn cover_beside(words: bool, held: Option<bool>, stands_in: bool) -> bool {
+    match held {
+        Some(held) if stands_in => held,
+        _ => words,
+    }
+}
+
 /// The widest the lyrics get beside the cover, so lines stay easy to read:
 /// at the largest size, about forty characters.
 const LYRICS_BESIDE_WIDTH: f32 = 960.0;
@@ -456,6 +469,18 @@ fn with_cover(app: &mut App, ui: &mut egui::Ui, rect: Rect, top: f32, controls: 
     // stays in the middle, so a song that turns out to have none never
     // moves at all.
     let words = matches!(&app.lyrics, Loadable::Loaded(Some(lyrics)) if !lyrics.instrumental);
+    // On a change of song the last song's cover stands in until the new
+    // one's is made. It keeps the last song's place meanwhile, so the cover
+    // moves only once the new song's own is there.
+    let url = app
+        .now_playing()
+        .and_then(|now| now.art_url.or(now.art_small));
+    let stands_in =
+        widgets::playing_cover_stands_in(ui, app.backend.art(), COVER_KEY, url.as_deref());
+    let held_id = egui::Id::new("fullscreen-lyrics-cover-beside");
+    let held = ui.ctx().data(|data| data.get_temp::<bool>(held_id));
+    let words = cover_beside(words, held, stands_in);
+    ui.ctx().data_mut(|data| data.insert_temp(held_id, words));
     // The cover keeps to the middle of what shows: as the player bar slides
     // away it glides down by half the bar, and back as the bar returns. The
     // lyrics keep their place.
@@ -545,7 +570,7 @@ fn with_cover(app: &mut App, ui: &mut egui::Ui, rect: Rect, top: f32, controls: 
             controls.clamp(0.0, 1.0)
         };
         let (heading, detail) = match &app.lyrics {
-            Loadable::Loaded(Some(_)) => (
+            Loadable::Loaded(Some(lyrics)) if lyrics.instrumental => (
                 gettext(app.locale, "Instrumental"),
                 gettext(app.locale, "No timed lyrics for this track."),
             ),
@@ -563,7 +588,9 @@ fn with_cover(app: &mut App, ui: &mut egui::Ui, rect: Rect, top: f32, controls: 
                 .into(),
                 Default::default(),
             ),
-            Loadable::NotLoaded | Loadable::Loading => {
+            // Words held back while the last song's cover stands in are
+            // still on their way to the view.
+            Loadable::NotLoaded | Loadable::Loading | Loadable::Loaded(Some(_)) => {
                 (gettext(app.locale, "Loading…"), Default::default())
             }
         };
@@ -622,7 +649,7 @@ fn big_cover(app: &mut App, ui: &mut egui::Ui, column: Rect, align: Align) {
         ui,
         &theme::Palette::dark(),
         app.backend.art(),
-        "fullscreen-lyrics",
+        COVER_KEY,
         now.art_url.as_deref().or(now.art_small.as_deref()),
         cover,
         radius,
@@ -1221,5 +1248,22 @@ mod tests {
     fn a_dark_picture_is_dimmed_less_but_never_left_alone() {
         assert!(super::backdrop_dim(0.1) > super::backdrop_dim(1.0));
         assert!(super::backdrop_dim(0.0) <= 0.32);
+    }
+
+    /// A change of song moves the large cover together with the new song's
+    /// own cover, never the last song's while it stands in.
+    #[test]
+    fn the_last_songs_cover_keeps_its_place_while_it_stands_in() {
+        use super::cover_beside;
+
+        // #given a song with words, then one without
+        assert!(cover_beside(false, Some(true), true), "the last cover stays");
+        assert!(!cover_beside(false, Some(true), false), "the new one centres");
+        // #given a song without words, then one with
+        assert!(!cover_beside(true, Some(false), true), "the last cover stays");
+        assert!(cover_beside(true, Some(false), false), "the new one moves");
+        // #then the first frame follows the words
+        assert!(cover_beside(true, None, true));
+        assert!(!cover_beside(false, None, true));
     }
 }

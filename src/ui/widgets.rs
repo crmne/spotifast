@@ -192,6 +192,20 @@ fn stand_in(
         .then(|| std::sync::Arc::clone(&shown.url))
 }
 
+/// Whether [`playing_cover`] under `key` shows the last song's cover in
+/// place of `url`'s, which is still being made.
+pub fn playing_cover_stands_in(
+    ui: &Ui,
+    art: &crate::images::ArtLoader,
+    key: &str,
+    url: Option<&str>,
+) -> bool {
+    let id = egui::Id::new(("playing-cover", key));
+    let now = ui.input(|input| input.time);
+    let shown = ui.ctx().data(|data| data.get_temp::<ShownCover>(id));
+    stand_in(shown.as_ref(), url, now).is_some() && !url.is_some_and(|url| art.has_copy(url))
+}
+
 /// Paints the playing song's cover. A new song's cover still being made
 /// keeps the last song's in its place for a moment, so a change of song
 /// does not pass through the placeholder. `key` tells apart the places that
