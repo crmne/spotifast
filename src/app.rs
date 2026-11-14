@@ -9210,7 +9210,19 @@ impl App {
                         gettext(self.locale, "Removed from Your Library")
                     });
                     self.load_playlists();
-                    if !followed && matches!(self.page(), Page::Playlist(current) if *current == id)
+                    // A deleted playlist has nothing left to show. One only
+                    // taken out of the library still plays and can be added
+                    // back from its page, so the page stays.
+                    let deleted = self
+                        .playlist_pages
+                        .get(&id)
+                        .and_then(|page| page.playlist.get())
+                        .is_some_and(|playlist| {
+                            self.user_id().is_some_and(|user| playlist.owned_by(user))
+                        });
+                    if !followed
+                        && deleted
+                        && matches!(self.page(), Page::Playlist(current) if *current == id)
                     {
                         self.open(Page::Home);
                     }
