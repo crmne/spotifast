@@ -1916,7 +1916,7 @@ pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
             let others = other_adders(owner_id, &page.contributors, &user_id);
             let made_together = playlist.collaborative || !others.is_empty();
             let mut byline = vec![(owner_name(app, playlist).to_string(), None)];
-            if let Some(saves) = playlist.followers.as_ref().map(|followers| followers.total) {
+            if let Some(saves) = playlist.shown_saves() {
                 byline.push((saves_text(app.locale, saves), None));
             }
             if !others.is_empty() {

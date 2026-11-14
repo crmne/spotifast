@@ -595,6 +595,32 @@ impl Playlist {
     pub fn owned_by_spotify(&self) -> bool {
         self.owner.id.as_deref() == Some("spotify")
     }
+
+    /// Whether Spotify generates the playlist for each listener: Daily
+    /// Mix, Discover Weekly, Release Radar, On Repeat and the like. Their
+    /// ids carry Spotify's personalised prefixes (`37i9dQZF1E` for the
+    /// mixes, `37i9dQZEVX` for the weekly ones); editorial lists use
+    /// other prefixes. Spotify keeps no saves count for these.
+    pub fn made_for_listener(&self) -> bool {
+        let id = if self.id.is_empty() {
+            self.uri
+                .strip_prefix("spotify:playlist:")
+                .unwrap_or_default()
+        } else {
+            self.id.as_str()
+        };
+        self.owned_by_spotify() && (id.starts_with("37i9dQZF1E") || id.starts_with("37i9dQZEVX"))
+    }
+
+    /// The saves count Spotify itself shows: none for a mix it makes per
+    /// listener, and none where it owns the list and reports no saves.
+    pub fn shown_saves(&self) -> Option<u64> {
+        let total = self.followers.as_ref()?.total;
+        if self.made_for_listener() || (total == 0 && self.owned_by_spotify()) {
+            return None;
+        }
+        Some(total)
+    }
 }
 
 /// A track or an episode, as returned wherever Spotify mixes both.
