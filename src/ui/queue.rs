@@ -515,6 +515,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
                 (row >= 0.0).then(|| (row.round() as usize).min(queued_len))
             })
             .flatten();
+        warm_queue_covers(ui, app, 0, queued_len, row_height + gap, compact);
         widgets::virtual_rows(ui, queued_len, row_height + gap, |ui, index| {
             let width = ui.available_width();
             let shift = ui.ctx().animate_value_with_time(
@@ -587,6 +588,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
             palette.text,
         );
         ui.add_space(4.0);
+        warm_queue_covers(ui, app, queued_len, queue_len - queued_len, row_height, compact);
         widgets::virtual_rows(ui, queue_len - queued_len, row_height, |ui, index| {
             queue_row(app, ui, queued_len + index, compact, 0.0);
         });
@@ -729,6 +731,20 @@ fn recents_contents(app: &mut App, ui: &mut egui::Ui) {
 /// One row of the queue, numbered and indexed by its place in the whole
 /// queue, whichever section it sits in. `shift` parts rows around the slot
 /// a dragged row would land in, in the "Playing next" section only.
+/// Fetches the covers of the queue's songs a little past those on screen,
+/// for the `count` rows from `first` on that one `virtual_rows` call lays out.
+fn warm_queue_covers(
+    ui: &egui::Ui,
+    app: &App,
+    first: usize,
+    count: usize,
+    row_height: f32,
+    compact: bool,
+) {
+    let songs = app.queue.get().map(|queue| queue.queue.as_slice());
+    widgets::warm_row_covers(ui, app, count, row_height, compact, |index| songs?.get(first + index));
+}
+
 fn queue_row(app: &mut App, ui: &mut egui::Ui, index: usize, compact: bool, shift: f32) {
     let Some(item) = app
         .queue

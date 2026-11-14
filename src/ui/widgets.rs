@@ -244,19 +244,34 @@ fn paint_cover_url(
     art: Option<&crate::images::ArtLoader>,
     shift_thumbnail: bool,
 ) -> bool {
-    let CoverAt { url, rect, corner } = cover;
+    let CoverAt { rect, corner, .. } = cover;
+    let Some(texture) = cover_copy(ui, cover.url, rect.size(), art) else {
+        return false;
+    };
+    paint_cover_texture(ui, texture, rect, corner, shift_thumbnail);
+    true
+}
+
+/// The copy of `url`'s artwork for a cover `size` points wide, asking for
+/// it to be fetched and made when egui has none yet.
+fn cover_copy(
+    ui: &Ui,
+    url: &str,
+    size: Vec2,
+    art: Option<&crate::images::ArtLoader>,
+) -> Option<egui::load::SizedTexture> {
     if let Some(art) = art {
         art.touch(url);
     }
+    let rect = Rect::from_min_size(pos2(0.0, 0.0), size);
     let scaled = (url.starts_with("https://") || url.starts_with("http://"))
         .then(|| crate::images::scaled_uri(url, cover_copy_pixels(ui, rect)));
     let uri = scaled.as_deref().unwrap_or(url);
     let image = egui::Image::new(uri)
         .texture_options(crate::images::COVER_TEXTURE)
         .show_loading_spinner(false);
-    let Ok(egui::load::TexturePoll::Ready { texture }) = image.load_for_size(ui.ctx(), rect.size())
-    else {
-        return false;
+    let Ok(egui::load::TexturePoll::Ready { texture }) = image.load_for_size(ui.ctx(), size) else {
+        return None;
     };
     match art {
         Some(art) => {
@@ -276,8 +291,7 @@ fn paint_cover_url(
         // as soon as egui holds the texture.
         None => crate::images::forget_decoded(ui.ctx(), uri),
     }
-    paint_cover_texture(ui, texture, rect, corner, shift_thumbnail);
-    true
+    Some(texture)
 }
 
 fn paint_cover_texture(
@@ -358,11 +372,7 @@ pub fn virtual_rows(
     let clip = ui.clip_rect();
     let start_y = ui.cursor().top();
     let width = ui.available_width();
-    // Retain a neighbour on either side so Tab can focus it and scroll it in.
-    let first = (((clip.top() - start_y) / row_height).floor().max(0.0) as usize)
-        .min(count)
-        .saturating_sub(1);
-    let last = (((clip.bottom() - start_y) / row_height).ceil().max(0.0) as usize + 1).min(count);
+    let (first, last) = laid_out_rows(clip, start_y, count, row_height);
     if first > 0 {
         ui.allocate_space(vec2(width, first as f32 * row_height));
     }
@@ -373,6 +383,73 @@ pub fn virtual_rows(
         ui.allocate_space(vec2(width, (count - last) as f32 * row_height));
     }
     ui.spacing_mut().item_spacing = previous_spacing;
+}
+
+/// The rows [`virtual_rows`] lays out, as a range's start and end: those
+/// that meet `clip`, with a neighbour on either side so Tab can focus it
+/// and scroll it in.
+fn laid_out_rows(clip: Rect, start_y: f32, count: usize, row_height: f32) -> (usize, usize) {
+    let first = (((clip.top() - start_y) / row_height).floor().max(0.0) as usize)
+        .min(count)
+        .saturating_sub(1);
+    let last = (((clip.bottom() - start_y) / row_height).ceil().max(0.0) as usize + 1).min(count);
+    (first, last)
+}
+
+/// How far past the rows on screen song covers are fetched and made, in
+/// heights of the visible list each way.
+const COVERS_AHEAD: f32 = 2.0;
+
+/// Fetches and makes the covers of the songs within two screens above and
+/// below those [`virtual_rows`] lays out, so a song scrolled into view
+/// shows its cover at once instead of a placeholder. Call it just before
+/// `virtual_rows`, with the same row count and height; `item` gives the
+/// song in a row, if it is loaded.
+///
+/// The rows on screen come first: nothing further is asked for until their
+/// own covers have arrived, and each of them is asked for again after these
+/// in the frame, so the cover scaler, which makes the copies asked for
+/// last first, keeps them ahead. The nearest rows ahead are asked for last
+/// for the same reason.
+pub fn warm_row_covers<'a>(
+    ui: &Ui,
+    app: &App,
+    count: usize,
+    row_height: f32,
+    compact: bool,
+    item: impl Fn(usize) -> Option<&'a PlayableItem>,
+) {
+    if count == 0 || row_height <= 0.0 {
+        return;
+    }
+    let clip = ui.clip_rect();
+    let start_y = ui.cursor().top();
+    let size = row_cover_size(compact);
+    let pixels = app.art_px(size);
+    let art = app.backend.art();
+    let url = |row: usize| item(row).and_then(|item| app.item_image(item, pixels));
+    let (first, last) = laid_out_rows(clip, start_y, count, row_height);
+    if !(first..last).filter_map(&url).all(|url| art.is_settled(&url)) {
+        return;
+    }
+    let reach = clip.height() * COVERS_AHEAD;
+    let above = laid_out_rows(clip.translate(vec2(0.0, -reach)), start_y, count, row_height).0;
+    let below = laid_out_rows(clip.translate(vec2(0.0, reach)), start_y, count, row_height).1;
+    let farthest = first.saturating_sub(above).max(below.saturating_sub(last));
+    for distance in (1..=farthest).rev() {
+        let up = first.checked_sub(distance).filter(|row| *row >= above);
+        let down = Some(last + distance - 1).filter(|row| *row < below);
+        for row in up.into_iter().chain(down) {
+            if let Some(url) = url(row) {
+                cover_copy(ui, &url, Vec2::splat(size), Some(art));
+            }
+        }
+    }
+}
+
+/// The side of a song row's cover.
+fn row_cover_size(compact: bool) -> f32 {
+    if compact { 36.0 } else { 40.0 }
 }
 
 /// A wrapping grid of cards, laid out row by row so only visible cards are
@@ -1899,7 +1976,7 @@ fn track_row_contents(
     }
     // Cover.
     if cols.cover > 0.0 {
-        let size = if row.compact { 36.0 } else { 40.0 };
+        let size = row_cover_size(row.compact);
         let cover_rect = Rect::from_center_size(
             pos2(x + size / 2.0 + 2.0, rect.center().y),
             Vec2::splat(size),
