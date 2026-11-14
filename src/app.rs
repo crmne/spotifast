@@ -7964,6 +7964,9 @@ impl App {
                 {
                     header.fill_blank_from(&playlist);
                     header.fill_from(&playlist);
+                    if page.items.loaded_once && page.items.total == Some(0) {
+                        page.items.total = Some(header.track_total());
+                    }
                     if header.uri.is_empty() {
                         header.uri = playlist.uri.clone();
                     }
@@ -29133,6 +29136,11 @@ mod tests {
         let mut app = headless_app();
         app.playlist_pages
             .insert("official".into(), PlaylistPage::default());
+        app.playlist_pages
+            .get_mut("official")
+            .unwrap()
+            .items
+            .loaded_once = true;
         app.handle_api(ApiResponse::Playlist {
             id: "official".into(),
             generation: 0,
@@ -29143,6 +29151,7 @@ mod tests {
             }),
         });
         assert!(!app.playlist_pages["official"].playlist.needs_load());
+        assert_eq!(app.playlist_pages["official"].items.total, Some(0));
         assert!(
             app.playlist_pages["official"]
                 .playlist
@@ -29159,6 +29168,7 @@ mod tests {
                 uri: "spotify:playlist:official".into(),
                 name: "This Is Artist".into(),
                 description: Some("Verified description".into()),
+                items_count: Some(TrackCount { total: 42 }),
                 owner: crate::api::models::Owner {
                     id: Some("spotify".into()),
                     display_name: Some("Spotify".into()),
@@ -29178,6 +29188,34 @@ mod tests {
         assert_eq!(playlist.uri, "spotify:playlist:official");
         assert_eq!(playlist.snapshot_id.as_deref(), Some("current-snapshot"));
         assert!(app.artist_this_is.contains_key("spotify:artist:artist"));
+        let page = app.playlist_pages.get_mut("official").unwrap();
+        assert_eq!(page.items.total, Some(42));
+        assert_eq!(page.items.window_at(25, 10), Some(20));
+    }
+
+    #[test]
+    fn artist_this_is_verification_preserves_other_list_totals() {
+        for (loaded_once, total) in [(true, Some(7)), (true, None), (false, Some(0))] {
+            let mut app = headless_app();
+            let mut page = PlaylistPage::default();
+            page.playlist.refresh::<&str>(Ok(Playlist::default()));
+            page.items.loaded_once = loaded_once;
+            page.items.total = total;
+            app.playlist_pages.insert("official".into(), page);
+            app.receive_artist_this_is(
+                "spotify:artist:artist".into(),
+                0,
+                Ok(Some(Playlist {
+                    id: "official".into(),
+                    name: "This Is Artist".into(),
+                    items_count: Some(TrackCount { total: 42 }),
+                    ..Default::default()
+                })),
+            );
+            let page = &app.playlist_pages["official"];
+            assert_eq!(page.playlist.get().unwrap().track_total(), 42);
+            assert_eq!(page.items.total, total);
+        }
     }
 
     #[test]
