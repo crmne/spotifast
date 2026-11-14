@@ -4056,12 +4056,10 @@ msgstr "{year}년 {month} {day}일"
 msgid "{month} {year}"
 msgstr "{year}년 {month}"
 
-#. Translators: How long ago a song was added. Keep {count}.
+#. Translators: When a song was added or played, less than a minute ago.
 #: src/util.rs:136
-#, rust-format
-msgid "{count} second ago"
-msgid_plural "{count} seconds ago"
-msgstr[0] "{count}초 전"
+msgid "Just now"
+msgstr "방금 전"
 
 #. Translators: How long ago a song was added. Keep {count}.
 #: src/util.rs:146
