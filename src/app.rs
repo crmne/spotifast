@@ -5922,13 +5922,14 @@ impl App {
 
     /// One line for the control channel's `nowplaying` verb: tab-separated
     /// `state, title, artists, album, position_ms, duration_ms, volume,
-    /// shuffle, repeat, art_url, saved, device`, or
+    /// shuffle, repeat, art_url, saved, device, track_uri, context_uri`, or
     /// [`crate::single_instance::NOTHING_PLAYING`].
     ///
-    /// The last three are what a Stream Deck key needs and a media key does
-    /// not: something to draw, whether the heart is filled, and where the
-    /// sound is coming out. They are appended rather than woven in, so a
-    /// script written against the older nine fields still reads correctly.
+    /// Art, saved state, and device are what a Stream Deck key needs and a
+    /// media key does not: something to draw, whether the heart is filled,
+    /// and where the sound is coming out. New fields are appended rather
+    /// than woven in, so a script written against fewer fields still reads
+    /// correctly.
     fn control_snapshot(&self) -> String {
         let Some(now) = self.now_playing() else {
             return crate::single_instance::NOTHING_PLAYING.to_owned();
@@ -5959,7 +5960,7 @@ impl App {
             }
         }
         format!(
-            "{state}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{saved}\t{}",
+            "{state}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{saved}\t{}\t{}\t{}",
             clean(&now.title),
             clean(&now.subtitle),
             clean(&now.album_name),
@@ -5970,6 +5971,8 @@ impl App {
             now.repeat.api_name(),
             clean(now.art_url.as_deref().unwrap_or_default()),
             clean(device),
+            clean(&now.uri),
+            clean(&self.playing_context_uri().unwrap_or_default()),
         )
     }
 
@@ -35203,6 +35206,11 @@ mod tests {
             repeat: RepeatMode::Track,
             ..LocalState::default()
         });
+        app.assumed_context = Some(AssumedContext {
+            uri: "spotify:playlist:p1".into(),
+            shuffle: None,
+            at: Instant::now(),
+        });
 
         // #when
         let snapshot = app.control_snapshot();
@@ -35229,6 +35237,8 @@ mod tests {
                 // Local playback is this computer, which Spotify has not
                 // named because it is not a remote device.
                 "Spotifast",
+                "spotify:track:t1",
+                "spotify:playlist:p1",
             ]
         );
         // No devices seen yet is an empty array, not an empty string, so a

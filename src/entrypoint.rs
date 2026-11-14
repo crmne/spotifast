@@ -169,9 +169,19 @@ enum Control {
     NowPlaying {
         /// Print the fields tab-separated instead: state, title, artists,
         /// album, position_ms, duration_ms, volume, shuffle, repeat,
-        /// art_url, saved, device.
-        #[arg(long)]
+        /// art_url, saved, device, track_uri, context_uri.
+        #[arg(long, conflicts_with_all = ["json", "track_uri", "context_uri"])]
         raw: bool,
+        /// Print the fields as one JSON object instead.
+        #[arg(long, conflicts_with_all = ["track_uri", "context_uri"])]
+        json: bool,
+        /// Print the playing track's URI.
+        #[arg(long)]
+        track_uri: bool,
+        /// Print the URI of the playlist, album, artist, or other context it
+        /// plays from, after the track's when both are asked for.
+        #[arg(long)]
+        context_uri: bool,
     },
     /// Bring the window of the running instance forward
     Show,
@@ -206,10 +216,19 @@ enum Repeat {
 /// Sends one control verb to the running instance over the
 /// single-instance channel.
 fn run_control(control: Control) -> i32 {
-    let raw = matches!(
-        control,
-        Control::NowPlaying { raw: true } | Control::Devices { raw: true }
-    );
+    let output = match control {
+        Control::NowPlaying { raw: true, .. } | Control::Devices { raw: true } => Output::Raw,
+        Control::NowPlaying { json: true, .. } => Output::Json,
+        Control::NowPlaying {
+            track_uri,
+            context_uri,
+            ..
+        } if track_uri || context_uri => Output::Uris {
+            track: track_uri,
+            context: context_uri,
+        },
+        _ => Output::Readable,
+    };
     let verb = match control {
         Control::PlayPause => "playpause".to_owned(),
         Control::Play => "play".to_owned(),
@@ -258,15 +277,14 @@ fn run_control(control: Control) -> i32 {
     };
     let printed = match single_instance::send(&verb) {
         Ok(single_instance::Reply::Ok) => return 0,
-        Ok(single_instance::Reply::NowPlaying(snapshot)) => {
-            if raw {
-                format!("{snapshot}\n")
-            } else {
-                format!("{}\n", format_now_playing(&snapshot))
-            }
-        }
+        Ok(single_instance::Reply::NowPlaying(snapshot)) => match output {
+            Output::Raw => format!("{snapshot}\n"),
+            Output::Json => format!("{}\n", now_playing_json(&snapshot)),
+            Output::Uris { track, context } => now_playing_uris(&snapshot, track, context),
+            Output::Readable => format!("{}\n", format_now_playing(&snapshot)),
+        },
         Ok(single_instance::Reply::Devices(snapshot)) => {
-            if raw {
+            if output == Output::Raw {
                 format!("{snapshot}\n")
             } else {
                 format_devices(&snapshot)
@@ -302,27 +320,116 @@ fn desktop_entry() -> String {
     fastframe_now_playing::desktop_entry("spotifast")
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Output {
+    Readable,
+    Raw,
+    Json,
+    Uris { track: bool, context: bool },
+}
+
+struct NowPlayingFields<'a> {
+    state: &'a str,
+    title: &'a str,
+    artists: &'a str,
+    album: &'a str,
+    position_ms: u32,
+    duration_ms: u32,
+    volume: u8,
+    shuffle: &'a str,
+    repeat: &'a str,
+    art_url: &'a str,
+    saved: &'a str,
+    device: &'a str,
+    track_uri: &'a str,
+    context_uri: &'a str,
+}
+
+impl<'a> NowPlayingFields<'a> {
+    fn parse(snapshot: &'a str) -> Self {
+        let mut fields = snapshot.split('\t');
+        let mut text = || fields.next().unwrap_or_default();
+        Self {
+            state: text(),
+            title: text(),
+            artists: text(),
+            album: text(),
+            position_ms: text().parse().unwrap_or(0),
+            duration_ms: text().parse().unwrap_or(0),
+            volume: text().parse().unwrap_or(0),
+            shuffle: text(),
+            repeat: text(),
+            art_url: text(),
+            saved: text(),
+            device: text(),
+            track_uri: text(),
+            context_uri: text(),
+        }
+    }
+
+    fn active(&self) -> bool {
+        matches!(self.state, "playing" | "paused")
+    }
+}
+
 /// The `nowplaying` snapshot as one human-readable line.
 fn format_now_playing(snapshot: &str) -> String {
-    let mut fields = snapshot.split('\t');
-    let state = fields.next().unwrap_or_default();
-    let title = fields.next().unwrap_or_default();
-    let artists = fields.next().unwrap_or_default();
-    let _album = fields.next();
-    let position_ms: u32 = fields.next().and_then(|ms| ms.parse().ok()).unwrap_or(0);
-    let duration_ms: u32 = fields.next().and_then(|ms| ms.parse().ok()).unwrap_or(0);
-    let clock = |ms: u32| format!("{}:{:02}", ms / 60_000, ms % 60_000 / 1000);
-    match state {
-        "playing" | "paused" => {
-            let mark = if state == "playing" { "▶" } else { "⏸" };
-            format!(
-                "{mark} {title} — {artists}  [{} / {}]",
-                clock(position_ms),
-                clock(duration_ms)
-            )
-        }
-        _ => "Nothing playing".to_owned(),
+    let now = NowPlayingFields::parse(snapshot);
+    if !now.active() {
+        return "Nothing playing".to_owned();
     }
+    let clock = |ms: u32| format!("{}:{:02}", ms / 60_000, ms % 60_000 / 1000);
+    let mark = if now.state == "playing" { "▶" } else { "⏸" };
+    format!(
+        "{mark} {} — {}  [{} / {}]",
+        now.title,
+        now.artists,
+        clock(now.position_ms),
+        clock(now.duration_ms)
+    )
+}
+
+fn now_playing_json(snapshot: &str) -> String {
+    let now = NowPlayingFields::parse(snapshot);
+    if !now.active() {
+        return serde_json::json!({ "state": single_instance::NOTHING_PLAYING }).to_string();
+    }
+    let text = |value: &'_ str| (!value.is_empty()).then(|| value.to_owned());
+    let saved = match now.saved {
+        "yes" => Some(true),
+        "no" => Some(false),
+        _ => None,
+    };
+    serde_json::json!({
+        "state": now.state,
+        "title": now.title,
+        "artists": now.artists,
+        "album": now.album,
+        "position_ms": now.position_ms,
+        "duration_ms": now.duration_ms,
+        "volume": now.volume,
+        "shuffle": now.shuffle == "on",
+        "repeat": now.repeat,
+        "art_url": text(now.art_url),
+        "saved": saved,
+        "device": text(now.device),
+        "track_uri": text(now.track_uri),
+        "context_uri": text(now.context_uri),
+    })
+    .to_string()
+}
+
+fn now_playing_uris(snapshot: &str, track: bool, context: bool) -> String {
+    let now = NowPlayingFields::parse(snapshot);
+    let (track_uri, context_uri) = match now.active() {
+        true => (now.track_uri, now.context_uri),
+        false => ("", ""),
+    };
+    [(track, track_uri), (context, context_uri)]
+        .into_iter()
+        .filter(|(wanted, _)| *wanted)
+        .map(|(_, uri)| format!("{uri}\n"))
+        .collect()
 }
 
 /// The `devices` snapshot as one line per device, the active one marked.
@@ -1670,5 +1777,110 @@ mod tests {
 
         let bare = Cli::try_parse_from(["spotifast"]).expect("a plain launch parses");
         assert!(bare.link.is_none() && bare.control.is_none());
+    }
+
+    const SNAPSHOT: &str = "playing\tGo\tThe Band\tFirst\t20000\t200000\t35\ton\ttrack\t\
+        https://i.scdn.co/image/abc\tyes\tSpotifast\tspotify:track:t1\tspotify:playlist:p1";
+
+    #[test]
+    fn now_playing_takes_one_output_format() {
+        let launch =
+            Cli::try_parse_from(["spotifast", "now-playing", "--track-uri", "--context-uri"])
+                .expect("both URIs parse together");
+        assert!(matches!(
+            launch.control,
+            Some(Control::NowPlaying {
+                track_uri: true,
+                context_uri: true,
+                raw: false,
+                json: false,
+            })
+        ));
+        for pair in [
+            ["--raw", "--json"],
+            ["--raw", "--track-uri"],
+            ["--json", "--context-uri"],
+        ] {
+            assert!(
+                Cli::try_parse_from(["spotifast", "now-playing", pair[0], pair[1]]).is_err(),
+                "{pair:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn now_playing_prints_the_track_and_context_uris() {
+        assert_eq!(
+            now_playing_uris(SNAPSHOT, true, false),
+            "spotify:track:t1\n"
+        );
+        assert_eq!(
+            now_playing_uris(SNAPSHOT, false, true),
+            "spotify:playlist:p1\n"
+        );
+        assert_eq!(
+            now_playing_uris(SNAPSHOT, true, true),
+            "spotify:track:t1\nspotify:playlist:p1\n"
+        );
+        assert_eq!(
+            now_playing_uris(single_instance::NOTHING_PLAYING, true, true),
+            "\n\n"
+        );
+        assert_eq!(
+            now_playing_uris("playing\tGo\tThe Band", true, true),
+            "\n\n",
+            "an older instance sends no URIs"
+        );
+    }
+
+    #[test]
+    fn now_playing_prints_json() {
+        let json: serde_json::Value =
+            serde_json::from_str(&now_playing_json(SNAPSHOT)).expect("valid JSON");
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "state": "playing",
+                "title": "Go",
+                "artists": "The Band",
+                "album": "First",
+                "position_ms": 20000,
+                "duration_ms": 200000,
+                "volume": 35,
+                "shuffle": true,
+                "repeat": "track",
+                "art_url": "https://i.scdn.co/image/abc",
+                "saved": true,
+                "device": "Spotifast",
+                "track_uri": "spotify:track:t1",
+                "context_uri": "spotify:playlist:p1",
+            })
+        );
+
+        let loose: serde_json::Value = serde_json::from_str(&now_playing_json(
+            "paused\tGo\tThe Band\tFirst\t0\t1000\t50\toff\toff\t\tunknown\t\tspotify:track:t1\t",
+        ))
+        .expect("valid JSON");
+        assert_eq!(loose["shuffle"], false);
+        assert!(loose["saved"].is_null());
+        assert!(loose["art_url"].is_null());
+        assert!(loose["context_uri"].is_null());
+
+        assert_eq!(
+            now_playing_json(single_instance::NOTHING_PLAYING),
+            r#"{"state":"stopped"}"#
+        );
+    }
+
+    #[test]
+    fn the_readable_line_is_unchanged() {
+        assert_eq!(
+            format_now_playing(SNAPSHOT),
+            "▶ Go — The Band  [0:20 / 3:20]"
+        );
+        assert_eq!(
+            format_now_playing(single_instance::NOTHING_PLAYING),
+            "Nothing playing"
+        );
     }
 }

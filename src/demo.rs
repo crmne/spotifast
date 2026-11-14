@@ -2221,6 +2221,39 @@ mod tests {
     }
 
     #[test]
+    fn a_popular_song_plays_from_its_artist() {
+        let (ctx, mut app) = accessible_app("artist-popular-context");
+        let item = match &app.artist_pages["art0"].top_tracks {
+            Loadable::Loaded(tracks) => PlayableItem::Track(tracks[0].clone()),
+            _ => panic!("the demo artist has popular songs"),
+        };
+        let label = format!("Play {}, {}", item.name(), item.subtitle());
+        app.open(Page::Artist("art0".into()));
+        let _ = accessible_frame_height(&ctx, &mut app, vec![], 1200.0);
+        let tree = accessible_frame_height(&ctx, &mut app, vec![], 1200.0);
+        let row = tree
+            .nodes
+            .iter()
+            .find(|(_, node)| {
+                node.role() == egui::accesskit::Role::Button && node.label() == Some(label.as_str())
+            })
+            .expect("the first popular song is an accessible row")
+            .0;
+        let _ = accessible_frame_height(
+            &ctx,
+            &mut app,
+            vec![accessible_action(row, egui::accesskit::Action::Click, None)],
+            1200.0,
+        );
+        assert_eq!(app.current_track_uri().as_deref(), Some(item.uri()));
+        assert_eq!(
+            app.playing_context_uri().as_deref(),
+            Some("spotify:artist:art0")
+        );
+        app.backend.shutdown();
+    }
+
+    #[test]
     fn artist_upcoming_card_opens_countdown_without_saving_or_playing() {
         let (ctx, mut app) = accessible_app("artist-upcoming");
         let uri = "spotify:prerelease:08LfxqlFRyEpd5h32mB8ho";
