@@ -33160,6 +33160,49 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// A Sonos turned to 1% reports 0% a moment later while it still plays.
+    /// A report one step off confirms the chosen level, which stays shown so
+    /// the slider does not slip and the icon does not read muted, until the
+    /// speaker reports a level set elsewhere.
+    #[test]
+    fn remote_volume_stays_where_it_was_set_when_the_speaker_reports_a_step_off() {
+        let mut app = remote_volume_app();
+        let device = app.remote.as_mut().unwrap().state.device.as_mut().unwrap();
+        device.id = None;
+        app.local_ready = true;
+        app.selected_device = Some("sonos".into());
+        app.set_volume(1, true);
+        app.handle_api(ApiResponse::Remote {
+            action: RemoteAction::Volume {
+                request: app.remote_volume_request,
+            },
+            result: Ok(()),
+        });
+        report_remote_volume(&mut app, 1, Some(0));
+        assert!(app.pending_remote_volume.is_none());
+        assert_eq!(app.now_playing().unwrap().volume_percent, 1);
+        report_remote_volume(&mut app, 2, Some(0));
+        app.handle_remote_volume("sonos", percent_to_volume(0));
+        assert_eq!(app.now_playing().unwrap().volume_percent, 1);
+        // A level set elsewhere shows as reported, by poll or by push.
+        report_remote_volume(&mut app, 3, Some(30));
+        assert!(app.settled_remote_volume.is_none());
+        assert_eq!(app.now_playing().unwrap().volume_percent, 30);
+        app.set_volume(1, true);
+        app.handle_api(ApiResponse::Remote {
+            action: RemoteAction::Volume {
+                request: app.remote_volume_request,
+            },
+            result: Ok(()),
+        });
+        report_remote_volume(&mut app, 4, Some(0));
+        assert_eq!(app.now_playing().unwrap().volume_percent, 1);
+        app.handle_remote_volume("sonos", percent_to_volume(25));
+        assert!(app.settled_remote_volume.is_none());
+        assert_eq!(app.now_playing().unwrap().volume_percent, 25);
+        app.backend.shutdown();
+    }
+
     #[test]
     fn remote_volume_slider_and_relative_adjustments_keep_the_pending_level() {
         fn slider_value(ctx: &egui::Context, app: &mut App) -> u8 {
