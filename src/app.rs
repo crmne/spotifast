@@ -10855,7 +10855,7 @@ impl App {
                 ));
                 self.show_devices = true;
                 self.refresh_devices();
-                if self.local_ready {
+                if self.local_ready && !self.jam_working {
                     self.backend.api(ApiRequest::JamRefresh {
                         generation: self.jam_generation,
                     });
@@ -13710,7 +13710,7 @@ impl App {
                     // A Jam's member list moves while people join; the
                     // picker asks once at open and again on its timer,
                     // and only when the session a Jam travels over exists.
-                    if self.local_ready {
+                    if self.local_ready && !self.jam_working {
                         self.backend.api(ApiRequest::JamRefresh {
                             generation: self.jam_generation,
                         });
