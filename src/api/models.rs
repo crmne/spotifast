@@ -589,6 +589,12 @@ impl Playlist {
     pub fn owned_by(&self, user_id: &str) -> bool {
         self.owner.id.as_deref() == Some(user_id)
     }
+
+    /// Whether Spotify itself owns the playlist: its editorial lists and
+    /// the mixes it makes for each listener.
+    pub fn owned_by_spotify(&self) -> bool {
+        self.owner.id.as_deref() == Some("spotify")
+    }
 }
 
 /// A track or an episode, as returned wherever Spotify mixes both.

@@ -2884,6 +2884,10 @@ msgstr "Ortak çalma listesi"
 msgid "Public Playlist"
 msgstr "Herkese açık çalma listesi"
 
+#: src/ui/collection.rs:2328
+msgid "Private Playlist"
+msgstr "Gizli çalma listesi"
+
 #: src/ui/collection.rs:2398
 msgid "Save to Your Library"
 msgstr "Kitaplığına kaydet"

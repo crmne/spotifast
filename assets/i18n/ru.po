@@ -2894,6 +2894,10 @@ msgstr "Совместный плейлист"
 msgid "Public Playlist"
 msgstr "Открытый плейлист"
 
+#: src/ui/collection.rs:2328
+msgid "Private Playlist"
+msgstr "Закрытый плейлист"
+
 #: src/ui/collection.rs:2398
 msgid "Save to Your Library"
 msgstr "Сохранить в медиатеке"

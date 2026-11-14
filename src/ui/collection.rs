@@ -2322,6 +2322,11 @@ fn playlist_hero<'a>(
                 gettext(app.locale, "Collaborative Playlist")
             } else if playlist.public == Some(true) {
                 gettext(app.locale, "Public Playlist")
+            } else if playlist.public == Some(false) && !playlist.owned_by_spotify() {
+                // Spotify's own lists say "private" only of where they
+                // show on the listener's profile; the official app calls
+                // them plain playlists.
+                gettext(app.locale, "Private Playlist")
             } else {
                 gettext(app.locale, "Playlist")
             },

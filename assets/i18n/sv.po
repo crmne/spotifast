@@ -2855,6 +2855,10 @@ msgstr "Gemensam spellista"
 msgid "Public Playlist"
 msgstr "Offentlig spellista"
 
+#: src/ui/collection.rs:2328
+msgid "Private Playlist"
+msgstr "Privat spellista"
+
 #: src/ui/collection.rs:2398
 msgid "Save to Your Library"
 msgstr "Spara i Ditt bibliotek"

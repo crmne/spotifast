@@ -2913,6 +2913,10 @@ msgstr "Playlist collaborative"
 msgid "Public Playlist"
 msgstr "Playlist publique"
 
+#: src/ui/collection.rs:2328
+msgid "Private Playlist"
+msgstr "Playlist privée"
+
 #: src/ui/collection.rs:2398
 msgid "Save to Your Library"
 msgstr "Enregistrer dans votre bibliothèque"

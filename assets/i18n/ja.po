@@ -2868,6 +2868,10 @@ msgstr "コラボプレイリスト"
 msgid "Public Playlist"
 msgstr "公開プレイリスト"
 
+#: src/ui/collection.rs:2328
+msgid "Private Playlist"
+msgstr "非公開プレイリスト"
+
 #: src/ui/collection.rs:2398
 msgid "Save to Your Library"
 msgstr "マイライブラリに保存"
