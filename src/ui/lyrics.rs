@@ -401,6 +401,30 @@ fn controls_shown(ctx: &egui::Context, open: bool, typed: bool) -> f32 {
     )
 }
 
+/// How deep full screen lyric lines fade by the view's edges, for words
+/// `size` points tall.
+fn edge_fade(size: f32) -> f32 {
+    size * 2.0
+}
+
+/// The room above the first line of full screen lyrics and below the last,
+/// in a view `height` points tall with words `size` points tall. Timed
+/// lyrics leave room for the first line to sit where a sung line sits and
+/// for the last to rise to it. Either way the first and last lines stay
+/// clear of the edge fades: untimed lyrics have no lit line that shows
+/// whole through them.
+fn room_around_lyrics(synced: bool, height: f32, size: f32) -> (f32, f32) {
+    let fade = edge_fade(size);
+    if synced {
+        (
+            (height * SUNG_LINE_AT - size).max(fade),
+            (height * (1.0 - SUNG_LINE_AT)).max(fade),
+        )
+    } else {
+        (fade, fade)
+    }
+}
+
 /// Forget the last input once full screen lyrics close, so they open with
 /// their controls showing.
 pub fn forget_fullscreen_controls(ctx: &egui::Context) {
@@ -1112,16 +1136,7 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui, scroll_right: f32, cont
                     animation,
                 );
             }
-            // Room for the first line to sit where a sung line sits, and for
-            // the last to rise to it.
-            let (padding, below) = if lyrics.synced {
-                (
-                    (viewport.height() * SUNG_LINE_AT - size).max(12.0),
-                    viewport.height() * (1.0 - SUNG_LINE_AT),
-                )
-            } else {
-                (12.0, 60.0)
-            };
+            let (padding, below) = room_around_lyrics(lyrics.synced, viewport.height(), size);
             ui.add_space(padding);
             for (index, line) in lyrics.lines.iter().enumerate() {
                 let is_active = active == Some(index);
@@ -1164,7 +1179,7 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui, scroll_right: f32, cont
                     Rect::from_min_size(ui.cursor().min, vec2(ui.available_width(), height));
                 // The line being sung stays whole: in a short window it can
                 // sit nearer the top than the fade reaches.
-                let edge = widgets::edge_opacity(line_rect, viewport, size * 2.0);
+                let edge = widgets::edge_opacity(line_rect, viewport, edge_fade(size));
                 let opacity = edge.max(lit);
                 let response = ui
                     .scope(|ui| {
@@ -1228,7 +1243,10 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui, scroll_right: f32, cont
 
 #[cfg(test)]
 mod tests {
-    use super::{fullscreen_content_width, preferred_backdrop_art, widgets::edge_opacity};
+    use super::{
+        edge_fade, fullscreen_content_width, preferred_backdrop_art, room_around_lyrics,
+        widgets::edge_opacity,
+    };
     use egui::{Rect, pos2};
 
     /// A sentence wrapped over two lines is gone by the time its top line
@@ -1241,6 +1259,27 @@ mod tests {
         assert_eq!(edge_opacity(line(590.0), view, 80.0), 0.0, "at the bottom");
         assert!(edge_opacity(line(140.0), view, 80.0) < 1.0, "fading");
         assert_eq!(edge_opacity(line(300.0), view, 80.0), 1.0, "in the middle");
+    }
+
+    /// Untimed lyrics have no lit line to show whole, so their first line
+    /// starts below the top fade and their last ends above the bottom one.
+    /// So does the first line of timed lyrics in a short window.
+    #[test]
+    fn the_first_and_last_lines_start_clear_of_the_fades() {
+        let view = Rect::from_min_max(pos2(0.0, 100.0), pos2(960.0, 1000.0));
+        let short = Rect::from_min_max(pos2(0.0, 100.0), pos2(960.0, 400.0));
+        let line = |top: f32| Rect::from_min_size(pos2(0.0, top), egui::vec2(960.0, 60.0));
+        for size in [28.0, 44.0] {
+            let fade = edge_fade(size);
+            let (above, below) = room_around_lyrics(false, view.height(), size);
+            let first = line(view.top() + above);
+            let last = line(view.bottom() - below - 60.0);
+            assert_eq!(edge_opacity(first, view, fade), 1.0, "first, {size}");
+            assert_eq!(edge_opacity(last, view, fade), 1.0, "last, {size}");
+            let (above, _) = room_around_lyrics(true, short.height(), size);
+            let timed = line(short.top() + above);
+            assert_eq!(edge_opacity(timed, short, fade), 1.0, "timed, {size}");
+        }
     }
 
     /// A line wrapped over so many rows that it cannot clear the fade at
