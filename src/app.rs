@@ -24156,7 +24156,9 @@ mod tests {
                 .iter()
                 .find(|(_, node)| {
                     node.role() == Role::Button
-                        && node.label().is_some_and(|text| text.starts_with("Settings"))
+                        && node
+                            .label()
+                            .is_some_and(|text| text.starts_with("Settings"))
                 })
                 .expect("the Settings button")
                 .0;
