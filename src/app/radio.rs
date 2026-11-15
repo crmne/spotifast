@@ -226,18 +226,23 @@ impl App {
     /// Soloist is left out: its own play command can start a lone song as
     /// a context of its own, which Spotify's Autoplay follows.
     fn lone_song(&self, request: &PlayRequest) -> Option<String> {
-        let [uri] = request.uris.as_slice() else {
-            return None;
+        // A song can also be its own context, as a search match is; the
+        // song its offset names, when it names one, is the one that plays.
+        let uri = match (request.context_uri.as_deref(), request.uris.as_slice()) {
+            (None, [uri]) => uri.as_str(),
+            (Some(context), []) if util::uri_kind(context) == Some("track") => {
+                request.offset_uri.as_deref().unwrap_or(context)
+            }
+            _ => return None,
         };
         let repeat = self.now_playing().map(|now| now.repeat).unwrap_or_default();
         (self.settings.autoplay
             && self.local_ready
             && !self.targets_own_soloist()
             && repeat == RepeatMode::Off
-            && request.context_uri.is_none()
             && util::uri_kind(uri) == Some("track")
             && util::station_uri(uri).is_some())
-        .then(|| uri.clone())
+        .then(|| uri.to_owned())
     }
 
     /// The song followed by its radio, once the radio has come.
@@ -249,8 +254,13 @@ impl App {
                 uris.push(song.uri.clone());
             }
         }
+        // A list starting at the song, whether it was asked as a list or
+        // as its own context.
         Some(PlayRequest {
+            context_uri: None,
             uris,
+            offset_uri: None,
+            offset_position: Some(0),
             ..request.clone()
         })
     }

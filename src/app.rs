@@ -32848,6 +32848,30 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// A song asked as its own context, as a search match is, waits for
+    /// its radio too, then plays first in a list with it.
+    #[test]
+    fn a_song_asked_as_its_own_context_is_followed_by_its_radio() {
+        let mut app = radio_speaker_app();
+        let song = "spotify:track:one";
+        // #given a song asked as its own context
+        app.play_request(PlayRequest::context(song), false);
+        assert!(remote_plays(&app).is_empty(), "the song waits");
+        // #when its radio comes
+        let generation = app.radio_pages[song].generation;
+        let radio = vec![radio_song("one", "Radio"), radio_song("two", "Radio")];
+        app.receive_radio(song, generation, Ok(radio));
+        // #then the song plays first, with the radio after it
+        let plays = remote_plays(&app);
+        let [play] = plays.as_slice() else {
+            panic!("one play, not {plays:?}");
+        };
+        assert_eq!(play.context_uri, None);
+        assert_eq!(play.uris, [song, "spotify:track:two"]);
+        assert_eq!(play.offset_position, Some(0));
+        app.backend.shutdown();
+    }
+
     #[test]
     fn a_play_goes_to_remote_playback_without_a_device_id() {
         let mut app = headless_app();
