@@ -51,6 +51,9 @@ struct List {
     /// When a song was last added, in milliseconds since the epoch: the
     /// newest row as read, or an add made here since.
     last_added: Option<i64>,
+    /// What `last_added` was before the adds not settled yet, put back if
+    /// one of them fails.
+    added_before: Option<Option<i64>>,
 }
 
 struct Reading {
@@ -251,12 +254,16 @@ impl Membership {
             return;
         }
         let unsettled = std::mem::take(&mut list.unsettled);
+        let added_before = list.added_before.take();
         if std::mem::take(&mut list.edit_failed) {
             for (uri, rows) in unsettled {
                 shift(list, &mut self.anywhere, &uri, -rows);
             }
             list.unsettled.clear();
             list.complete = false;
+            if let Some(before) = added_before {
+                list.last_added = before;
+            }
         }
     }
 
@@ -264,6 +271,7 @@ impl Membership {
     pub(crate) fn add<'a>(&mut self, id: &str, uris: impl IntoIterator<Item = &'a str>) {
         self.edit_started(id);
         let list = self.lists.entry(id.to_string()).or_default();
+        list.added_before.get_or_insert(list.last_added);
         list.last_added = Some(jiff::Timestamp::now().as_millisecond());
         for uri in uris {
             shift(list, &mut self.anywhere, uri, 1);
@@ -546,8 +554,13 @@ mod tests {
         // An add made here is newer than any row read before it.
         index.add("a", ["song:4"]);
         assert_eq!(index.by_last_added(ids), ["a", "b", "c", "d"]);
-        // A read with no times keeps the playlist after those with one.
+        // A failed add waits for the other add on its way, then both are undone.
+        index.add("a", ["song:5"]);
         index.edit_failed("a");
+        assert_eq!(index.by_last_added(ids), ["a", "b", "c", "d"]);
+        index.edit_confirmed("a", None);
+        assert_eq!(index.by_last_added(ids), ["b", "c", "a", "d"]);
+        // A read with no times keeps the playlist after those with one.
         index.start_reads(&all);
         index.receive("a", uris(&["song:1"]));
         assert_eq!(index.by_last_added(ids), ["b", "c", "a", "d"]);
