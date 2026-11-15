@@ -393,6 +393,20 @@ pub fn child_props(existing: &str) -> String {
     )
 }
 
+/// The same stream properties in libpulse's `PULSE_PROP` form, for a Soloist
+/// build that plays through `pipewire-pulse` instead of native PipeWire.
+#[cfg(target_os = "linux")]
+pub fn pulse_props(existing: &str) -> String {
+    let existing = existing.trim();
+    const PROPS: &str =
+        "channelmix.lock-volumes=true node.dont-fallback=true node.dont-move=true node.linger=true";
+    if existing.is_empty() {
+        PROPS.into()
+    } else {
+        format!("{existing} {PROPS}")
+    }
+}
+
 #[cfg(all(
     test,
     any(
@@ -455,6 +469,24 @@ mod tests {
             "node.dont-move = true",
             "channelmix.lock-volumes = true",
         ] {
+            assert!(props.contains(wanted), "{props}");
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn pulse_props_locks_volume_and_keeps_the_user_s_props() {
+        let empty = pulse_props("   ");
+        assert!(!empty.starts_with(' '), "{empty}");
+        let props = pulse_props(" media.role=music ");
+        assert!(props.starts_with("media.role=music "), "{props}");
+        for wanted in [
+            "channelmix.lock-volumes=true",
+            "node.dont-fallback=true",
+            "node.dont-move=true",
+            "node.linger=true",
+        ] {
+            assert!(empty.contains(wanted), "{empty}");
             assert!(props.contains(wanted), "{props}");
         }
     }
@@ -3430,6 +3462,137 @@ mod pipewire {
             tokio::time::sleep(Duration::from_millis(150)).await;
             assert!(state.stop.load(Ordering::Acquire));
             assert!(tap.window(512, 0).iter().all(|v| *v == 0.0));
+        }
+
+        /// A Soloist binary linked against libpulse (`pipewire-pulse`) ignores
+        /// `--pipewire-device` and `PIPEWIRE_PROPS`, so it needs `PULSE_SINK`
+        /// and `PULSE_PROP` to reach the private processing sink at unity gain.
+        #[tokio::test]
+        #[ignore = "requires PipeWire, pipewire-pulse, WirePlumber, pacat, pw-dump and SOLOIST_AUDIO_TEST_OUTPUT naming a private null sink"]
+        async fn pulse_client_routes_and_locks_volume() {
+            use std::process::Stdio;
+            use tokio::io::AsyncWriteExt;
+            let output =
+                std::env::var("SOLOIST_AUDIO_TEST_OUTPUT").expect("private null sink required");
+            assert!(output.starts_with("spotifast_test_"));
+            assert!(
+                std::env::var("PIPEWIRE_RUNTIME_DIR").is_ok(),
+                "these tests start and stop clients: private instance only"
+            );
+            let tap = crate::vis::AudioTap::new();
+            let eq = crate::eq::shared();
+            {
+                let mut eq = eq.lock().unwrap();
+                eq.on = true;
+                eq.preamp_db = 6.0;
+            }
+            let dirs = crate::paths::AppDirs {
+                config: std::path::PathBuf::new(),
+                state: std::path::PathBuf::new(),
+                cache: std::path::PathBuf::new(),
+            };
+            let config = crate::app::engine_config(
+                &dirs,
+                &crate::settings::Settings::default(),
+                crate::settings::ProxyConfig::Off,
+                tap.clone(),
+                eq,
+            );
+            let other = Bridge::open(config.clone(), OutputVolume::default())
+                .await
+                .expect("second private bridge");
+            let bridge = Bridge::open_on(config, Some(output), OutputVolume::default())
+                .await
+                .expect("private bridge");
+
+            let mut source = tokio::process::Command::new("pacat")
+                .args([
+                    "--volume=0",
+                    "--raw",
+                    "--format=float32le",
+                    "--rate=48000",
+                    "--channels=2",
+                ])
+                .env("PIPEWIRE_PROPS", child_props(""))
+                .env("PULSE_SINK", &bridge.name)
+                .env("PULSE_PROP", pulse_props("media.role=Music"))
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .kill_on_drop(true)
+                .spawn()
+                .unwrap();
+            let child_pid = source.id().unwrap();
+            bridge.child(child_pid);
+            let mut stdin = source.stdin.take().unwrap();
+            let feed = tokio::spawn(async move {
+                let bytes = tone(48_000, 4800);
+                while stdin.write_all(&bytes).await.is_ok() {}
+            });
+            for _ in 0..40 {
+                if bridge.routed() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            assert!(
+                bridge.routed(),
+                "PULSE_SINK must route the owned libpulse child"
+            );
+            assert!(
+                !other.routed(),
+                "PULSE_SINK must target only its own bridge"
+            );
+
+            let dump = tokio::process::Command::new("pw-dump")
+                .output()
+                .await
+                .unwrap();
+            let graph: serde_json::Value = serde_json::from_slice(&dump.stdout).unwrap();
+            let stream = graph
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|node| {
+                    node["info"]["props"]["application.process.id"].as_u64()
+                        == Some(u64::from(child_pid))
+                        && node["info"]["props"]["media.class"] == "Stream/Output/Audio"
+                })
+                .expect("pipewire-pulse stream node registered");
+            let props = &stream["info"]["props"];
+            assert_eq!(props["client.api"], "pipewire-pulse");
+            assert_eq!(props["target.object"], bridge.name);
+            assert_eq!(props["media.role"], "Music");
+            for key in [
+                "channelmix.lock-volumes",
+                "node.dont-fallback",
+                "node.dont-move",
+                "node.linger",
+            ] {
+                assert_eq!(props[key], true, "{key} missing on {props}");
+            }
+
+            bridge.update(&json!({"status":"playing", "volume":0, "is_active":true}));
+            tokio::time::sleep(Duration::from_millis(800)).await;
+            assert!(!bridge.failed());
+            assert!(!other.failed());
+            let tap_peak = tap
+                .window(512, 0)
+                .iter()
+                .copied()
+                .map(f32::abs)
+                .fold(0.0, f32::max);
+            assert!(
+                (tap_peak - 0.2).abs() < 0.02,
+                "zero-volume post-EQ tap through pipewire-pulse: {tap_peak}"
+            );
+            bridge.update(&json!({"status":"paused"}));
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            assert!(tap.window(512, 0).iter().all(|v| *v == 0.0));
+
+            let _ = source.kill().await;
+            let _ = source.wait().await;
+            let _ = feed.await;
         }
     }
 }

@@ -390,6 +390,19 @@ impl Drop for CancelDownload {
         self.0.abort();
     }
 }
+#[cfg(target_os = "linux")]
+fn configure_linux_audio(
+    command: &mut tokio::process::Command,
+    sink: &str,
+    pipewire_props: &str,
+    pulse_props: &str,
+) {
+    command
+        .args(["--pipewire-device", sink])
+        .env("PIPEWIRE_PROPS", audio::child_props(pipewire_props))
+        .env("PULSE_SINK", sink)
+        .env("PULSE_PROP", audio::pulse_props(pulse_props));
+}
 async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Result<Outcome> {
     let Player {
         root,
@@ -412,9 +425,9 @@ async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Resu
     let mut command = tokio::process::Command::new(build.path(root));
     #[cfg(target_os = "linux")]
     if let Some(bridge) = &bridge {
-        command.args(["--pipewire-device", &bridge.name]);
-        let props = std::env::var("PIPEWIRE_PROPS").unwrap_or_default();
-        command.env("PIPEWIRE_PROPS", audio::child_props(&props));
+        let pipewire_props = std::env::var("PIPEWIRE_PROPS").unwrap_or_default();
+        let pulse_props = std::env::var("PULSE_PROP").unwrap_or_default();
+        configure_linux_audio(&mut command, &bridge.name, &pipewire_props, &pulse_props);
     }
     command
         .args([
@@ -1085,6 +1098,49 @@ mod tests {
         assert!(
             matches!(&result, Ok(Ok(()))),
             "Live smoke test failed: {result:?}"
+        );
+    }
+
+    /// Soloist may play through native PipeWire or through libpulse on
+    /// `pipewire-pulse`; both paths must target the private processing sink
+    /// and keep the stream properties that hold source volume at unity.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_audio_routes_both_pipewire_and_pulse_clients() {
+        let mut command = tokio::process::Command::new("soloist");
+        configure_linux_audio(
+            &mut command,
+            "spotifast.soloist.1234",
+            "{ node.latency = 1024/48000 }",
+            "media.role=music",
+        );
+        let args: Vec<_> = command
+            .as_std()
+            .get_args()
+            .map(|arg| arg.to_str().unwrap())
+            .collect();
+        assert_eq!(args, ["--pipewire-device", "spotifast.soloist.1234"]);
+        let env = |key: &str| {
+            command
+                .as_std()
+                .get_envs()
+                .find_map(|(name, value)| (name == key).then(|| value.unwrap().to_str().unwrap()))
+        };
+        assert_eq!(env("PULSE_SINK"), Some("spotifast.soloist.1234"));
+        let pulse_props = env("PULSE_PROP").expect("PULSE_PROP must be set");
+        assert!(pulse_props.contains("media.role=music"), "{pulse_props}");
+        for wanted in [
+            "channelmix.lock-volumes=true",
+            "node.dont-fallback=true",
+            "node.dont-move=true",
+            "node.linger=true",
+        ] {
+            assert!(pulse_props.contains(wanted), "{pulse_props}");
+        }
+        let pipewire_props = env("PIPEWIRE_PROPS").expect("PIPEWIRE_PROPS must be set");
+        assert!(
+            pipewire_props.contains("node.latency = 1024/48000"),
+            "{pipewire_props}"
         );
     }
 }
