@@ -218,7 +218,11 @@ msgstr "{name}，文件夹，已折叠"
 msgid "{name}, folder, expanded"
 msgstr "{name}，文件夹，已展开"
 
-#: src/ui/player_bar.rs:81
+#: src/ui/player_bar.rs:88
+msgid "The visualiser shows only music playing on this computer"
+msgstr "可视化效果只显示在这台电脑上播放的音乐"
+
+#: src/ui/player_bar.rs:91
 msgid "Click to change the visualiser"
 msgstr "点击切换可视化效果"
 
@@ -1729,8 +1733,11 @@ msgstr "使用 Spotifast 自己的标题栏和窗口按钮，而不是桌面环�
 
 #: src/ui/settings.rs:1306
 msgid ""
-"Show the song moving behind the player bar's controls while it plays here."
-msgstr "歌曲在本机播放时，在播放栏控件后方显示它的律动。"
+"Show the song moving behind the player bar's controls. It shows only music "
+"playing on this computer, not on a speaker or another device."
+msgstr ""
+"在播放栏控件后方显示歌曲的律动。只显示在这台电脑上播放的音乐，不显示音箱或其"
+"他设备上的音乐。"
 
 #: src/ui/settings.rs:1311
 msgid "Allow clicks on empty player bar space to cycle the visualiser."

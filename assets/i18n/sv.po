@@ -222,7 +222,11 @@ msgstr "{name}, mapp, hopfälld"
 msgid "{name}, folder, expanded"
 msgstr "{name}, mapp, expanderad"
 
-#: src/ui/player_bar.rs:81
+#: src/ui/player_bar.rs:88
+msgid "The visualiser shows only music playing on this computer"
+msgstr "Visualiseringen visar bara musik som spelas på den här datorn"
+
+#: src/ui/player_bar.rs:91
 msgid "Click to change the visualiser"
 msgstr "Klicka för att byta visualisering"
 
@@ -1773,9 +1777,11 @@ msgstr ""
 
 #: src/ui/settings.rs:1306
 msgid ""
-"Show the song moving behind the player bar's controls while it plays here."
+"Show the song moving behind the player bar's controls. It shows only music "
+"playing on this computer, not on a speaker or another device."
 msgstr ""
-"Visar låten i rörelse bakom spelarfältets kontroller medan den spelas här."
+"Visar låten i rörelse bakom spelarfältets kontroller. Bara musik som spelas "
+"på den här datorn, inte på en högtalare eller en annan enhet."
 
 #: src/ui/settings.rs:1311
 msgid "Allow clicks on empty player bar space to cycle the visualiser."

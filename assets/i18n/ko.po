@@ -218,7 +218,11 @@ msgstr "{name}, 폴더, 접힘"
 msgid "{name}, folder, expanded"
 msgstr "{name}, 폴더, 펼쳐짐"
 
-#: src/ui/player_bar.rs:81
+#: src/ui/player_bar.rs:88
+msgid "The visualiser shows only music playing on this computer"
+msgstr "시각화는 이 컴퓨터에서 재생하는 음악만 표시합니다"
+
+#: src/ui/player_bar.rs:91
 msgid "Click to change the visualiser"
 msgstr "클릭하여 시각화 변경"
 
@@ -1756,10 +1760,11 @@ msgstr "데스크톱 대신 Spotifast 자체의 제목 표시줄과 창 버튼�
 
 #: src/ui/settings.rs:1306
 msgid ""
-"Show the song moving behind the player bar's controls while it plays here."
+"Show the song moving behind the player bar's controls. It shows only music "
+"playing on this computer, not on a speaker or another device."
 msgstr ""
-"이 컴퓨터에서 재생하는 동안 플레이어 바의 컨트롤 뒤에 곡의 움직임을 표시합니"
-"다."
+"플레이어 바의 컨트롤 뒤에 곡의 움직임을 표시합니다. 이 컴퓨터에서 재생하는 음"
+"악만 표시되며, 스피커나 다른 기기의 음악은 표시되지 않습니다."
 
 #: src/ui/settings.rs:1311
 msgid "Allow clicks on empty player bar space to cycle the visualiser."
