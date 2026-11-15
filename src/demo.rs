@@ -6140,16 +6140,24 @@ mod tests {
             make("c", "Gamma"),
         ]);
         let now = app.now_playing().unwrap().uri;
-        app.membership.start_reads(&[("c".into(), None)]);
-        app.membership.receive("c", Ok(vec![now.clone()]));
+        let all = ["a", "b", "c"].map(|id| (id.to_string(), None::<String>));
+        let read = |app: &mut App, id: &str, uris: Vec<String>, at: i64| {
+            app.membership.start_reads(&all);
+            app.membership.receive(id, Ok((uris, Some(at))));
+        };
+        read(&mut app, "a", Vec::new(), 1_000);
+        read(&mut app, "b", Vec::new(), 2_000);
+        read(&mut app, "c", vec![now.clone()], 500);
         let names = ["Liked Songs", "Alpha", "Beta", "Gamma"];
-        let order = |app: &mut App| -> Vec<String> {
+        let open = |app: &mut App| {
             let tree = accessible_frame(&ctx, app, vec![]);
             let heart = lowest_node(&tree, "Add to playlist", Role::Button);
             let open = accessible_action(heart, AccessibleAction::Click, None);
             accessible_frame(&ctx, app, vec![open]);
             // A menu's first frame only measures it.
             accessible_frame(&ctx, app, vec![]);
+        };
+        let rows = |app: &mut App| -> Vec<String> {
             let tree = accessible_frame(&ctx, app, vec![]);
             let mut rows: Vec<(f64, String)> = tree
                 .nodes
@@ -6159,15 +6167,32 @@ mod tests {
                 .collect();
             rows.retain(|(_, label)| names.contains(&label.as_str()));
             rows.sort_by(|a, b| a.0.total_cmp(&b.0));
+            rows.into_iter().map(|(_, label)| label).collect()
+        };
+        let close = |app: &mut App| {
+            let tree = accessible_frame(&ctx, app, vec![]);
             let cancel = lowest_node(&tree, "Cancel", Role::Button);
             let close = accessible_action(cancel, AccessibleAction::Click, None);
             accessible_frame(&ctx, app, vec![close]);
-            rows.into_iter().map(|(_, label)| label).collect()
         };
+        // The song's own playlist leads; the rest follow, the one a song was
+        // last added to first.
         app.saved.insert(now.clone(), true);
-        assert_eq!(order(&mut app), ["Liked Songs", "Gamma", "Alpha", "Beta"]);
+        open(&mut app);
+        assert_eq!(rows(&mut app), ["Liked Songs", "Gamma", "Beta", "Alpha"]);
+        close(&mut app);
         app.saved.insert(now, false);
-        assert_eq!(order(&mut app), ["Gamma", "Liked Songs", "Alpha", "Beta"]);
+        open(&mut app);
+        assert_eq!(rows(&mut app), ["Gamma", "Liked Songs", "Beta", "Alpha"]);
+        // A read landing while the list is open moves no row; the next
+        // opening takes it.
+        app.membership.seen("a", Some("newer"));
+        read(&mut app, "a", Vec::new(), 3_000);
+        assert_eq!(rows(&mut app), ["Gamma", "Liked Songs", "Beta", "Alpha"]);
+        close(&mut app);
+        open(&mut app);
+        assert_eq!(rows(&mut app), ["Gamma", "Liked Songs", "Alpha", "Beta"]);
+        close(&mut app);
         app.backend.shutdown();
     }
 

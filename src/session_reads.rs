@@ -607,7 +607,7 @@ pub async fn remove_playlist_rows(
     rows: &[RemovedRow],
 ) -> anyhow::Result<Option<String>> {
     const CHANGED: &str = "The playlist changed meanwhile. Check it and try again.";
-    let (revision, uris) = playlist_uris(session, id).await?;
+    let (revision, uris, _) = playlist_uris(session, id).await?;
     let indices = removal_indices(&uris, rows).ok_or_else(|| anyhow::anyhow!(CHANGED))?;
     let changes = removal_changes(
         &revision,
@@ -631,12 +631,13 @@ pub async fn remove_playlist_rows(
         .map(|revision| snapshot(&revision)))
 }
 
-/// The list's revision and every row's URI, read page by page from the
-/// same revision.
+/// The list's revision, every row's URI, and when its newest row was added
+/// (milliseconds since the epoch, `None` when no row says), read page by
+/// page from the same revision.
 pub(crate) async fn playlist_uris(
     session: &Session,
     id: &str,
-) -> anyhow::Result<(Vec<u8>, Vec<String>)> {
+) -> anyhow::Result<(Vec<u8>, Vec<String>, Option<i64>)> {
     const PAGE: u32 = 1000;
     let failed = |failure: Failure| match failure {
         Failure::Definitive(error) => anyhow::anyhow!("{error}"),
@@ -644,6 +645,7 @@ pub(crate) async fn playlist_uris(
     };
     let mut revision = None;
     let mut uris = Vec::new();
+    let mut last_added = None;
     loop {
         let from = uris.len() as u32;
         let list = window(session, id, from, PAGE).await.map_err(failed)?;
@@ -658,11 +660,17 @@ pub(crate) async fn playlist_uris(
         let total = total(&list);
         complete(page.len(), from, PAGE, total).map_err(failed)?;
         uris.extend(page.iter().map(|row| row.id.to_uri()));
+        let newest = page
+            .iter()
+            .map(|row| row.attributes.timestamp.as_timestamp_ms())
+            .filter(|at| *at > 0)
+            .max();
+        last_added = last_added.max(newest);
         if page.is_empty() || uris.len() as u32 >= total {
             break;
         }
     }
-    Ok((revision.unwrap_or_default(), uris))
+    Ok((revision.unwrap_or_default(), uris, last_added))
 }
 
 /// Where each picked row sits in `uris`, the list as Spotify holds it: at

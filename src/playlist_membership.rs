@@ -48,6 +48,9 @@ struct List {
     unsettled: HashMap<String, i64>,
     /// One of the edits not settled yet failed.
     edit_failed: bool,
+    /// When a song was last added, in milliseconds since the epoch: the
+    /// newest row as read, or an add made here since.
+    last_added: Option<i64>,
 }
 
 struct Reading {
@@ -115,13 +118,14 @@ impl Membership {
         }
     }
 
-    /// Takes a read's answer: every song in the playlist `id`.
-    pub(crate) fn receive(&mut self, id: &str, result: Result<Vec<String>, String>) {
+    /// Takes a read's answer: every song in the playlist `id`, and when the
+    /// newest row was added.
+    pub(crate) fn receive(&mut self, id: &str, result: Result<(Vec<String>, Option<i64>), String>) {
         let Some(reading) = self.reading.remove(id) else {
             return;
         };
         match result {
-            Ok(uris) => {
+            Ok((uris, last_added)) => {
                 self.failed.remove(id);
                 if reading.stale {
                     return;
@@ -141,6 +145,7 @@ impl Membership {
                         counts,
                         complete: true,
                         outdated: reading.newer,
+                        last_added,
                         ..List::default()
                     },
                 );
@@ -165,6 +170,15 @@ impl Membership {
     /// Whether any of the account's playlists is known to hold `uri`.
     pub(crate) fn holds_anywhere(&self, uri: &str) -> bool {
         self.anywhere.contains_key(uri)
+    }
+
+    /// The playlists `ids`, the one a song was last added to first. Those
+    /// the index has no time for keep their order after the rest.
+    pub(crate) fn by_last_added<'a>(&self, ids: impl IntoIterator<Item = &'a str>) -> Vec<String> {
+        let at = |id: &str| self.lists.get(id).and_then(|list| list.last_added);
+        let mut ids: Vec<&str> = ids.into_iter().collect();
+        ids.sort_by_key(|id| std::cmp::Reverse(at(id)));
+        ids.into_iter().map(str::to_string).collect()
     }
 
     /// The playlist `id` was read at `snapshot` for its page. A snapshot
@@ -250,6 +264,7 @@ impl Membership {
     pub(crate) fn add<'a>(&mut self, id: &str, uris: impl IntoIterator<Item = &'a str>) {
         self.edit_started(id);
         let list = self.lists.entry(id.to_string()).or_default();
+        list.last_added = Some(jiff::Timestamp::now().as_millisecond());
         for uri in uris {
             shift(list, &mut self.anywhere, uri, 1);
         }
@@ -321,8 +336,8 @@ mod tests {
             .collect()
     }
 
-    fn uris(list: &[&str]) -> Result<Vec<String>, String> {
-        Ok(list.iter().map(|uri| uri.to_string()).collect())
+    fn uris(list: &[&str]) -> Result<(Vec<String>, Option<i64>), String> {
+        Ok((list.iter().map(|uri| uri.to_string()).collect(), None))
     }
 
     #[test]
@@ -514,5 +529,27 @@ mod tests {
         let long_ago = Instant::now() - RETRY_AFTER;
         index.failed.insert("a".into(), long_ago);
         assert_eq!(index.start_reads(&all), ["a"]);
+    }
+
+    #[test]
+    fn the_playlist_last_added_to_comes_first_and_one_not_read_keeps_its_place() {
+        let mut index = Membership::default();
+        let all = playlists(&[("a", "1"), ("b", "1"), ("c", "1"), ("d", "1")]);
+        let ids = ["a", "b", "c", "d"];
+        index.start_reads(&all);
+        index.receive("a", Ok((vec!["song:1".into()], Some(1_000))));
+        index.receive("b", Ok((vec!["song:2".into()], Some(3_000))));
+        index.start_reads(&all);
+        index.receive("c", Ok((vec!["song:3".into()], Some(2_000))));
+        assert_eq!(index.by_last_added(ids), ["b", "c", "a", "d"]);
+
+        // An add made here is newer than any row read before it.
+        index.add("a", ["song:4"]);
+        assert_eq!(index.by_last_added(ids), ["a", "b", "c", "d"]);
+        // A read with no times keeps the playlist after those with one.
+        index.edit_failed("a");
+        index.start_reads(&all);
+        index.receive("a", uris(&["song:1"]));
+        assert_eq!(index.by_last_added(ids), ["b", "c", "a", "d"]);
     }
 }

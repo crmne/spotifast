@@ -1134,13 +1134,34 @@ pub(crate) fn playlist_picker(
         .filter(|(_, name)| name.to_lowercase().contains(&needle))
         .collect();
     // The playlists that held the song when the menu opened come first, so
-    // its own are found at once. The order stays put while checks change.
+    // its own are found at once. The rest follow, the one a song was last
+    // added to first, in the order taken when the menu opened, so neither
+    // a check nor a read landing meanwhile moves a row.
     let held = |id: &String| {
         checks
             .as_deref()
             .is_some_and(|checks| checks.holding.contains(id))
     };
-    matches.sort_by_key(|(id, _)| !held(id));
+    let order_id = ui.make_persistent_id("playlist-order");
+    if opened {
+        let order = app
+            .membership
+            .by_last_added(playlists.iter().map(|(id, _)| id.as_str()));
+        ui.data_mut(|data| data.insert_temp(order_id, order));
+    }
+    let order: Vec<String> = ui.data(|data| data.get_temp(order_id)).unwrap_or_default();
+    let place: std::collections::HashMap<&str, usize> = order
+        .iter()
+        .enumerate()
+        .map(|(place, id)| (id.as_str(), place))
+        .collect();
+    matches.sort_by_key(|(id, _)| {
+        if held(id) {
+            (false, 0)
+        } else {
+            (true, place.get(id.as_str()).copied().unwrap_or(usize::MAX))
+        }
+    });
     let held_count = matches.iter().take_while(|(id, _)| held(id)).count();
     let found = matches.len();
     // Every row in order, Liked Songs as `None`. It leads the other

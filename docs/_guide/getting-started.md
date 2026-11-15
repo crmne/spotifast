@@ -106,16 +106,18 @@ You can rename it in Settings.
   artist, or podcast to see its menu. These menus are available in Home,
   Search, Library, and artist pages. Your own playlists include **Edit details**
   and **Delete**. Opening a menu does not start playback.
-  In **Add to playlist**, type a playlist name to find it, or choose
-  **New playlist**. Typing chooses the first match, so `Enter` adds to it;
-  the up and down arrows choose another. You can add one song or a selection.
+  In **Add to playlist**, the playlist you last added a song to comes
+  first. Type a playlist name to find it, or choose **New playlist**. Typing
+  chooses the first match, so `Enter` adds to it; the up and down arrows
+  choose another. You can add one song or a selection.
   If the playlist already contains the song, Spotifast asks before adding
   another copy.
 - **The heart files a song in your playlists.** Every heart, in the player
   bar and on song rows, opens a list of your playlists with their covers. A
   heart is green when its song is in Liked Songs or in any of your playlists.
   The playlists that hold the song come first and are checked, led by Liked
-  Songs when the song is liked; otherwise Liked Songs follows them. Check the
+  Songs when the song is liked; otherwise Liked Songs follows them. The rest
+  follow, the playlist you last added a song to first. Check the
   playlists the song belongs in, uncheck one to take the song out there, then
   choose **Done**. Until a check changes, the button reads **Cancel**. A
   fainter circle marks a playlist not read in full yet, which may already hold
