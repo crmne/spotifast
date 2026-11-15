@@ -417,6 +417,7 @@ pub fn pulse_reaches_sink(sink: &str) -> bool {
 #[cfg(target_os = "linux")]
 mod pulse {
     use std::{
+        ffi::OsStr,
         io::{Read, Write},
         os::unix::net::UnixStream,
         path::{Path, PathBuf},
@@ -428,6 +429,7 @@ mod pulse {
     const DESCRIPTOR_LEN: usize = 20;
     const CONTROL_CHANNEL: u32 = u32::MAX;
     const MAX_FRAME_LEN: usize = 4096;
+    const MAX_INCLUDE_DEPTH: usize = 16;
     const CMD_ERROR: u32 = 0;
     const CMD_REPLY: u32 = 2;
     const CMD_AUTH: u32 = 8;
@@ -447,41 +449,35 @@ mod pulse {
         NonUnix,
     }
 
-    pub(super) fn parse_server_list(
-        list: &str,
-        local_ids: &[&str],
-        runtime_dir: Option<&Path>,
-    ) -> Vec<Endpoint> {
+    #[derive(Debug, Default, PartialEq, Eq)]
+    pub(super) struct ClientConf {
+        pub(super) default_server: Option<String>,
+        pub(super) cookie_file: Option<PathBuf>,
+    }
+
+    pub(super) fn parse_server_list(list: &str, local_machine_id: Option<&str>) -> Vec<Endpoint> {
         let mut out = Vec::new();
         for entry in list.split_ascii_whitespace() {
             let rest = if let Some(after_open) = entry.strip_prefix('{') {
-                let Some((id, after_close)) = after_open.split_once('}') else {
-                    out.push(Endpoint::NonUnix);
-                    break;
+                let Some(local_id) = local_machine_id.filter(|id| !id.is_empty()) else {
+                    continue;
                 };
-                if !local_ids
-                    .iter()
-                    .any(|local| !local.is_empty() && *local == id)
-                {
+                let Some((id, after_close)) = after_open.split_once('}') else {
+                    continue;
+                };
+                if id != local_id {
                     continue;
                 }
                 after_close
             } else {
                 entry
             };
-            if let Some(path) = rest.strip_prefix("unix:") {
-                if path.starts_with('/') {
-                    out.push(Endpoint::Unix(PathBuf::from(path)));
-                } else if !path.is_empty()
-                    && let Some(dir) = runtime_dir
-                {
-                    out.push(Endpoint::Unix(dir.join(path)));
-                } else {
-                    out.push(Endpoint::NonUnix);
-                    break;
-                }
-            } else if rest.starts_with('/') {
+            if rest.starts_with('/') {
                 out.push(Endpoint::Unix(PathBuf::from(rest)));
+            } else if let Some(path) = rest.strip_prefix("unix:") {
+                if !path.is_empty() {
+                    out.push(Endpoint::Unix(PathBuf::from(path)));
+                }
             } else if !rest.is_empty() {
                 out.push(Endpoint::NonUnix);
                 break;
@@ -490,52 +486,159 @@ mod pulse {
         out
     }
 
-    pub(super) fn parse_client_conf(contents: &str) -> (Option<String>, Option<PathBuf>) {
-        let mut server = None;
-        let mut cookie = None;
-        for line in contents.lines() {
-            let line = line.trim();
-            if line.is_empty() || line.starts_with('#') || line.starts_with(';') {
+    fn open_conf_file(path: &Path) -> Result<(), std::io::ErrorKind> {
+        let file = std::fs::File::open(path).map_err(|err| err.kind())?;
+        let meta = file.metadata().map_err(|err| err.kind())?;
+        if meta.is_dir() {
+            return Err(std::io::ErrorKind::InvalidInput);
+        }
+        Ok(())
+    }
+
+    pub(super) fn select_client_conf_file(
+        pulse_clientconfig: Option<&OsStr>,
+        pulse_config_path: Option<&OsStr>,
+        home: Option<&Path>,
+        system_conf: &Path,
+    ) -> Option<PathBuf> {
+        if let Some(custom) = pulse_clientconfig {
+            let path = PathBuf::from(custom);
+            return open_conf_file(&path).ok().map(|()| path);
+        }
+        if let Some(config_dir) = pulse_config_path {
+            let path = PathBuf::from(config_dir).join("client.conf");
+            match open_conf_file(&path) {
+                Ok(()) => return Some(path),
+                Err(std::io::ErrorKind::NotFound) => {}
+                Err(_) => return None,
+            }
+        } else {
+            let home = home.filter(|dir| !dir.as_os_str().is_empty())?;
+            let dot_pulse = home.join(".pulse/client.conf");
+            if open_conf_file(&dot_pulse).is_ok() {
+                return Some(dot_pulse);
+            }
+            let dot_config = home.join(".config/pulse/client.conf");
+            match open_conf_file(&dot_config) {
+                Ok(()) => return Some(dot_config),
+                Err(std::io::ErrorKind::NotFound) => {}
+                Err(_) => return None,
+            }
+        }
+        open_conf_file(system_conf)
+            .ok()
+            .map(|()| system_conf.to_path_buf())
+    }
+
+    pub(super) fn load_client_conf(path: &Path) -> ClientConf {
+        let mut conf = ClientConf::default();
+        let _ = parse_conf_file(path, &mut conf, true, 0);
+        conf
+    }
+
+    fn parse_conf_file(
+        path: &Path,
+        conf: &mut ClientConf,
+        use_dot_d: bool,
+        depth: usize,
+    ) -> Result<(), ()> {
+        if depth > MAX_INCLUDE_DEPTH {
+            return Err(());
+        }
+        let result = match std::fs::read_to_string(path) {
+            Ok(contents) => parse_conf_contents(path, &contents, conf, depth),
+            Err(err) if !use_dot_d && err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(_) => Err(()),
+        };
+        if use_dot_d {
+            let mut dot_d = path.as_os_str().to_os_string();
+            dot_d.push(".d");
+            if let Ok(entries) = std::fs::read_dir(PathBuf::from(dot_d)) {
+                let mut drop_ins: Vec<PathBuf> = entries
+                    .filter_map(Result::ok)
+                    .map(|entry| entry.path())
+                    .filter(|entry_path| {
+                        entry_path
+                            .file_name()
+                            .is_some_and(|name| name.as_encoded_bytes().ends_with(b".conf"))
+                    })
+                    .collect();
+                drop_ins.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
+                for drop_in in drop_ins {
+                    let _ = parse_conf_file(&drop_in, conf, false, depth + 1);
+                }
+            }
+        }
+        result
+    }
+
+    fn parse_conf_contents(
+        filename: &Path,
+        contents: &str,
+        conf: &mut ClientConf,
+        depth: usize,
+    ) -> Result<(), ()> {
+        const TRIM: [char; 3] = [' ', '\t', '\r'];
+        for raw_line in contents.lines() {
+            let line = raw_line.trim_start_matches(TRIM);
+            let line = line.split(['#', ';']).next().unwrap_or("");
+            if line.is_empty() {
                 continue;
             }
-            let Some((key, value)) = line.split_once('=') else {
+            if let Some(rest) = line.strip_prefix(".include ") {
+                let target = rest.trim_matches(TRIM);
+                let include_path = if Path::new(target).is_absolute() {
+                    PathBuf::from(target)
+                } else if let Some(parent) =
+                    filename.parent().filter(|dir| !dir.as_os_str().is_empty())
+                {
+                    parent.join(target)
+                } else {
+                    PathBuf::from(target)
+                };
+                parse_conf_file(&include_path, conf, false, depth + 1)?;
                 continue;
+            }
+            if line.starts_with('[') {
+                let section = line.trim_end_matches(TRIM);
+                if !section.ends_with(']') || section == "[Properties]" {
+                    return Err(());
+                }
+                continue;
+            }
+            let Some((raw_key, raw_value)) = line.split_once('=') else {
+                return Err(());
             };
-            let key = key.trim();
-            let value = value.trim();
-            let value = value
-                .strip_prefix('"')
-                .and_then(|v| v.strip_suffix('"'))
-                .or_else(|| value.strip_prefix('\'').and_then(|v| v.strip_suffix('\'')))
-                .unwrap_or(value)
-                .trim();
+            let key = raw_key.trim_matches(TRIM);
+            let value = raw_value.trim_matches(TRIM);
             match key {
                 "default-server" => {
-                    server = (!value.is_empty()).then(|| value.to_owned());
+                    conf.default_server = (!value.is_empty()).then(|| value.to_owned());
                 }
                 "cookie-file" => {
-                    cookie = (!value.is_empty()).then(|| PathBuf::from(value));
+                    conf.cookie_file = (!value.is_empty()).then(|| PathBuf::from(value));
                 }
                 _ => {}
             }
         }
-        (server, cookie)
+        Ok(())
     }
 
-    fn local_host_ids() -> Vec<String> {
+    fn local_machine_id() -> Option<String> {
         [
             "/etc/machine-id",
             "/var/lib/dbus/machine-id",
             "/proc/sys/kernel/hostname",
         ]
         .into_iter()
-        .filter_map(|path| std::fs::read_to_string(path).ok())
-        .map(|value| value.trim().to_owned())
-        .filter(|value| !value.is_empty())
-        .collect()
+        .find_map(|path| {
+            let text = std::fs::read_to_string(path).ok()?;
+            let first = text.lines().next().unwrap_or("").trim();
+            (!first.is_empty()).then(|| first.to_owned())
+        })
     }
 
-    fn user_pulse_config_dir(home: Option<&Path>) -> Option<PathBuf> {
+    fn cookie_config_dir(home: Option<&Path>) -> Option<PathBuf> {
         if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty()) {
             return Some(PathBuf::from(xdg).join("pulse"));
         }
@@ -554,64 +657,51 @@ mod pulse {
         let home = std::env::var_os("HOME")
             .filter(|v| !v.is_empty())
             .map(PathBuf::from);
-        let config_dir = user_pulse_config_dir(home.as_deref());
+        let conf = select_client_conf_file(
+            std::env::var_os("PULSE_CLIENTCONFIG").as_deref(),
+            std::env::var_os("PULSE_CONFIG_PATH").as_deref(),
+            home.as_deref(),
+            Path::new("/etc/pulse/client.conf"),
+        )
+        .as_deref()
+        .map(load_client_conf)
+        .unwrap_or_default();
 
-        let conf_files = if let Some(custom) =
-            std::env::var_os("PULSE_CLIENTCONFIG").filter(|v| !v.is_empty())
-        {
-            vec![PathBuf::from(custom)]
-        } else {
-            let mut files = vec![PathBuf::from("/etc/pulse/client.conf")];
-            if let Some(user_conf) = config_dir
-                .as_ref()
-                .map(|dir| dir.join("client.conf"))
-                .filter(|path| path.is_file())
-                .or_else(|| {
-                    home.as_ref()
-                        .map(|dir| dir.join(".pulse/client.conf"))
-                        .filter(|path| path.is_file())
-                })
-            {
-                files.push(user_conf);
+        let local_id = local_machine_id();
+        let endpoints = if let Some(env_server) = std::env::var_os("PULSE_SERVER") {
+            match env_server.to_str() {
+                Some(server) if !server.trim().is_empty() => {
+                    parse_server_list(server, local_id.as_deref())
+                }
+                _ => Vec::new(),
             }
-            files
+        } else if let Some(server) = conf.default_server.as_deref() {
+            parse_server_list(server, local_id.as_deref())
+        } else {
+            let mut defaults = Vec::new();
+            if let Some(dir) = runtime_dir {
+                defaults.push(Endpoint::Unix(dir.join("native")));
+            }
+            defaults.push(Endpoint::Unix(PathBuf::from("/var/run/pulse/native")));
+            defaults
         };
 
-        let mut conf_server = None;
-        let mut conf_cookie = None;
-        for file in conf_files {
-            if let Ok(contents) = std::fs::read_to_string(file) {
-                let (s, c) = parse_client_conf(&contents);
-                if s.is_some() {
-                    conf_server = s;
-                }
-                if c.is_some() {
-                    conf_cookie = c;
-                }
+        let cookie_dir = cookie_config_dir(home.as_deref());
+        let resolve_cookie = |path: PathBuf| -> Option<PathBuf> {
+            if path.is_absolute() {
+                Some(path)
+            } else {
+                cookie_dir.as_ref().map(|dir| dir.join(path))
             }
-        }
-
-        let ids = local_host_ids();
-        let id_refs: Vec<&str> = ids.iter().map(String::as_str).collect();
-        let endpoints = if let Ok(env_server) = std::env::var("PULSE_SERVER")
-            && !env_server.trim().is_empty()
-        {
-            parse_server_list(&env_server, &id_refs, runtime_dir.as_deref())
-        } else if let Some(server) = conf_server {
-            parse_server_list(&server, &id_refs, runtime_dir.as_deref())
-        } else if let Some(dir) = runtime_dir {
-            vec![Endpoint::Unix(dir.join("native"))]
-        } else {
-            Vec::new()
         };
-
         let mut cookie = [0u8; COOKIE_LEN];
         let cookie_candidates = [
             std::env::var_os("PULSE_COOKIE")
                 .filter(|v| !v.is_empty())
-                .map(PathBuf::from),
-            conf_cookie,
-            config_dir.map(|dir| dir.join("cookie")),
+                .map(PathBuf::from)
+                .and_then(&resolve_cookie),
+            conf.cookie_file.and_then(&resolve_cookie),
+            cookie_dir.map(|dir| dir.join("cookie")),
             home.map(|dir| dir.join(".pulse-cookie")),
         ];
         for candidate in cookie_candidates.into_iter().flatten() {
@@ -841,37 +931,138 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn pulse_server_list_distinguishes_local_sockets_from_remote_servers() {
-        use pulse::{Endpoint, parse_client_conf, parse_server_list};
-        let rt = std::path::Path::new("/run/user/1000/pulse");
+        use pulse::{Endpoint, parse_server_list};
         assert_eq!(
-            parse_server_list("unix:/tmp/pulse/native", &[], Some(rt)),
+            parse_server_list("unix:/tmp/pulse/native", None),
             vec![Endpoint::Unix("/tmp/pulse/native".into())]
         );
         assert_eq!(
-            parse_server_list("unix:native", &[], Some(rt)),
-            vec![Endpoint::Unix("/run/user/1000/pulse/native".into())]
+            parse_server_list("unix:native", None),
+            vec![Endpoint::Unix("native".into())]
         );
         assert_eq!(
             parse_server_list(
                 "{other-host}unix:/wrong/socket {my-host}/tmp/right/socket",
-                &["my-host"],
-                Some(rt),
+                Some("my-host"),
             ),
             vec![Endpoint::Unix("/tmp/right/socket".into())]
         );
         assert_eq!(
-            parse_server_list("tcp:192.168.1.20:4713", &["my-host"], Some(rt)),
+            parse_server_list("tcp:192.168.1.20:4713", Some("my-host")),
             vec![Endpoint::NonUnix]
         );
         assert_eq!(
-            parse_server_list("remote-pulse-host", &["my-host"], Some(rt)),
+            parse_server_list("remote-pulse-host", Some("my-host")),
             vec![Endpoint::NonUnix]
         );
-        let (server, cookie) = parse_client_conf(
-            "# comment\n; another\ndefault-server = \"unix:/custom/pulse\"\ncookie-file = /custom/cookie\n",
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn pulse_client_conf_selection_does_not_merge_user_and_system_files() {
+        use pulse::{load_client_conf, select_client_conf_file};
+        let dir = std::env::temp_dir().join(format!(
+            "spotifast-pulse-select-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let home = dir.join("home");
+        let user_conf = home.join(".config/pulse/client.conf");
+        let system_conf = dir.join("etc/pulse/client.conf");
+        std::fs::create_dir_all(user_conf.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(system_conf.parent().unwrap()).unwrap();
+        std::fs::write(&system_conf, "default-server = /tmp/system/native\n").unwrap();
+
+        assert_eq!(
+            select_client_conf_file(None, None, Some(&home), &system_conf),
+            Some(system_conf.clone())
         );
-        assert_eq!(server.as_deref(), Some("unix:/custom/pulse"));
-        assert_eq!(cookie, Some("/custom/cookie".into()));
+
+        std::fs::write(&user_conf, "cookie-file = /custom/cookie\n").unwrap();
+        let chosen = select_client_conf_file(None, None, Some(&home), &system_conf).unwrap();
+        assert_eq!(chosen, user_conf);
+        let parsed = load_client_conf(&chosen);
+        assert_eq!(parsed.default_server, None);
+        assert_eq!(parsed.cookie_file, Some("/custom/cookie".into()));
+
+        let dot_pulse = home.join(".pulse/client.conf");
+        std::fs::create_dir_all(dot_pulse.parent().unwrap()).unwrap();
+        std::fs::write(&dot_pulse, "default-server = /tmp/dot-pulse/native\n").unwrap();
+        assert_eq!(
+            select_client_conf_file(None, None, Some(&home), &system_conf),
+            Some(dot_pulse)
+        );
+
+        assert_eq!(
+            select_client_conf_file(
+                Some(dir.join("missing.conf").as_os_str()),
+                None,
+                Some(&home),
+                &system_conf,
+            ),
+            None
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn pulse_client_conf_applies_includes_and_ordered_drop_ins() {
+        use pulse::load_client_conf;
+        let dir = std::env::temp_dir().join(format!(
+            "spotifast-pulse-conf-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let conf_dir = dir.join("pulse");
+        let drop_in_dir = conf_dir.join("client.conf.d");
+        std::fs::create_dir_all(&drop_in_dir).unwrap();
+
+        let main_conf = conf_dir.join("client.conf");
+        std::fs::write(
+            conf_dir.join("included.conf"),
+            "default-server = unix:/included/native ; inline comment\ncookie-file = custom-cookie\n",
+        )
+        .unwrap();
+        std::fs::write(
+            &main_conf,
+            "# header comment\ndefault-server = unix:/main/native\n.include missing.conf\n.include included.conf\n",
+        )
+        .unwrap();
+        std::fs::write(
+            drop_in_dir.join("10-first.conf"),
+            "default-server = unix:/dropin-10/native # comment\n",
+        )
+        .unwrap();
+        std::fs::write(
+            drop_in_dir.join("20-second.conf"),
+            "default-server = unix:/dropin-20/native\n",
+        )
+        .unwrap();
+        std::fs::write(
+            drop_in_dir.join("99-ignored.txt"),
+            "default-server = unix:/ignored/native\n",
+        )
+        .unwrap();
+
+        let parsed = load_client_conf(&main_conf);
+        assert_eq!(
+            parsed.default_server.as_deref(),
+            Some("unix:/dropin-20/native")
+        );
+        assert_eq!(parsed.cookie_file, Some("custom-cookie".into()));
+
+        std::fs::write(drop_in_dir.join("30-clear.conf"), "default-server =\n").unwrap();
+        assert_eq!(load_client_conf(&main_conf).default_server, None);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[cfg(target_os = "linux")]
