@@ -309,9 +309,9 @@ fn column(app: &mut App, ui: &mut egui::Ui, controls: f32) {
     scroll.dormant_handle_opacity = scroll.active_handle_opacity * controls;
     scroll.active_handle_opacity *= controls;
     scroll.interact_handle_opacity *= controls;
-    // The rows fade out before the list's edges instead of being cut by
-    // them, so the list belongs to the pane rather than sitting in a box of
-    // its own. At rest its margin keeps the first and last rows whole.
+    // The rows fade into the list's edges, a row the edge cuts showing
+    // faint, so the list belongs to the pane rather than sitting in a box of
+    // its own. At rest its margin keeps the first row whole.
     widgets::fade_list_edges(ui, f32::from(LIST_EDGE), |ui| {
         crate::autoscroll::show(
             ui,
@@ -334,8 +334,8 @@ fn column(app: &mut App, ui: &mut egui::Ui, controls: f32) {
     });
 }
 
-/// How far the full screen column's rows fade before its list's top and
-/// bottom, and the margin that keeps them whole there at rest.
+/// How far before its list's top and bottom the full screen column's rows
+/// start to fade, and the margin that keeps the first one whole at rest.
 const LIST_EDGE: i8 = 12;
 
 /// The height a section heading in the queue fades by near a list's edge.
