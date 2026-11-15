@@ -2910,6 +2910,10 @@ msgstr "歌单中已有这首歌曲"
 msgid "Add anyway"
 msgstr "仍然添加"
 
+#: src/ui/dialogs.rs:150
+msgid "Skip duplicates"
+msgstr "跳过重复项"
+
 #: src/ui/dialogs.rs:196
 msgid "Done"
 msgstr "完成"

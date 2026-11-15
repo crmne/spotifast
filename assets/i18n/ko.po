@@ -2981,6 +2981,10 @@ msgstr "이미 이 플레이리스트에 있는 곡"
 msgid "Add anyway"
 msgstr "그래도 추가"
 
+#: src/ui/dialogs.rs:150
+msgid "Skip duplicates"
+msgstr "중복 건너뛰기"
+
 #: src/ui/dialogs.rs:196
 msgid "Done"
 msgstr "완료"

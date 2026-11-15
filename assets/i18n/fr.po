@@ -3067,6 +3067,10 @@ msgstr "Titre déjà dans cette playlist"
 msgid "Add anyway"
 msgstr "Ajouter quand même"
 
+#: src/ui/dialogs.rs:150
+msgid "Skip duplicates"
+msgstr "Ignorer les doublons"
+
 #: src/ui/dialogs.rs:196
 msgid "Done"
 msgstr "Terminé"

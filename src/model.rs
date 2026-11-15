@@ -1102,6 +1102,8 @@ pub enum Dialog {
         items: Vec<PlayableItem>,
         position: Option<u32>,
         duplicate_uris: Vec<String>,
+        /// Only a complete membership answer makes skipping safe.
+        duplicate_check_complete: bool,
     },
     Shortcuts,
     /// The signed-in account is not Premium, so nothing will play.
@@ -1245,6 +1247,13 @@ pub enum Action {
         playlist_name: String,
         items: Vec<PlayableItem>,
         position: Option<u32>,
+    },
+    SkipPlaylistDuplicates {
+        playlist_id: String,
+        playlist_name: String,
+        items: Vec<PlayableItem>,
+        position: Option<u32>,
+        duplicate_uris: Vec<String>,
     },
     /// Done in the heart's checklist, for all its playlists at once: `item`
     /// goes into each of `add` (id and name) and out of each of `remove`.

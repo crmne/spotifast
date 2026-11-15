@@ -3049,6 +3049,10 @@ msgstr "Трек уже есть в этом плейлисте"
 msgid "Add anyway"
 msgstr "Всё равно добавить"
 
+#: src/ui/dialogs.rs:150
+msgid "Skip duplicates"
+msgstr "Пропустить повторы"
+
 #: src/ui/dialogs.rs:196
 msgid "Done"
 msgstr "Готово"

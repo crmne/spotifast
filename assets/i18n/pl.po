@@ -3047,6 +3047,10 @@ msgstr "Utwór już jest na tej playliście"
 msgid "Add anyway"
 msgstr "Dodaj mimo to"
 
+#: src/ui/dialogs.rs:150
+msgid "Skip duplicates"
+msgstr "Pomiń duplikaty"
+
 #: src/ui/dialogs.rs:196
 msgid "Done"
 msgstr "Gotowe"

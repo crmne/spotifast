@@ -2915,6 +2915,10 @@ msgstr "播放清單中已有這首歌曲"
 msgid "Add anyway"
 msgstr "仍要加入"
 
+#: src/ui/dialogs.rs:150
+msgid "Skip duplicates"
+msgstr "略過重複項"
+
 #: src/ui/dialogs.rs:196
 msgid "Done"
 msgstr "完成"

@@ -109,8 +109,12 @@ You can rename it in Settings.
   In **Add to playlist**, type a playlist name to find it, or choose
   **New playlist**. Typing chooses the first match, so `Enter` adds to it;
   the up and down arrows choose another. You can add one song or a selection.
-  If the playlist already contains the song, Spotifast asks before adding
-  another copy.
+  If the playlist already contains any selected songs, Spotifast asks whether
+  to add duplicates, skip them, or cancel. Skipping duplicates adds only the
+  selected songs the playlist does not already contain. If the duplicate check
+  fails, known duplicates still require confirmation, but **Skip duplicates**
+  is disabled until the playlist can be checked completely. If no duplicates
+  are known and the check fails, Spotifast adds all selected songs.
 - **The heart likes, then adds to a playlist.** In the player bar, the heart
   saves the playing song to Liked Songs. Once it is liked, the heart opens a
   list of your playlists with their covers, Liked Songs checked at the top.

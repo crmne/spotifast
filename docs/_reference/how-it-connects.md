@@ -867,3 +867,15 @@ Previously loaded recommendations remain visible. This is not a permanent
 capability decision: refreshing Home tries the request again. Network, sign-in,
 rate-limit and server errors retain their normal error handling. No alternate
 recommendation source is substituted.
+
+## Skipping songs already in a playlist
+
+Adding songs checks the destination's cached rows first. A complete playlist,
+or finding every selected song in a partial playlist, answers locally. Otherwise
+the existing Web API duplicate check reads playlist pages until every selected
+URI is found or the playlist ends. A partial cache finding only some of the
+selected songs cannot identify all duplicates. **Skip duplicates** adds only
+selected URIs absent from that answer, in selection order at the requested
+position. Before adding, it also excludes songs now known to be present,
+including songs added while this confirmation was waiting. If every selected
+song already exists, it sends no write.

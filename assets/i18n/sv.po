@@ -3007,6 +3007,10 @@ msgstr "Låten finns redan i spellistan"
 msgid "Add anyway"
 msgstr "Lägg till ändå"
 
+#: src/ui/dialogs.rs:150
+msgid "Skip duplicates"
+msgstr "Hoppa över dubbletter"
+
 #: src/ui/dialogs.rs:196
 msgid "Done"
 msgstr "Klar"

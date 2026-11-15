@@ -112,6 +112,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     items,
                     position,
                     duplicate_uris,
+                    duplicate_check_complete,
                 } => {
                     let multiple = items.len() > 1;
                     theme::text(
@@ -135,13 +136,27 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                         .wrap(),
                     );
                     ui.add_space(20.0);
-                    buttons(ui, |ui| {
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(ui.available_width(), ui.spacing().interact_size.y),
+                        Layout::right_to_left(Align::Center).with_main_wrap(true),
+                        |ui| {
                         if theme::pill_button(ui, &palette, &gettext(locale, "Add anyway"), true).clicked() {
                             app.actions.push(Action::ConfirmAddToPlaylist {
                                 playlist_id: playlist_id.clone(),
                                 playlist_name: playlist_name.clone(),
                                 items: items.clone(),
                                 position,
+                            });
+                        }
+                        if ui.add_enabled_ui(duplicate_check_complete, |ui| {
+                            theme::pill_button(ui, &palette, &gettext(locale, "Skip duplicates"), false)
+                        }).inner.clicked() {
+                            app.actions.push(Action::SkipPlaylistDuplicates {
+                                playlist_id: playlist_id.clone(),
+                                playlist_name: playlist_name.clone(),
+                                items: items.clone(),
+                                position,
+                                duplicate_uris: duplicate_uris.clone(),
                             });
                         }
                         if theme::pill_button(ui, &palette, &gettext(locale, "Cancel"), false).clicked() {

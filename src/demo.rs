@@ -1614,13 +1614,22 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                     add_uris: vec!["spotify:track:trk1".into()],
                 })
             }
-            "duplicate" => {
+            "duplicate" | "duplicates-mixed" | "duplicates-all" | "duplicates-unchecked" => {
                 app.dialog = Some(Dialog::ConfirmPlaylistDuplicates {
                     position: None,
                     playlist_id: "pl1".into(),
                     playlist_name: "Long Way Home".into(),
-                    items: vec![PlayableItem::Track(track(1))],
-                    duplicate_uris: vec!["spotify:track:trk1".into()],
+                    items: if surface == "duplicate" {
+                        vec![PlayableItem::Track(track(1))]
+                    } else {
+                        vec![PlayableItem::Track(track(1)), PlayableItem::Track(track(2))]
+                    },
+                    duplicate_check_complete: surface != "duplicates-unchecked",
+                    duplicate_uris: if surface == "duplicates-all" {
+                        vec!["spotify:track:trk1".into(), "spotify:track:trk2".into()]
+                    } else {
+                        vec!["spotify:track:trk1".into()]
+                    },
                 })
             }
             // A Spotify mix whose songs carry only the epoch Spotify stamps on
@@ -2116,6 +2125,124 @@ mod tests {
                 app.backend.shutdown();
             }
         }
+    }
+
+    #[test]
+    fn duplicate_dialog_buttons_fit_and_emit_the_selected_action() {
+        use crate::i18n::{Locale, gettext};
+        use egui::accesskit::Role;
+        for locale in [Locale::English, Locale::German, Locale::French] {
+            for width in [640.0, 1280.0] {
+                for label in ["Skip duplicates", "Add anyway", "Cancel"] {
+                    let (ctx, mut app) = accessible_app("duplicate-buttons");
+                    app.locale = locale;
+                    app.dialog = Some(Dialog::ConfirmPlaylistDuplicates {
+                        playlist_id: "pl1".into(),
+                        playlist_name: "Long Way Home".into(),
+                        items: vec![PlayableItem::Track(track(1)), PlayableItem::Track(track(2))],
+                        position: Some(3),
+                        duplicate_uris: vec![track(1).uri],
+                        duplicate_check_complete: true,
+                    });
+                    let render = |app: &mut App, events| {
+                        let mut output = ctx.run_ui(
+                            egui::RawInput {
+                                screen_rect: Some(egui::Rect::from_min_size(
+                                    egui::Pos2::ZERO,
+                                    egui::vec2(width, 720.0),
+                                )),
+                                events,
+                                ..Default::default()
+                            },
+                            |ui| crate::ui::show(app, ui),
+                        );
+                        output.textures_delta.clear();
+                        output.platform_output.accesskit_update.unwrap()
+                    };
+                    render(&mut app, vec![]);
+                    let tree = render(&mut app, vec![]);
+                    let mut bounds = Vec::new();
+                    for name in ["Skip duplicates", "Add anyway", "Cancel"] {
+                        let translated = gettext(locale, name);
+                        let id = accessible_node(&tree, &translated, Role::Button);
+                        let rect = tree
+                            .nodes
+                            .iter()
+                            .find(|(node, _)| *node == id)
+                            .unwrap()
+                            .1
+                            .bounds()
+                            .unwrap();
+                        assert!(rect.x0 >= 0.0 && rect.x1 <= f64::from(width));
+                        assert!(rect.y0 >= 0.0 && rect.y1 <= 720.0);
+                        for other in &bounds {
+                            assert!(
+                                rect.intersect(*other).area() <= 0.0,
+                                "{locale:?}: duplicate buttons overlap"
+                            );
+                        }
+                        bounds.push(rect);
+                    }
+                    app.actions.clear();
+                    let button = accessible_node(&tree, &gettext(locale, label), Role::Button);
+                    render(
+                        &mut app,
+                        vec![accessible_action(
+                            button,
+                            egui::accesskit::Action::Click,
+                            None,
+                        )],
+                    );
+                    match label {
+                        "Skip duplicates" => assert!(matches!(app.actions.as_slice(),
+                            [Action::SkipPlaylistDuplicates { position: Some(3), items, duplicate_uris, .. }]
+                                if items.len() == 2 && duplicate_uris == &[track(1).uri])),
+                        "Add anyway" => assert!(matches!(app.actions.as_slice(),
+                            [Action::ConfirmAddToPlaylist { position: Some(3), items, .. }] if items.len() == 2)),
+                        _ => assert!(matches!(app.actions.as_slice(), [Action::CloseDialog])),
+                    }
+                    app.backend.shutdown();
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn incomplete_duplicate_checks_disable_only_skipping() {
+        let (ctx, mut app) = accessible_app("duplicate-check-failed");
+        app.dialog = Some(Dialog::ConfirmPlaylistDuplicates {
+            playlist_id: "pl1".into(),
+            playlist_name: "Long Way Home".into(),
+            items: vec![PlayableItem::Track(track(1)), PlayableItem::Track(track(2))],
+            position: Some(3),
+            duplicate_uris: vec![track(1).uri],
+            duplicate_check_complete: false,
+        });
+        let _ = accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        for label in ["Skip duplicates", "Add anyway", "Cancel"] {
+            let id = accessible_node(&tree, label, egui::accesskit::Role::Button);
+            let node = &tree.nodes.iter().find(|(node, _)| *node == id).unwrap().1;
+            assert_eq!(node.is_disabled(), label == "Skip duplicates");
+        }
+        app.actions.clear();
+        let id = accessible_node(&tree, "Skip duplicates", egui::accesskit::Role::Button);
+        let _ = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1280.0, 800.0),
+                )),
+                events: vec![accessible_action(id, egui::accesskit::Action::Click, None)],
+                ..Default::default()
+            },
+            |ui| crate::ui::show(&mut app, ui),
+        );
+        assert!(
+            app.actions.is_empty(),
+            "disabled skip must not dispatch an action before application"
+        );
+        app.backend.shutdown();
     }
 
     #[test]
@@ -10116,6 +10243,7 @@ mod tests {
                 playlist_name: "x".into(),
                 items: vec![PlayableItem::Track(track(1))],
                 duplicate_uris: vec!["spotify:track:trk1".into()],
+                duplicate_check_complete: true,
             },
         ] {
             app.dialog = Some(dialog);

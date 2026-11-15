@@ -3043,6 +3043,10 @@ msgstr "La canción ya está en esta playlist"
 msgid "Add anyway"
 msgstr "Añadir igualmente"
 
+#: src/ui/dialogs.rs:150
+msgid "Skip duplicates"
+msgstr "Omitir duplicados"
+
 #: src/ui/dialogs.rs:196
 msgid "Done"
 msgstr "Listo"

@@ -3061,6 +3061,10 @@ msgstr "Song schon in dieser Playlist"
 msgid "Add anyway"
 msgstr "Trotzdem hinzufügen"
 
+#: src/ui/dialogs.rs:150
+msgid "Skip duplicates"
+msgstr "Dubletten überspringen"
+
 #: src/ui/dialogs.rs:196
 msgid "Done"
 msgstr "Fertig"
