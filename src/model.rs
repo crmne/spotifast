@@ -1102,6 +1102,8 @@ pub enum Dialog {
         items: Vec<PlayableItem>,
         position: Option<u32>,
         duplicate_uris: Vec<String>,
+        /// Only a complete membership answer makes skipping safe.
+        duplicate_check_complete: bool,
     },
     Shortcuts,
     /// The signed-in account is not Premium, so nothing will play.

@@ -112,6 +112,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     items,
                     position,
                     duplicate_uris,
+                    duplicate_check_complete,
                 } => {
                     let multiple = items.len() > 1;
                     theme::text(
@@ -147,7 +148,9 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                                 position,
                             });
                         }
-                        if theme::pill_button(ui, &palette, &gettext(locale, "Skip duplicates"), false).clicked() {
+                        if ui.add_enabled_ui(duplicate_check_complete, |ui| {
+                            theme::pill_button(ui, &palette, &gettext(locale, "Skip duplicates"), false)
+                        }).inner.clicked() {
                             app.actions.push(Action::SkipPlaylistDuplicates {
                                 playlist_id: playlist_id.clone(),
                                 playlist_name: playlist_name.clone(),

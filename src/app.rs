@@ -9126,13 +9126,27 @@ impl App {
                         items,
                         position,
                         duplicate_uris,
+                        duplicate_check_complete: true,
                     });
                 }
                 Err(error) => {
-                    // A failed read must not take away an edit the account is
-                    // still allowed to make. The write reports its own error.
                     log::debug!("could not check playlist for duplicates: {error}");
-                    self.add_to_playlist_now(playlist_id, playlist_name, items, position);
+                    let duplicate_uris = self.cached_playlist_duplicates(&playlist_id, &items);
+                    if duplicate_uris.is_empty() {
+                        // Preserve the fallback when no duplicate is known.
+                        // The write reports its own error.
+                        self.add_to_playlist_now(playlist_id, playlist_name, items, position);
+                    } else {
+                        self.playlist_busy = false;
+                        self.confirm_duplicates(Dialog::ConfirmPlaylistDuplicates {
+                            playlist_id,
+                            playlist_name,
+                            items,
+                            position,
+                            duplicate_uris,
+                            duplicate_check_complete: false,
+                        });
+                    }
                 }
             },
             ApiResponse::PlaylistItemsChanged {
@@ -12014,6 +12028,18 @@ impl App {
         items: &[PlayableItem],
     ) -> Option<Vec<String>> {
         let page = self.playlist_pages.get(id)?;
+        let duplicates = self.cached_playlist_duplicates(id, items);
+        if duplicates.len() == items.len() || page.items.is_complete() {
+            Some(duplicates)
+        } else {
+            None
+        }
+    }
+
+    fn cached_playlist_duplicates(&self, id: &str, items: &[PlayableItem]) -> Vec<String> {
+        let Some(page) = self.playlist_pages.get(id) else {
+            return Vec::new();
+        };
         let existing: HashSet<&str> = page
             .items
             .items
@@ -12022,17 +12048,12 @@ impl App {
             .map(PlayableItem::uri)
             .chain(page.local_additions.iter().map(String::as_str))
             .collect();
-        let duplicates: Vec<String> = items
+        items
             .iter()
             .map(PlayableItem::uri)
             .filter(|uri| existing.contains(*uri))
             .map(str::to_string)
-            .collect();
-        if duplicates.len() == items.len() || page.items.is_complete() {
-            Some(duplicates)
-        } else {
-            None
-        }
+            .collect()
     }
 
     /// Plays a playlist's `spotify:local:` songs from `folder`, or none.
@@ -12215,6 +12236,7 @@ impl App {
                     items,
                     position,
                     duplicate_uris,
+                    duplicate_check_complete: true,
                 });
             }
             None => {
@@ -29944,6 +29966,7 @@ mod tests {
                         items,
                         position,
                         duplicate_uris,
+                        duplicate_check_complete: true,
                     }) = app.dialog.take()
                     else {
                         panic!("duplicate dialog");
@@ -30793,6 +30816,85 @@ mod tests {
     }
 
     #[test]
+    fn failed_duplicate_checks_keep_known_duplicates_behind_confirmation() {
+        for known in [false, true] {
+            for confirm in [false, true] {
+                let mut app = headless_app();
+                app.backend.set_offline(true);
+                app.playlist_pages.insert(
+                    "target".into(),
+                    PlaylistPage {
+                        items: PagedList {
+                            items: vec![cached_playlist_row(if known {
+                                "spotify:track:existing"
+                            } else {
+                                "spotify:track:other"
+                            })],
+                            total: Some(3),
+                            next_offset: Some(1),
+                            loaded_once: true,
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    },
+                );
+                let items = ["existing", "new"]
+                    .map(|id| {
+                        cached_playlist_row(&format!("spotify:track:{id}"))
+                            .playable()
+                            .unwrap()
+                            .clone()
+                    })
+                    .to_vec();
+                app.request_playlist_add("target".into(), "Target".into(), items.clone(), Some(1));
+                assert!(matches!(
+                    app.backend.take_playlist_add_requests().as_slice(),
+                    [ApiRequest::CheckPlaylistDuplicates { .. }]
+                ));
+                app.handle_api(ApiResponse::PlaylistDuplicatesChecked {
+                    playlist_id: "target".into(),
+                    playlist_name: "Target".into(),
+                    items: items.clone(),
+                    position: Some(1),
+                    result: Err(crate::api::ApiError::RateLimited),
+                });
+                if known {
+                    assert!(!app.playlist_busy);
+                    assert!(app.backend.take_playlist_add_requests().is_empty());
+                    assert!(matches!(app.dialog,
+                        Some(Dialog::ConfirmPlaylistDuplicates {
+                            duplicate_check_complete: false,
+                            ref duplicate_uris, ..
+                        }) if duplicate_uris == &["spotify:track:existing"]));
+                    let ctx = egui::Context::default();
+                    if confirm {
+                        app.apply(
+                            Action::ConfirmAddToPlaylist {
+                                playlist_id: "target".into(),
+                                playlist_name: "Target".into(),
+                                items,
+                                position: Some(1),
+                            },
+                            &ctx,
+                        );
+                    } else {
+                        app.apply(Action::CloseDialog, &ctx);
+                        assert!(app.backend.take_playlist_add_requests().is_empty());
+                        continue;
+                    }
+                } else {
+                    assert!(app.dialog.is_none());
+                }
+                assert!(
+                    matches!(app.backend.take_playlist_add_requests().as_slice(),
+                    [ApiRequest::AddToPlaylist { uris, position: Some(1), .. }]
+                    if uris == &["spotify:track:existing", "spotify:track:new"])
+                );
+            }
+        }
+    }
+
+    #[test]
     fn adding_an_existing_song_asks_before_writing_it_again() {
         let mut app = headless_app();
         app.backend.set_offline(true);
@@ -31009,6 +31111,7 @@ mod tests {
                 items: Vec::new(),
                 position: None,
                 duplicate_uris: Vec::new(),
+                duplicate_check_complete: true,
             });
         }
 
