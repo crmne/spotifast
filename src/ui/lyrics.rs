@@ -1143,6 +1143,7 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui, scroll_right: f32, cont
         .id_salt(("fullscreen-lyrics-scroll", &now.uri))
         .auto_shrink([false, false])
         .show(ui, |ui| {
+            let top = ui.cursor().top();
             // Before the first line there is nothing to highlight, so the
             // panel sits at the top rather than wherever it was left.
             if follow && lyrics.synced && active.is_none() {
@@ -1156,6 +1157,7 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui, scroll_right: f32, cont
             let (padding, below) = room_around_lyrics(lyrics.synced, viewport.height(), size);
             ui.add_space(padding);
             for (index, line) in lyrics.lines.iter().enumerate() {
+                snap_to_pixel(ui, top);
                 let is_active = active == Some(index);
                 let lit = ui.ctx().animate_bool_with_time(
                     egui::Id::new("lyric-line").with(("fullscreen", &now.uri, index)),
@@ -1265,14 +1267,12 @@ mod tests {
     };
     use egui::{Rect, pos2};
 
-    /// egui snaps the scrolled lines' top to a pixel and then nudges it by a
-    /// hair, so a line half a pixel off the grid flipped between two pixels
-    /// as the side panel scrolled. Every line starts on a whole pixel below
-    /// the top, so the gaps between the drawn lines never change.
-    #[test]
-    fn side_lines_scroll_as_one() {
+    /// Scrolls eight lines of `size` points, laid out as a lyrics view lays
+    /// them out, a seventh of a point at a time, and checks that the gaps
+    /// between the drawn lines never change.
+    fn lines_scroll_as_one(padding: f32, gaps: &[f32], size: f32) {
         for scale in [1.25_f32, 1.5, 1.75] {
-            for gap in [1.0_f32, 2.0, 10.0 / 3.0] {
+            for &gap in gaps {
                 let ctx = egui::Context::default();
                 ctx.set_pixels_per_point(scale);
                 let mut first = None;
@@ -1283,10 +1283,11 @@ mod tests {
                             egui::ScrollArea::vertical().vertical_scroll_offset(step as f32 / 7.0);
                         area.show(ui, |ui| {
                             let top = ui.cursor().top();
-                            ui.add_space(12.0);
+                            ui.add_space(padding);
                             for _ in 0..8 {
                                 snap_to_pixel(ui, top);
-                                tops.push(ui.label("Your missing signal").rect.top());
+                                let line = egui::RichText::new("Your missing signal").size(size);
+                                tops.push(ui.label(line).rect.top());
                                 ui.add_space(gap);
                             }
                         });
@@ -1301,6 +1302,24 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// egui snaps the scrolled lines' top to a pixel and then nudges it by a
+    /// hair, so a line half a pixel off the grid flipped between two pixels
+    /// as the side panel scrolled. Every line starts on a whole pixel below
+    /// the top, so the gaps between the drawn lines never change.
+    #[test]
+    fn side_lines_scroll_as_one() {
+        lines_scroll_as_one(12.0, &[1.0, 2.0, 10.0 / 3.0], 14.0);
+    }
+
+    /// Full screen lyrics scroll their bigger lines the same way, below
+    /// room that follows the window's height.
+    #[test]
+    fn fullscreen_lines_scroll_as_one() {
+        let (padding, _) = room_around_lyrics(true, 701.3, 37.7);
+        lines_scroll_as_one(padding, &[27.0, 27.0 + 1.0 / 3.0], 37.7);
+        lines_scroll_as_one(room_around_lyrics(false, 701.3, 37.7).0, &[27.0], 37.7);
     }
 
     /// A sentence wrapped over two lines is gone by the time its top line
