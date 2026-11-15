@@ -3512,6 +3512,8 @@ impl Worker {
         self.premium = None;
         self.resume = None;
         self.resume_verify = None;
+        // Its notice may be queued already, and has nothing to run.
+        self.transfer_held = false;
         self.waiting_for_network = false;
         self.cancel_engine_retry();
         self.authorize_if_rejected = false;
@@ -10374,12 +10376,8 @@ mod tests {
         });
     }
 
-    /// Choosing this computer while a play is on its way to a speaker takes
-    /// the speaker over after the play, which would otherwise start it again.
-    #[test]
-    fn a_transfer_here_waits_for_the_play_sent_before_it() {
-        let (_runtime, mut worker, _events) = super::authorization_tests::worker("play-transfer");
-        let play = ApiRequest::Remote {
+    fn speaker_play() -> ApiRequest {
+        ApiRequest::Remote {
             action: RemoteAction::Play,
             device_id: Some("speaker".into()),
             play: Some(PlayRequest::tracks(vec!["spotify:track:a".into()])),
@@ -10387,7 +10385,15 @@ mod tests {
             percent: 0,
             flag: false,
             repeat: String::new(),
-        };
+        }
+    }
+
+    /// Choosing this computer while a play is on its way to a speaker takes
+    /// the speaker over after the play, which would otherwise start it again.
+    #[test]
+    fn a_transfer_here_waits_for_the_play_sent_before_it() {
+        let (_runtime, mut worker, _events) = super::authorization_tests::worker("play-transfer");
+        let play = speaker_play();
         assert!(
             worker.transfer_after(&PlayerCommand::Transfer).is_none(),
             "nothing to wait for"
@@ -10408,15 +10414,7 @@ mod tests {
         let (runtime, mut worker, events) = super::authorization_tests::worker("held-transfer");
         let (send, mut commands) = mpsc::unbounded_channel();
         worker.commands = send;
-        let play = ApiRequest::Remote {
-            action: RemoteAction::Play,
-            device_id: Some("speaker".into()),
-            play: Some(PlayRequest::tracks(vec!["spotify:track:a".into()])),
-            position_ms: 0,
-            percent: 0,
-            flag: false,
-            repeat: String::new(),
-        };
+        let play = speaker_play();
         let kitchen = ApiRequest::Transfer {
             device_id: "kitchen".into(),
             play: true,
@@ -10443,6 +10441,33 @@ mod tests {
         // #then the transfer here runs only when nothing took its place
         assert!(transfer_here_runs(false), "nothing else was chosen");
         assert!(!transfer_here_runs(true), "the speaker took its place");
+    }
+
+    #[test]
+    fn signing_out_drops_the_held_transfer() {
+        let (runtime, mut worker, events) = super::authorization_tests::worker("held-sign-out");
+        let (send, mut commands) = mpsc::unbounded_channel();
+        worker.commands = send;
+        // #given a transfer here held behind a play, whose answer has
+        // queued its notice
+        let play = speaker_play();
+        let answered = worker.play_order(&play).1.expect("the play holds back");
+        {
+            let _entered = runtime.enter();
+            worker.player_command(PlayerCommand::Transfer);
+        }
+        drop(answered);
+        let due = runtime.block_on(commands.recv());
+        assert!(matches!(due, Some(Command::HeldTransferDue)));
+        // #when the account signs out before the notice is taken
+        {
+            let _entered = runtime.enter();
+            worker.sign_out();
+        }
+        while events.try_recv().is_ok() {}
+        worker.held_transfer_due();
+        // #then the transfer does not run
+        assert!(events.try_recv().is_err());
     }
 
     #[test]
