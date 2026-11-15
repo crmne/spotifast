@@ -227,7 +227,11 @@ msgstr "{name}, folder, zwinięty"
 msgid "{name}, folder, expanded"
 msgstr "{name}, folder, rozwinięty"
 
-#: src/ui/player_bar.rs:81
+#: src/ui/player_bar.rs:88
+msgid "The visualiser shows only music playing on this computer"
+msgstr "Wizualizacja pokazuje tylko muzykę odtwarzaną na tym komputerze"
+
+#: src/ui/player_bar.rs:91
 msgid "Click to change the visualiser"
 msgstr "Kliknij, aby zmienić wizualizację"
 
@@ -1800,10 +1804,11 @@ msgstr ""
 
 #: src/ui/settings.rs:1343
 msgid ""
-"Show the song moving behind the player bar's controls while it plays here."
+"Show the song moving behind the player bar's controls. It shows only music "
+"playing on this computer, not on a speaker or another device."
 msgstr ""
-"Pokazuje ruch utworu za przyciskami paska odtwarzacza, gdy gra na tym "
-"komputerze."
+"Pokazuje ruch utworu za przyciskami paska odtwarzacza. Tylko muzykę "
+"odtwarzaną na tym komputerze, nie na głośniku ani innym urządzeniu."
 
 #: src/ui/settings.rs:1348
 msgid "Allow clicks on empty player bar space to cycle the visualiser."
