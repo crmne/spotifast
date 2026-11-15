@@ -5133,8 +5133,9 @@ mod playing_bars_tests {
         // The repaint delay egui is left with after a playing row's fourth
         // pass. A new context repaints at once for its first passes, and a
         // new area asks for one more.
-        let delay = |budget| {
+        let delay = |budget, reduced| {
             let ctx = egui::Context::default();
+            crate::motion::apply(&ctx, reduced);
             let mut last = Duration::ZERO;
             for frame in 1..=4 {
                 let mut output = ctx.run_ui(
@@ -5155,19 +5156,23 @@ mod playing_bars_tests {
         };
         // egui takes its predicted frame time off a delayed repaint, and the
         // bars add it back, so what is left is their own pace.
-        let normal = delay(Budget::Normal);
+        let normal = delay(Budget::Normal, false);
         assert!(
             (Duration::from_millis(30)..Duration::from_millis(40)).contains(&normal),
             "about 30 frames a second: {normal:?}"
         );
-        let saver = delay(Budget::Saver);
+        let saver = delay(Budget::Saver, false);
         assert!(
             (Duration::from_millis(60)..Duration::from_millis(70)).contains(&saver),
             "half as many while saving energy or out of focus: {saver:?}"
         );
         assert!(
-            delay(Budget::Background) > Duration::from_secs(1),
+            delay(Budget::Background, false) > Duration::from_secs(1),
             "no frames while nobody can see the window"
+        );
+        assert!(
+            delay(Budget::Normal, true) > Duration::from_secs(1),
+            "still bars, and no frames, when less motion is asked for"
         );
     }
 }
