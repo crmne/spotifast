@@ -570,6 +570,20 @@ written, change them, or delete the ones you do not want. Spotifast never
 rewrites them, and a deleted one stays deleted; `.installed-palettes` in
 the folder records which it has already put there.
 
+### More Catppuccin variants
+
+[Catppuccin Frappé](https://github.com/crmne/spotifast/blob/main/contrib/themes/Catppuccin%20Frappe.json),
+[Macchiato](https://github.com/crmne/spotifast/blob/main/contrib/themes/Catppuccin%20Macchiato.json)
+and [Mocha](https://github.com/crmne/spotifast/blob/main/contrib/themes/Catppuccin%20Mocha.json)
+are also provided as palette files in `contrib/themes`. Download the raw JSON
+files into the `themes` folder beside `settings.json`, then run
+`spotifast reload-themes` and choose one under **Settings → Appearance → Theme**.
+Latte is already installed with the app. The existing **Catppuccin** theme
+keeps its colours; **Catppuccin Mocha** uses the official Mocha surface shades.
+The three dark variants use Catppuccin's blue accent and the same colour roles.
+
+### Writing a palette
+
 To make your own, add JSON files to the `themes` folder.
 Run `spotifast reload-themes` if the app is already open, then select it
 under **Settings → Appearance → Theme**, where it is listed by its filename
