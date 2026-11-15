@@ -396,12 +396,16 @@ fn configure_linux_audio(
     sink: &str,
     pipewire_props: &str,
     pulse_props: &str,
+    pulse_has_sink: bool,
 ) {
     command
         .args(["--pipewire-device", sink])
-        .env("PIPEWIRE_PROPS", audio::child_props(pipewire_props))
-        .env("PULSE_SINK", sink)
-        .env("PULSE_PROP", audio::pulse_props(pulse_props));
+        .env("PIPEWIRE_PROPS", audio::child_props(pipewire_props));
+    if pulse_has_sink {
+        command
+            .env("PULSE_SINK", sink)
+            .env("PULSE_PROP", audio::pulse_props(pulse_props));
+    }
 }
 async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Result<Outcome> {
     let Player {
@@ -425,9 +429,19 @@ async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Resu
     let mut command = tokio::process::Command::new(build.path(root));
     #[cfg(target_os = "linux")]
     if let Some(bridge) = &bridge {
+        let sink = bridge.name.clone();
+        let pulse_has_sink = tokio::task::spawn_blocking(move || audio::pulse_reaches_sink(&sink))
+            .await
+            .unwrap_or(false);
         let pipewire_props = std::env::var("PIPEWIRE_PROPS").unwrap_or_default();
         let pulse_props = std::env::var("PULSE_PROP").unwrap_or_default();
-        configure_linux_audio(&mut command, &bridge.name, &pipewire_props, &pulse_props);
+        configure_linux_audio(
+            &mut command,
+            &bridge.name,
+            &pipewire_props,
+            &pulse_props,
+            pulse_has_sink,
+        );
     }
     command
         .args([
@@ -1102,8 +1116,8 @@ mod tests {
     }
 
     /// Soloist may play through native PipeWire or through libpulse on
-    /// `pipewire-pulse`; both paths must target the private processing sink
-    /// and keep the stream properties that hold source volume at unity.
+    /// `pipewire-pulse`; when the Pulse server exposes the processing sink,
+    /// both paths target it and keep source volume at unity.
     #[cfg(target_os = "linux")]
     #[test]
     fn linux_audio_routes_both_pipewire_and_pulse_clients() {
@@ -1113,6 +1127,7 @@ mod tests {
             "spotifast.soloist.1234",
             "{ node.latency = 1024/48000 }",
             "media.role=music",
+            true,
         );
         let args: Vec<_> = command
             .as_std()
@@ -1142,5 +1157,37 @@ mod tests {
             pipewire_props.contains("node.latency = 1024/48000"),
             "{pipewire_props}"
         );
+    }
+
+    /// When `PULSE_SERVER` or the user's Pulse setup points at a server other
+    /// than the PipeWire instance hosting `bridge.name`, `PULSE_SINK` and
+    /// `PULSE_PROP` stay unset so libpulse keeps direct playback instead of
+    /// failing on a missing sink.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_audio_leaves_pulse_untouched_when_sink_is_not_on_pulse_server() {
+        let mut command = tokio::process::Command::new("soloist");
+        configure_linux_audio(
+            &mut command,
+            "spotifast.soloist.1234",
+            "",
+            "media.role=music",
+            false,
+        );
+        let args: Vec<_> = command
+            .as_std()
+            .get_args()
+            .map(|arg| arg.to_str().unwrap())
+            .collect();
+        assert_eq!(args, ["--pipewire-device", "spotifast.soloist.1234"]);
+        let env = |key: &str| {
+            command
+                .as_std()
+                .get_envs()
+                .find_map(|(name, value)| (name == key).then(|| value.unwrap().to_str().unwrap()))
+        };
+        assert!(env("PIPEWIRE_PROPS").is_some());
+        assert_eq!(env("PULSE_SINK"), None);
+        assert_eq!(env("PULSE_PROP"), None);
     }
 }

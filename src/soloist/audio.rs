@@ -407,6 +407,353 @@ pub fn pulse_props(existing: &str) -> String {
     }
 }
 
+/// True when libpulse's configured local UNIX server exposes `sink`, proving
+/// that a libpulse Soloist child reaches the same PipeWire graph as `Bridge`.
+#[cfg(target_os = "linux")]
+pub fn pulse_reaches_sink(sink: &str) -> bool {
+    pulse::reaches_sink(sink)
+}
+
+#[cfg(target_os = "linux")]
+mod pulse {
+    use std::{
+        io::{Read, Write},
+        os::unix::net::UnixStream,
+        path::{Path, PathBuf},
+        time::Duration,
+    };
+
+    const PROTOCOL_VERSION: u32 = 35;
+    const COOKIE_LEN: usize = 256;
+    const DESCRIPTOR_LEN: usize = 20;
+    const CONTROL_CHANNEL: u32 = u32::MAX;
+    const MAX_FRAME_LEN: usize = 4096;
+    const CMD_ERROR: u32 = 0;
+    const CMD_REPLY: u32 = 2;
+    const CMD_AUTH: u32 = 8;
+    const CMD_SET_CLIENT_NAME: u32 = 9;
+    const CMD_LOOKUP_SINK: u32 = 10;
+    const PA_ERR_NOENTITY: u32 = 5;
+    const TAG_STRING: u8 = b't';
+    const TAG_STRING_NULL: u8 = b'N';
+    const TAG_U32: u8 = b'L';
+    const TAG_ARBITRARY: u8 = b'x';
+    const TAG_PROPLIST: u8 = b'P';
+    const SOCKET_TIMEOUT: Duration = Duration::from_millis(200);
+
+    #[derive(Debug, PartialEq, Eq)]
+    pub(super) enum Endpoint {
+        Unix(PathBuf),
+        NonUnix,
+    }
+
+    pub(super) fn parse_server_list(
+        list: &str,
+        local_ids: &[&str],
+        runtime_dir: Option<&Path>,
+    ) -> Vec<Endpoint> {
+        let mut out = Vec::new();
+        for entry in list.split_ascii_whitespace() {
+            let rest = if let Some(after_open) = entry.strip_prefix('{') {
+                let Some((id, after_close)) = after_open.split_once('}') else {
+                    out.push(Endpoint::NonUnix);
+                    break;
+                };
+                if !local_ids
+                    .iter()
+                    .any(|local| !local.is_empty() && *local == id)
+                {
+                    continue;
+                }
+                after_close
+            } else {
+                entry
+            };
+            if let Some(path) = rest.strip_prefix("unix:") {
+                if path.starts_with('/') {
+                    out.push(Endpoint::Unix(PathBuf::from(path)));
+                } else if !path.is_empty()
+                    && let Some(dir) = runtime_dir
+                {
+                    out.push(Endpoint::Unix(dir.join(path)));
+                } else {
+                    out.push(Endpoint::NonUnix);
+                    break;
+                }
+            } else if rest.starts_with('/') {
+                out.push(Endpoint::Unix(PathBuf::from(rest)));
+            } else if !rest.is_empty() {
+                out.push(Endpoint::NonUnix);
+                break;
+            }
+        }
+        out
+    }
+
+    pub(super) fn parse_client_conf(contents: &str) -> (Option<String>, Option<PathBuf>) {
+        let mut server = None;
+        let mut cookie = None;
+        for line in contents.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') || line.starts_with(';') {
+                continue;
+            }
+            let Some((key, value)) = line.split_once('=') else {
+                continue;
+            };
+            let key = key.trim();
+            let value = value.trim();
+            let value = value
+                .strip_prefix('"')
+                .and_then(|v| v.strip_suffix('"'))
+                .or_else(|| value.strip_prefix('\'').and_then(|v| v.strip_suffix('\'')))
+                .unwrap_or(value)
+                .trim();
+            match key {
+                "default-server" => {
+                    server = (!value.is_empty()).then(|| value.to_owned());
+                }
+                "cookie-file" => {
+                    cookie = (!value.is_empty()).then(|| PathBuf::from(value));
+                }
+                _ => {}
+            }
+        }
+        (server, cookie)
+    }
+
+    fn local_host_ids() -> Vec<String> {
+        [
+            "/etc/machine-id",
+            "/var/lib/dbus/machine-id",
+            "/proc/sys/kernel/hostname",
+        ]
+        .into_iter()
+        .filter_map(|path| std::fs::read_to_string(path).ok())
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+        .collect()
+    }
+
+    fn user_pulse_config_dir(home: Option<&Path>) -> Option<PathBuf> {
+        if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty()) {
+            return Some(PathBuf::from(xdg).join("pulse"));
+        }
+        home.map(|dir| dir.join(".config/pulse"))
+    }
+
+    fn configured_endpoints_and_cookie() -> (Vec<Endpoint>, [u8; COOKIE_LEN]) {
+        let runtime_dir = std::env::var_os("PULSE_RUNTIME_PATH")
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+            .or_else(|| {
+                std::env::var_os("XDG_RUNTIME_DIR")
+                    .filter(|v| !v.is_empty())
+                    .map(|dir| PathBuf::from(dir).join("pulse"))
+            });
+        let home = std::env::var_os("HOME")
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from);
+        let config_dir = user_pulse_config_dir(home.as_deref());
+
+        let conf_files = if let Some(custom) =
+            std::env::var_os("PULSE_CLIENTCONFIG").filter(|v| !v.is_empty())
+        {
+            vec![PathBuf::from(custom)]
+        } else {
+            let mut files = vec![PathBuf::from("/etc/pulse/client.conf")];
+            if let Some(user_conf) = config_dir
+                .as_ref()
+                .map(|dir| dir.join("client.conf"))
+                .filter(|path| path.is_file())
+                .or_else(|| {
+                    home.as_ref()
+                        .map(|dir| dir.join(".pulse/client.conf"))
+                        .filter(|path| path.is_file())
+                })
+            {
+                files.push(user_conf);
+            }
+            files
+        };
+
+        let mut conf_server = None;
+        let mut conf_cookie = None;
+        for file in conf_files {
+            if let Ok(contents) = std::fs::read_to_string(file) {
+                let (s, c) = parse_client_conf(&contents);
+                if s.is_some() {
+                    conf_server = s;
+                }
+                if c.is_some() {
+                    conf_cookie = c;
+                }
+            }
+        }
+
+        let ids = local_host_ids();
+        let id_refs: Vec<&str> = ids.iter().map(String::as_str).collect();
+        let endpoints = if let Ok(env_server) = std::env::var("PULSE_SERVER")
+            && !env_server.trim().is_empty()
+        {
+            parse_server_list(&env_server, &id_refs, runtime_dir.as_deref())
+        } else if let Some(server) = conf_server {
+            parse_server_list(&server, &id_refs, runtime_dir.as_deref())
+        } else if let Some(dir) = runtime_dir {
+            vec![Endpoint::Unix(dir.join("native"))]
+        } else {
+            Vec::new()
+        };
+
+        let mut cookie = [0u8; COOKIE_LEN];
+        let cookie_candidates = [
+            std::env::var_os("PULSE_COOKIE")
+                .filter(|v| !v.is_empty())
+                .map(PathBuf::from),
+            conf_cookie,
+            config_dir.map(|dir| dir.join("cookie")),
+            home.map(|dir| dir.join(".pulse-cookie")),
+        ];
+        for candidate in cookie_candidates.into_iter().flatten() {
+            if let Ok(bytes) = std::fs::read(candidate)
+                && bytes.len() == COOKIE_LEN
+            {
+                cookie.copy_from_slice(&bytes);
+                break;
+            }
+        }
+
+        (endpoints, cookie)
+    }
+
+    fn push_u32_tag(buf: &mut Vec<u8>, value: u32) {
+        buf.push(TAG_U32);
+        buf.extend_from_slice(&value.to_be_bytes());
+    }
+
+    fn send_packet(stream: &mut UnixStream, payload: &[u8]) -> std::io::Result<()> {
+        let len = u32::try_from(payload.len()).map_err(|_| {
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, "packet too large")
+        })?;
+        let mut header = [0u8; DESCRIPTOR_LEN];
+        header[0..4].copy_from_slice(&len.to_be_bytes());
+        header[4..8].copy_from_slice(&CONTROL_CHANNEL.to_be_bytes());
+        stream.write_all(&header)?;
+        stream.write_all(payload)
+    }
+
+    fn recv_packet(stream: &mut UnixStream) -> Option<(u32, u32, Vec<u8>)> {
+        let mut header = [0u8; DESCRIPTOR_LEN];
+        stream.read_exact(&mut header).ok()?;
+        let len = u32::from_be_bytes(header[0..4].try_into().ok()?) as usize;
+        let channel = u32::from_be_bytes(header[4..8].try_into().ok()?);
+        if channel != CONTROL_CHANNEL || len > MAX_FRAME_LEN {
+            return None;
+        }
+        let mut body = vec![0u8; len];
+        stream.read_exact(&mut body).ok()?;
+        let cmd = read_u32_tag(body.get(0..5)?)?;
+        let seq = read_u32_tag(body.get(5..10)?)?;
+        Some((cmd, seq, body.split_off(10)))
+    }
+
+    fn read_u32_tag(bytes: &[u8]) -> Option<u32> {
+        if *bytes.first()? != TAG_U32 {
+            return None;
+        }
+        Some(u32::from_be_bytes(bytes.get(1..5)?.try_into().ok()?))
+    }
+
+    pub(super) fn socket_has_sink(
+        path: &Path,
+        sink: &str,
+        cookie: &[u8; COOKIE_LEN],
+    ) -> std::io::Result<bool> {
+        let mut stream = UnixStream::connect(path)?;
+        let _ = stream.set_read_timeout(Some(SOCKET_TIMEOUT));
+        let _ = stream.set_write_timeout(Some(SOCKET_TIMEOUT));
+        Ok(query_connected_sink(&mut stream, sink, cookie).unwrap_or(false))
+    }
+
+    fn query_connected_sink(
+        stream: &mut UnixStream,
+        sink: &str,
+        cookie: &[u8; COOKIE_LEN],
+    ) -> Option<bool> {
+        let mut auth = Vec::with_capacity(20 + COOKIE_LEN);
+        push_u32_tag(&mut auth, CMD_AUTH);
+        push_u32_tag(&mut auth, 0);
+        push_u32_tag(&mut auth, PROTOCOL_VERSION);
+        auth.push(TAG_ARBITRARY);
+        auth.extend_from_slice(&(COOKIE_LEN as u32).to_be_bytes());
+        auth.extend_from_slice(cookie);
+        send_packet(stream, &auth).ok()?;
+        let (cmd, seq, _) = recv_packet(stream)?;
+        if cmd != CMD_REPLY || seq != 0 {
+            return None;
+        }
+
+        let mut set_name = Vec::with_capacity(12);
+        push_u32_tag(&mut set_name, CMD_SET_CLIENT_NAME);
+        push_u32_tag(&mut set_name, 1);
+        set_name.push(TAG_PROPLIST);
+        set_name.push(TAG_STRING_NULL);
+        send_packet(stream, &set_name).ok()?;
+        let (cmd, seq, _) = recv_packet(stream)?;
+        if cmd != CMD_REPLY || seq != 1 {
+            return None;
+        }
+
+        for attempt in 0..4u32 {
+            let req_seq = 2 + attempt;
+            let mut lookup = Vec::with_capacity(12 + sink.len());
+            push_u32_tag(&mut lookup, CMD_LOOKUP_SINK);
+            push_u32_tag(&mut lookup, req_seq);
+            lookup.push(TAG_STRING);
+            lookup.extend_from_slice(sink.as_bytes());
+            lookup.push(0);
+            send_packet(stream, &lookup).ok()?;
+            let (cmd, seq, rest) = recv_packet(stream)?;
+            if seq != req_seq {
+                return None;
+            }
+            match cmd {
+                CMD_REPLY => {
+                    let index = read_u32_tag(rest.get(0..5)?)?;
+                    return Some(index != u32::MAX);
+                }
+                CMD_ERROR => {
+                    let code = read_u32_tag(rest.get(0..5)?)?;
+                    if code == PA_ERR_NOENTITY && attempt < 3 {
+                        std::thread::sleep(Duration::from_millis(20));
+                        continue;
+                    }
+                    return Some(false);
+                }
+                _ => return Some(false),
+            }
+        }
+        Some(false)
+    }
+
+    pub(super) fn reaches_sink(sink: &str) -> bool {
+        if sink.is_empty() || sink.as_bytes().contains(&0) {
+            return false;
+        }
+        let (endpoints, cookie) = configured_endpoints_and_cookie();
+        for endpoint in endpoints {
+            match endpoint {
+                Endpoint::NonUnix => return false,
+                Endpoint::Unix(path) => match socket_has_sink(&path, sink, &cookie) {
+                    Ok(found) => return found,
+                    Err(_) => continue,
+                },
+            }
+        }
+        false
+    }
+}
+
 #[cfg(all(
     test,
     any(
@@ -489,6 +836,121 @@ mod tests {
             assert!(empty.contains(wanted), "{empty}");
             assert!(props.contains(wanted), "{props}");
         }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn pulse_server_list_distinguishes_local_sockets_from_remote_servers() {
+        use pulse::{Endpoint, parse_client_conf, parse_server_list};
+        let rt = std::path::Path::new("/run/user/1000/pulse");
+        assert_eq!(
+            parse_server_list("unix:/tmp/pulse/native", &[], Some(rt)),
+            vec![Endpoint::Unix("/tmp/pulse/native".into())]
+        );
+        assert_eq!(
+            parse_server_list("unix:native", &[], Some(rt)),
+            vec![Endpoint::Unix("/run/user/1000/pulse/native".into())]
+        );
+        assert_eq!(
+            parse_server_list(
+                "{other-host}unix:/wrong/socket {my-host}/tmp/right/socket",
+                &["my-host"],
+                Some(rt),
+            ),
+            vec![Endpoint::Unix("/tmp/right/socket".into())]
+        );
+        assert_eq!(
+            parse_server_list("tcp:192.168.1.20:4713", &["my-host"], Some(rt)),
+            vec![Endpoint::NonUnix]
+        );
+        assert_eq!(
+            parse_server_list("remote-pulse-host", &["my-host"], Some(rt)),
+            vec![Endpoint::NonUnix]
+        );
+        let (server, cookie) = parse_client_conf(
+            "# comment\n; another\ndefault-server = \"unix:/custom/pulse\"\ncookie-file = /custom/cookie\n",
+        );
+        assert_eq!(server.as_deref(), Some("unix:/custom/pulse"));
+        assert_eq!(cookie, Some("/custom/cookie".into()));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn pulse_socket_lookup_matches_only_the_bridge_s_sink() {
+        use std::{
+            io::{Read, Write},
+            os::unix::net::UnixListener,
+        };
+        let dir = std::env::temp_dir().join(format!(
+            "spotifast-pulse-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let sock_path = dir.join("native");
+        let listener = UnixListener::bind(&sock_path).unwrap();
+
+        let reply_frame = |cmd: u32, seq: u32, val: u32| -> Vec<u8> {
+            let mut body = Vec::with_capacity(15);
+            for n in [cmd, seq, val] {
+                body.push(b'L');
+                body.extend_from_slice(&n.to_be_bytes());
+            }
+            let mut frame = Vec::with_capacity(20 + body.len());
+            frame.extend_from_slice(&(body.len() as u32).to_be_bytes());
+            frame.extend_from_slice(&u32::MAX.to_be_bytes());
+            frame.extend_from_slice(&0u64.to_be_bytes());
+            frame.extend_from_slice(&0u32.to_be_bytes());
+            frame.extend_from_slice(&body);
+            frame
+        };
+
+        let server = std::thread::spawn(move || {
+            for _ in 0..2 {
+                let (mut conn, _) = listener.accept().unwrap();
+                let read_pkt = |c: &mut std::os::unix::net::UnixStream| -> Vec<u8> {
+                    let mut hdr = [0u8; 20];
+                    c.read_exact(&mut hdr).unwrap();
+                    let len = u32::from_be_bytes(hdr[0..4].try_into().unwrap()) as usize;
+                    let mut buf = vec![0u8; len];
+                    c.read_exact(&mut buf).unwrap();
+                    buf
+                };
+                // AUTH
+                let _ = read_pkt(&mut conn);
+                conn.write_all(&reply_frame(2, 0, 35)).unwrap();
+                // SET_CLIENT_NAME
+                let _ = read_pkt(&mut conn);
+                conn.write_all(&reply_frame(2, 1, 1)).unwrap();
+                // LOOKUP_SINK (up to 4 retries when missing)
+                loop {
+                    let mut hdr = [0u8; 20];
+                    if conn.read_exact(&mut hdr).is_err() {
+                        break;
+                    }
+                    let len = u32::from_be_bytes(hdr[0..4].try_into().unwrap()) as usize;
+                    let mut pkt = vec![0u8; len];
+                    conn.read_exact(&mut pkt).unwrap();
+                    let seq = u32::from_be_bytes(pkt[6..10].try_into().unwrap());
+                    let name_bytes = &pkt[11..pkt.len() - 1];
+                    if name_bytes == b"spotifast.soloist.owned" {
+                        conn.write_all(&reply_frame(2, seq, 42)).unwrap();
+                        break;
+                    } else {
+                        conn.write_all(&reply_frame(0, seq, 5)).unwrap();
+                    }
+                }
+            }
+        });
+
+        let cookie = [0u8; 256];
+        assert!(pulse::socket_has_sink(&sock_path, "spotifast.soloist.owned", &cookie).unwrap());
+        assert!(!pulse::socket_has_sink(&sock_path, "spotifast.soloist.foreign", &cookie).unwrap());
+        server.join().unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// One bad moment rebuilds at once, a few more wait, and a route that
@@ -3504,6 +3966,14 @@ mod pipewire {
             let bridge = Bridge::open_on(config, Some(output), OutputVolume::default())
                 .await
                 .expect("private bridge");
+            assert!(
+                pulse_reaches_sink(&bridge.name),
+                "pipewire-pulse must expose the bridge sink"
+            );
+            assert!(
+                !pulse_reaches_sink("spotifast.soloist.absent"),
+                "missing sink must not match"
+            );
 
             let mut source = tokio::process::Command::new("pacat")
                 .args([
@@ -3589,6 +4059,33 @@ mod pipewire {
             bridge.update(&json!({"status":"paused"}));
             tokio::time::sleep(Duration::from_millis(150)).await;
             assert!(tap.window(512, 0).iter().all(|v| *v == 0.0));
+
+            bridge.state.fail("a test wanted a rebuild");
+            assert!(bridge.rebuild().await, "the route came back up");
+            assert!(!bridge.routed());
+            bridge.update(&json!({"status":"playing", "volume":0, "is_active":true}));
+            for _ in 0..100 {
+                if bridge.routed() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            assert!(
+                bridge.routed(),
+                "running libpulse child must reconnect to rebuilt route"
+            );
+            tokio::time::sleep(Duration::from_millis(800)).await;
+            assert!(!bridge.failed());
+            let rebuilt_peak = tap
+                .window(512, 0)
+                .iter()
+                .copied()
+                .map(f32::abs)
+                .fold(0.0, f32::max);
+            assert!(
+                (rebuilt_peak - 0.2).abs() < 0.02,
+                "post-EQ tap after rebuilding route under running libpulse child: {rebuilt_peak}"
+            );
 
             let _ = source.kill().await;
             let _ = source.wait().await;
