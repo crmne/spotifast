@@ -13029,7 +13029,14 @@ impl App {
                 duplicate_uris,
             } => {
                 self.dialog = self.duplicate_prompts.pop_front();
-                let duplicates: HashSet<&str> = duplicate_uris.iter().map(String::as_str).collect();
+                // Another pending confirmation may have added some of these
+                // songs since this question's duplicate answer was captured.
+                let cached_duplicates = self.cached_playlist_duplicates(&playlist_id, &items);
+                let duplicates: HashSet<&str> = duplicate_uris
+                    .iter()
+                    .chain(cached_duplicates.iter())
+                    .map(String::as_str)
+                    .collect();
                 let items = items
                     .into_iter()
                     .filter(|item| !duplicates.contains(item.uri()))
@@ -30062,6 +30069,90 @@ mod tests {
                 "spotify:track:last"
             ]
         );
+    }
+
+    #[test]
+    fn pending_duplicate_prompts_skip_songs_added_by_earlier_answers() {
+        for keep_added_rows in [false, true] {
+            let mut app = headless_app();
+            app.backend.set_offline(true);
+            app.playlist_pages.insert(
+                "target".into(),
+                PlaylistPage {
+                    items: PagedList {
+                        items: vec![cached_playlist_row("spotify:track:a")],
+                        total: Some(1),
+                        next_offset: None,
+                        loaded_once: true,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            );
+            for selection in [
+                vec!["a", "b"],
+                vec!["a", "b", "c", "d", "c"],
+                vec!["a", "b", "c"],
+            ] {
+                let items = selection
+                    .into_iter()
+                    .map(|id| {
+                        cached_playlist_row(&format!("spotify:track:{id}"))
+                            .playable()
+                            .unwrap()
+                            .clone()
+                    })
+                    .collect();
+                app.request_playlist_add("target".into(), "Target".into(), items, Some(0));
+            }
+            assert_eq!(app.duplicate_prompts.len(), 2);
+            for expected in [
+                vec!["spotify:track:b"],
+                vec!["spotify:track:c", "spotify:track:d", "spotify:track:c"],
+                vec![],
+            ] {
+                let Some(Dialog::ConfirmPlaylistDuplicates {
+                    playlist_id,
+                    playlist_name,
+                    items,
+                    position,
+                    duplicate_uris,
+                    ..
+                }) = app.dialog.clone()
+                else {
+                    panic!("pending duplicate question")
+                };
+                app.apply(
+                    Action::SkipPlaylistDuplicates {
+                        playlist_id,
+                        playlist_name,
+                        items,
+                        position,
+                        duplicate_uris,
+                    },
+                    &egui::Context::default(),
+                );
+                let requests = app.backend.take_playlist_add_requests();
+                if expected.is_empty() {
+                    assert!(requests.is_empty(), "all songs were already added");
+                } else {
+                    assert!(matches!(requests.as_slice(),
+                        [ApiRequest::AddToPlaylist { uris, position: Some(0), .. }] if *uris == expected));
+                }
+                if !keep_added_rows {
+                    // A different visible slice may no longer contain the added rows.
+                    // The optimistic membership still remembers those additions.
+                    app.playlist_pages
+                        .get_mut("target")
+                        .unwrap()
+                        .items
+                        .items
+                        .retain(|row| row.playable().unwrap().uri() == "spotify:track:a");
+                }
+            }
+            assert!(app.dialog.is_none());
+            assert!(app.duplicate_prompts.is_empty());
+        }
     }
 
     #[test]

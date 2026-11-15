@@ -2227,14 +2227,20 @@ mod tests {
         }
         app.actions.clear();
         let id = accessible_node(&tree, "Skip duplicates", egui::accesskit::Role::Button);
-        let _ = accessible_frame(
-            &ctx,
-            &mut app,
-            vec![accessible_action(id, egui::accesskit::Action::Click, None)],
+        let _ = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1280.0, 800.0),
+                )),
+                events: vec![accessible_action(id, egui::accesskit::Action::Click, None)],
+                ..Default::default()
+            },
+            |ui| crate::ui::show(&mut app, ui),
         );
         assert!(
             app.actions.is_empty(),
-            "disabled skip must not dispatch a write"
+            "disabled skip must not dispatch an action before application"
         );
         app.backend.shutdown();
     }

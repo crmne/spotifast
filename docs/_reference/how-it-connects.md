@@ -876,4 +876,6 @@ the existing Web API duplicate check reads playlist pages until every selected
 URI is found or the playlist ends. A partial cache finding only some of the
 selected songs cannot identify all duplicates. **Skip duplicates** adds only
 selected URIs absent from that answer, in selection order at the requested
-position. If every selected song already exists, it sends no write.
+position. Before adding, it also excludes songs now known to be present,
+including songs added while this confirmation was waiting. If every selected
+song already exists, it sends no write.
