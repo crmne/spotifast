@@ -4984,6 +4984,8 @@ impl Worker {
     /// Each request runs as its own task, so a pause pressed as a song
     /// starts could reach the device before the play, which a shuffled play
     /// sends as two writes: a player command waits for the play before it.
+    /// A command held behind a play holds the next one back in turn, so a
+    /// pause pressed before a newer play cannot reach the device after it.
     fn play_order(
         &mut self,
         request: &ApiRequest,
@@ -5004,9 +5006,8 @@ impl Worker {
                 ..
             } | ApiRequest::ShufflePlay { .. }
         );
-        if !starts {
-            self.play_unanswered = after.clone();
-            return (after, None);
+        if !starts && after.is_none() {
+            return (None, None);
         }
         let (answered, unanswered) = watch::channel(());
         self.play_unanswered = Some(unanswered);
@@ -10256,7 +10257,7 @@ mod tests {
         let answered = answered.expect("the play holds later commands back");
         // #when a pause follows it
         let (after, held) = worker.play_order(&pause);
-        assert!(held.is_none(), "a pause holds nothing back");
+        let held = held.expect("a held pause holds the next command back");
         let mut after = after.expect("the pause waits for the play");
         // #then the pause goes once the play is answered, and not before
         runtime.block_on(async {
@@ -10265,6 +10266,7 @@ mod tests {
             drop(answered);
             assert!(after.changed().await.is_err(), "the play was answered");
         });
+        drop(held);
         assert!(
             worker.play_order(&pause).0.is_none(),
             "an answered play holds nothing"
@@ -10273,6 +10275,48 @@ mod tests {
             matches!(worker.play_order(&ApiRequest::Devices), (None, None)),
             "a read never waits"
         );
+    }
+
+    /// A pause pressed before a newer play, while an older play is still
+    /// unanswered, reaches the device before the newer play.
+    #[test]
+    fn a_newer_play_waits_for_the_control_held_before_it() {
+        let (runtime, mut worker, _events) = super::authorization_tests::worker("play-chain");
+        let older = ApiRequest::ShufflePlay {
+            device_id: Some("speaker".into()),
+            play: PlayRequest::tracks(vec!["spotify:track:a".into()]),
+        };
+        let pause = ApiRequest::Remote {
+            action: RemoteAction::Pause,
+            device_id: Some("speaker".into()),
+            play: None,
+            position_ms: 0,
+            percent: 0,
+            flag: false,
+            repeat: String::new(),
+        };
+        let newer = ApiRequest::Remote {
+            action: RemoteAction::Play,
+            device_id: Some("speaker".into()),
+            play: Some(PlayRequest::tracks(vec!["spotify:track:b".into()])),
+            position_ms: 0,
+            percent: 0,
+            flag: false,
+            repeat: String::new(),
+        };
+        // #given an unanswered play and a pause held behind it
+        let older_answered = worker.play_order(&older).1.expect("the play holds back");
+        let pause_sent = worker.play_order(&pause).1.expect("the pause holds back");
+        // #when a newer play follows
+        let mut after = worker.play_order(&newer).0.expect("the newer play waits");
+        // #then it goes after the pause, not as soon as the older play is answered
+        runtime.block_on(async {
+            drop(older_answered);
+            let waiting = tokio::time::timeout(Duration::from_millis(20), after.changed());
+            assert!(waiting.await.is_err(), "the pause has not gone yet");
+            drop(pause_sent);
+            assert!(after.changed().await.is_err(), "the pause has gone");
+        });
     }
 
     #[test]
