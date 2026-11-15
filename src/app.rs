@@ -3269,7 +3269,10 @@ impl App {
                 if !ready {
                     // Remembered before the target goes: the player may stop
                     // mid-song, and its song should carry on when it is back.
-                    self.soloist_resume |= self.soloist_device_id.is_some()
+                    // An output move already took the player's own word; this
+                    // snapshot can lag it and bring back a song that ended.
+                    self.soloist_resume |= !self.soloist_moving_output
+                        && self.soloist_device_id.is_some()
                         && self.targets_own_soloist()
                         && self.now_playing().is_some_and(|now| now.playing);
                     self.soloist_audio = false;
@@ -23898,6 +23901,42 @@ mod tests {
         app.on_soloist(Update::OutputMoved { playing: true });
         app.on_soloist(Update::Status(Status::Starting));
         assert!(app.soloist_resume);
+        app.backend.shutdown();
+    }
+
+    /// A player that went idle a moment before the output moved may still
+    /// look playing in the remote snapshot; the restart does not start the
+    /// ended song again.
+    #[test]
+    fn a_player_idle_before_an_output_move_stays_stopped() {
+        use crate::soloist::{Status, Update};
+        let (_ctx, mut app) = listening_on_soloist("soloist-moving-idle");
+        app.remote = Some(RemoteSnapshot {
+            state: PlaybackState {
+                device: Some(Device {
+                    id: Some("own".into()),
+                    name: "owned".into(),
+                    is_active: true,
+                    ..Default::default()
+                }),
+                item: Some(crate::api::models::PlayableItem::Track(
+                    crate::api::models::Track {
+                        uri: "spotify:track:ended".into(),
+                        ..Default::default()
+                    },
+                )),
+                is_playing: true,
+                ..Default::default()
+            },
+            received_at: Instant::now(),
+        });
+        assert!(
+            app.now_playing().is_some_and(|now| now.playing),
+            "stale snapshot"
+        );
+        app.on_soloist(Update::OutputMoved { playing: false });
+        app.on_soloist(Update::Status(Status::Starting));
+        assert!(!app.soloist_resume);
         app.backend.shutdown();
     }
 
