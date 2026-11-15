@@ -771,6 +771,8 @@ pub enum Command {
         config: ProxyConfig,
     },
     Player(PlayerCommand),
+    /// The play a transfer to this computer waited for was answered.
+    HeldTransferDue,
     Api(ApiRequest),
     ApiFinished {
         generation: u64,
@@ -1910,6 +1912,9 @@ struct Worker {
     search_tasks: Vec<tokio::task::AbortHandle>,
     /// The last play sent to a device, until Spotify answers it.
     play_unanswered: Option<watch::Receiver<()>>,
+    /// A transfer to this computer waits for that play. A transfer to
+    /// another device asked for meanwhile takes its place.
+    transfer_held: bool,
     /// A user changed engine-affecting settings while the current connection
     /// attempt was in flight. Its result is stale and must not be installed.
     engine_restart_pending: bool,
@@ -2024,6 +2029,7 @@ impl Worker {
             audio_cache_clearing: false,
             search_tasks: Vec::new(),
             play_unanswered: None,
+            transfer_held: false,
             engine_restart_pending: false,
             signed_in: false,
             premium: None,
@@ -2451,51 +2457,8 @@ impl Worker {
                     self.resume_engine();
                 }
                 Command::ApplyProxy { request, config } => self.change_proxy(request, config, None),
-                Command::Player(command) => {
-                    if let Some(mut play) = self.transfer_after(&command) {
-                        let commands = self.commands.clone();
-                        let mut session = self.session.subscribe();
-                        tokio::spawn(async move {
-                            tokio::select! {
-                                biased;
-                                _ = session.changed() => {}
-                                _ = play.changed() => {
-                                    let _ = commands.send(Command::Player(command));
-                                }
-                            }
-                        });
-                        continue;
-                    }
-                    if matches!(&command, PlayerCommand::Load(_)) {
-                        self.resume = None;
-                    }
-                    match &self.engine {
-                        // Until the new session picks the song up, it has
-                        // nothing to pause: the player does it (#268).
-                        Some(engine)
-                            if command == PlayerCommand::Toggle
-                                && engine.carrying()
-                                && engine.keep_player().toggle() => {}
-                        Some(engine) => {
-                            if let Err(error) = engine.command(command) {
-                                self.emit(Event::Error(format!("Playback error: {error}")));
-                            }
-                        }
-                        // While the session reconnects, the song it left
-                        // pauses and plays on its own player (#268).
-                        None if command == PlayerCommand::Toggle
-                            && self.kept_player.as_ref().is_some_and(KeptPlayer::toggle) => {}
-                        None => {
-                            if matches!(&command, PlayerCommand::Load(_)) {
-                                // Something else chosen: the old song stops.
-                                self.stop_kept_player();
-                            }
-                            self.emit(Event::Error(
-                                "Local playback isn't set up on this computer yet".into(),
-                            ))
-                        }
-                    }
-                }
+                Command::Player(command) => self.player_command(command),
+                Command::HeldTransferDue => self.held_transfer_due(),
                 Command::Api(ApiRequest::Search { query, serial }) => self.search(query, serial),
                 Command::Api(request) => {
                     if let ApiRequest::PlaybackState { seq } = &request {
@@ -5007,6 +4970,9 @@ impl Worker {
         if command_device(request).is_none() {
             return (None, None);
         }
+        if matches!(request, ApiRequest::Transfer { .. }) {
+            self.transfer_held = false;
+        }
         // A play already answered holds nothing back.
         let after = self
             .play_unanswered
@@ -5026,6 +4992,69 @@ impl Worker {
         let (answered, unanswered) = watch::channel(());
         self.play_unanswered = Some(unanswered);
         (after, Some(answered))
+    }
+
+    /// Runs `command` on the player here, or holds a transfer to this
+    /// computer back behind a play still on its way to another device.
+    fn player_command(&mut self, command: PlayerCommand) {
+        if let Some(play) = self.transfer_after(&command) {
+            self.hold_transfer(play);
+            return;
+        }
+        if matches!(&command, PlayerCommand::Load(_)) {
+            self.resume = None;
+        }
+        match &self.engine {
+            // Until the new session picks the song up, it has
+            // nothing to pause: the player does it (#268).
+            Some(engine)
+                if command == PlayerCommand::Toggle
+                    && engine.carrying()
+                    && engine.keep_player().toggle() => {}
+            Some(engine) => {
+                if let Err(error) = engine.command(command) {
+                    self.emit(Event::Error(format!("Playback error: {error}")));
+                }
+            }
+            // While the session reconnects, the song it left
+            // pauses and plays on its own player (#268).
+            None if command == PlayerCommand::Toggle
+                && self.kept_player.as_ref().is_some_and(KeptPlayer::toggle) => {}
+            None => {
+                if matches!(&command, PlayerCommand::Load(_)) {
+                    // Something else chosen: the old song stops.
+                    self.stop_kept_player();
+                }
+                self.emit(Event::Error(
+                    "Local playback isn't set up on this computer yet".into(),
+                ))
+            }
+        }
+    }
+
+    /// Holds a transfer to this computer until `play` is answered.
+    fn hold_transfer(&mut self, mut play: watch::Receiver<()>) {
+        self.transfer_held = true;
+        let commands = self.commands.clone();
+        let mut session = self.session.subscribe();
+        tokio::spawn(async move {
+            tokio::select! {
+                biased;
+                _ = session.changed() => {}
+                _ = play.changed() => {
+                    let _ = commands.send(Command::HeldTransferDue);
+                }
+            }
+        });
+    }
+
+    /// Sends the held transfer to this computer on, unless a transfer to
+    /// another device took its place: that one would otherwise end with
+    /// playback back here.
+    fn held_transfer_due(&mut self) {
+        if std::mem::take(&mut self.transfer_held) {
+            self.player_command(PlayerCommand::Transfer);
+        }
     }
 
     /// The play a transfer to this computer waits for. A transfer takes
@@ -10372,6 +10401,48 @@ mod tests {
         // #when the play is answered, the transfer goes
         drop(answered);
         assert!(worker.transfer_after(&PlayerCommand::Transfer).is_none());
+    }
+
+    #[test]
+    fn a_speaker_chosen_after_this_computer_takes_the_held_transfer_s_place() {
+        let (runtime, mut worker, events) = super::authorization_tests::worker("held-transfer");
+        let (send, mut commands) = mpsc::unbounded_channel();
+        worker.commands = send;
+        let play = ApiRequest::Remote {
+            action: RemoteAction::Play,
+            device_id: Some("speaker".into()),
+            play: Some(PlayRequest::tracks(vec!["spotify:track:a".into()])),
+            position_ms: 0,
+            percent: 0,
+            flag: false,
+            repeat: String::new(),
+        };
+        let kitchen = ApiRequest::Transfer {
+            device_id: "kitchen".into(),
+            play: true,
+        };
+        let mut transfer_here_runs = |speaker_after: bool| {
+            // #given a play Spotify has not answered yet, and this computer
+            // chosen meanwhile
+            let answered = worker.play_order(&play).1.expect("the play holds back");
+            {
+                let _entered = runtime.enter();
+                worker.player_command(PlayerCommand::Transfer);
+            }
+            // #when another speaker is chosen too, and answered with the play
+            if speaker_after {
+                drop(worker.play_order(&kitchen));
+            }
+            drop(answered);
+            let due = runtime.block_on(commands.recv());
+            assert!(matches!(due, Some(Command::HeldTransferDue)));
+            worker.held_transfer_due();
+            // With no engine here, a transfer that runs says so.
+            events.try_recv().is_ok()
+        };
+        // #then the transfer here runs only when nothing took its place
+        assert!(transfer_here_runs(false), "nothing else was chosen");
+        assert!(!transfer_here_runs(true), "the speaker took its place");
     }
 
     #[test]
