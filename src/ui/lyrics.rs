@@ -1105,8 +1105,8 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui, scroll_right: f32, cont
     let animation = crate::motion::scroll(ui.ctx(), 0.45);
     let size = (column * 0.046).clamp(28.0, 44.0);
     // The line being sung takes the theme's accent, though the view is
-    // always dark, and grows; each line wraps
-    // for its full size all along, so growing can't rewrap its words.
+    // always dark, and grows; each line keeps the rows it takes at its full
+    // size all along, so growing can't rewrap its words.
     // A line takes 300 ms to light up or fade.
     // A moving picture asks more of the quiet lines than a still one.
     let quiet = palette
@@ -1155,21 +1155,20 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui, scroll_right: f32, cont
                 } else {
                     1.0
                 };
-                let wrap = column / SUNG_LINE_GROWTH * grown;
                 let font = theme::bold(size * grown);
+                let full = theme::bold(size * SUNG_LINE_GROWTH);
                 // Untimed words have nowhere to jump to, but a click on them
                 // is still on a line, so it must not reach the backdrop.
                 let sense = Sense::click();
                 let note = line.text.is_empty() && lyrics.synced;
                 let galley = (!note).then(|| {
-                    crate::bidi::layout(
+                    crate::bidi::layout_on_rows_of(
                         ui.painter(),
                         &line.text,
                         font,
+                        full,
                         color,
-                        wrap,
-                        usize::MAX,
-                        None,
+                        column,
                     )
                 });
                 let height = galley
