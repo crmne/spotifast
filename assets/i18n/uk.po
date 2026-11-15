@@ -227,8 +227,12 @@ msgstr "{name}, папка, згорнута"
 msgid "{name}, folder, expanded"
 msgstr "{name}, папка, розгорнута"
 
-#: src/ui/player_bar.rs:81
-msgid "Click to change the visualizer"
+#: src/ui/player_bar.rs:88
+msgid "The visualiser shows only music playing on this computer"
+msgstr "Візуалізатор показує лише музику, що відтворюється на цьому комп’ютері"
+
+#: src/ui/player_bar.rs:91
+msgid "Click to change the visualiser"
 msgstr "Натисніть, щоб змінити візуалізатор"
 
 #: src/ui/player_bar.rs:440 src/ui/lyrics.rs:131 src/ui/lyrics.rs:805
@@ -1712,11 +1716,11 @@ msgid "Custom title bar"
 msgstr "Власний рядок заголовка"
 
 #: src/ui/settings.rs:1242
-msgid "Player bar visualizer"
+msgid "Player bar visualiser"
 msgstr "Візуалізатор на панелі плеєра"
 
 #: src/ui/settings.rs:1243
-msgid "Click player bar to change visualizer"
+msgid "Click player bar to change visualiser"
 msgstr "Натискання на панель відтворення змінює візуалізацію"
 
 #: src/ui/settings.rs:1252
@@ -1802,13 +1806,15 @@ msgstr ""
 
 #: src/ui/settings.rs:1343
 msgid ""
-"Show the song moving behind the player bar's controls while it plays here."
+"Show the song moving behind the player bar's controls. It shows only music "
+"playing on this computer, not on a speaker or another device."
 msgstr ""
-"Показувати візуалізацію пісні за елементами керування на панелі плеєра, коли "
-"вона відтворюється на цьому комп’ютері."
+"Показувати візуалізацію пісні за елементами керування на панелі плеєра. Лише "
+"для музики, що відтворюється на цьому комп’ютері, а не на колонці чи іншому "
+"пристрої."
 
 #: src/ui/settings.rs:1348
-msgid "Allow clicks on empty player bar space to cycle the visualizer."
+msgid "Allow clicks on empty player bar space to cycle the visualiser."
 msgstr ""
 "Дозволити перемикати візуалізацію натисканням на порожнє місце панелі "
 "відтворення."
@@ -1819,7 +1825,7 @@ msgstr "Частота кадрів"
 
 #: src/ui/settings.rs:1354
 msgid ""
-"How often the player bar and mini player visualizers draw. Lower rates use "
+"How often the player bar and mini player visualisers draw. Lower rates use "
 "fewer resources. MilkDrop has its own."
 msgstr ""
 "Як часто малюють візуалізації панелі плеєра та мініплеєра. Нижча частота "

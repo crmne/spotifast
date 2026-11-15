@@ -74,12 +74,22 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 );
                 // An open tooltip stays while the pointer is inside its widget's
                 // rect, and this one spans the bar: offer it only while the empty
-                // space itself is hovered, not the controls over it.
-                let empty = if empty.hovered() {
-                    empty.on_hover_text_at_pointer(gettext(
-                        app.locale,
-                        "Click to change the visualizer",
-                    ))
+                // space itself is hovered, not the controls over it, and only
+                // while a visualiser is showing. A click still turns it on.
+                // Music on a speaker or another device never reaches it, so it
+                // says so rather than offering a change that shows nothing.
+                let showing = app.settings.player_bar_vis != crate::settings::PlayerBarVis::Off;
+                let elsewhere = now.as_ref().is_some_and(|now| !now.local)
+                    && !(app.soloist_audio && app.targets_own_soloist());
+                let empty = if showing && empty.hovered() {
+                    empty.on_hover_text_at_pointer(if elsewhere {
+                        gettext(
+                            app.locale,
+                            "The visualiser shows only music playing on this computer",
+                        )
+                    } else {
+                        gettext(app.locale, "Click to change the visualiser")
+                    })
                 } else {
                     empty
                 };
@@ -965,7 +975,7 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_
     // change it.
     let adjustable = !app.soloist_waiting() && now.is_none_or(|now| now.can_set_volume);
     // The bar's last control, right of the volume, like Spotify's. It gives
-    // way before anything else, once Listening activity has; **F** stays.
+    // way before anything else; **F** stays.
     let room = ui.max_rect().right() - transport_right;
     if full_screen_button_fits(room) {
         let inside = app.lyrics_fullscreen.is_some();
@@ -1088,7 +1098,7 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_
     }
     if theme::icon_button(
         ui,
-        Icon::Mic,
+        Icon::MicVocal,
         18.0,
         if app.show_lyrics_panel {
             palette.accent
@@ -1101,26 +1111,6 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_
     .clicked()
     {
         app.actions.push(Action::ToggleLyricsPanel);
-    }
-    // The Listening activity button is the first to go in a narrow window,
-    // so it never crowds the transport.
-    let left = ui.min_rect().left() - ui.spacing().item_spacing.x - (18.0 + theme::ICON_BUTTON_PAD);
-    if left - transport_right >= TRANSPORT_GAP
-        && theme::icon_button(
-            ui,
-            Icon::Users,
-            18.0,
-            if app.show_friends_panel {
-                palette.accent
-            } else {
-                palette.secondary
-            },
-            palette.text,
-            &gettext(app.locale, "Listening activity"),
-        )
-        .clicked()
-    {
-        app.actions.push(Action::ToggleFriendsPanel);
     }
 }
 

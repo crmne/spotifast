@@ -227,8 +227,13 @@ msgstr "{name}, папка, свёрнута"
 msgid "{name}, folder, expanded"
 msgstr "{name}, папка, развёрнута"
 
-#: src/ui/player_bar.rs:81
-msgid "Click to change the visualizer"
+#: src/ui/player_bar.rs:88
+msgid "The visualiser shows only music playing on this computer"
+msgstr ""
+"Визуализатор показывает только музыку, которая играет на этом компьютере"
+
+#: src/ui/player_bar.rs:91
+msgid "Click to change the visualiser"
 msgstr "Нажмите, чтобы сменить визуализатор"
 
 #: src/ui/player_bar.rs:440 src/ui/lyrics.rs:131 src/ui/lyrics.rs:805
@@ -1712,11 +1717,11 @@ msgid "Custom title bar"
 msgstr "Собственный заголовок окна"
 
 #: src/ui/settings.rs:1242
-msgid "Player bar visualizer"
+msgid "Player bar visualiser"
 msgstr "Визуализатор в панели плеера"
 
 #: src/ui/settings.rs:1243
-msgid "Click player bar to change visualizer"
+msgid "Click player bar to change visualiser"
 msgstr "Нажатие на панель воспроизведения меняет визуализацию"
 
 #: src/ui/settings.rs:1252
@@ -1800,13 +1805,14 @@ msgstr ""
 
 #: src/ui/settings.rs:1343
 msgid ""
-"Show the song moving behind the player bar's controls while it plays here."
+"Show the song moving behind the player bar's controls. It shows only music "
+"playing on this computer, not on a speaker or another device."
 msgstr ""
-"Показывает движение трека за кнопками панели плеера, пока он играет на этом "
-"компьютере."
+"Показывает движение трека за кнопками панели плеера. Только музыку, которая "
+"играет на этом компьютере, а не на колонке или другом устройстве."
 
 #: src/ui/settings.rs:1348
-msgid "Allow clicks on empty player bar space to cycle the visualizer."
+msgid "Allow clicks on empty player bar space to cycle the visualiser."
 msgstr ""
 "Разрешить переключение визуализации нажатием на пустое место панели "
 "воспроизведения."
@@ -1817,7 +1823,7 @@ msgstr "Частота кадров"
 
 #: src/ui/settings.rs:1354
 msgid ""
-"How often the player bar and mini player visualizers draw. Lower rates use "
+"How often the player bar and mini player visualisers draw. Lower rates use "
 "fewer resources. MilkDrop has its own."
 msgstr ""
 "Как часто рисуют визуализации панели плеера и мини-плеера. Низкая частота "

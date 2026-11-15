@@ -222,8 +222,12 @@ msgstr "{name}, cartella, compressa"
 msgid "{name}, folder, expanded"
 msgstr "{name}, cartella, espansa"
 
-#: src/ui/player_bar.rs:81
-msgid "Click to change the visualizer"
+#: src/ui/player_bar.rs:88
+msgid "The visualiser shows only music playing on this computer"
+msgstr "Il visualizzatore mostra solo la musica che suona su questo computer"
+
+#: src/ui/player_bar.rs:91
+msgid "Click to change the visualiser"
 msgstr "Fai clic per cambiare il visualizzatore"
 
 #: src/ui/player_bar.rs:440 src/ui/lyrics.rs:131 src/ui/lyrics.rs:805
@@ -1710,11 +1714,11 @@ msgid "Custom title bar"
 msgstr "Barra del titolo personalizzata"
 
 #: src/ui/settings.rs:1242
-msgid "Player bar visualizer"
+msgid "Player bar visualiser"
 msgstr "Visualizzatore nella barra del lettore"
 
 #: src/ui/settings.rs:1243
-msgid "Click player bar to change visualizer"
+msgid "Click player bar to change visualiser"
 msgstr "Fai clic sulla barra di riproduzione per cambiare visualizzatore"
 
 #: src/ui/settings.rs:1252
@@ -1800,13 +1804,15 @@ msgstr ""
 
 #: src/ui/settings.rs:1343
 msgid ""
-"Show the song moving behind the player bar's controls while it plays here."
+"Show the song moving behind the player bar's controls. It shows only music "
+"playing on this computer, not on a speaker or another device."
 msgstr ""
-"Mostra il brano in movimento dietro i controlli della barra del lettore "
-"mentre suona qui."
+"Mostra il brano in movimento dietro i controlli della barra del lettore. "
+"Solo la musica che suona su questo computer, non su un altoparlante o un "
+"altro dispositivo."
 
 #: src/ui/settings.rs:1348
-msgid "Allow clicks on empty player bar space to cycle the visualizer."
+msgid "Allow clicks on empty player bar space to cycle the visualiser."
 msgstr ""
 "Consenti ai clic sullo spazio vuoto della barra di riproduzione di cambiare "
 "visualizzatore."
@@ -1817,7 +1823,7 @@ msgstr "Frequenza fotogrammi"
 
 #: src/ui/settings.rs:1354
 msgid ""
-"How often the player bar and mini player visualizers draw. Lower rates use "
+"How often the player bar and mini player visualisers draw. Lower rates use "
 "fewer resources. MilkDrop has its own."
 msgstr ""
 "Quanto spesso disegnano i visualizzatori della barra del lettore e del mini "
