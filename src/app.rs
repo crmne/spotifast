@@ -3726,6 +3726,8 @@ impl App {
         self.pending_remote_volume = None;
         self.local_transfer_sequence = None;
         self.queue_start_pending = None;
+        // A song held for its radio was asked by the signed-out account.
+        self.song_radio = None;
         self.pending_album_queues.clear();
         self.pending_queue_batches.clear();
         self.last_album_queue = None;
@@ -13458,6 +13460,7 @@ impl App {
                 });
             }
             Action::SignOut => {
+                self.song_radio = None;
                 self.backend.send(Command::SignOut);
                 self.show_friends_panel = false;
                 self.history = vec![Page::Home];
@@ -32869,6 +32872,30 @@ mod tests {
         assert_eq!(play.context_uri, None);
         assert_eq!(play.uris, [song, "spotify:track:two"]);
         assert_eq!(play.offset_position, Some(0));
+        app.backend.shutdown();
+    }
+
+    /// A song still waiting for its radio at sign-out never plays for the
+    /// account that left.
+    #[test]
+    fn signing_out_drops_a_song_waiting_for_its_radio() {
+        let ctx = egui::Context::default();
+        let mut app = radio_speaker_app();
+        let song = "spotify:track:one";
+        // #given a song waiting for its radio
+        app.play_request(one_song(song), false);
+        assert!(app.song_radio.is_some());
+        // #when the account signs out
+        app.apply(Action::SignOut, &ctx);
+        // #then the song is never sent
+        assert!(app.song_radio.is_none());
+        assert!(app.send_song_radio_when_due().is_none());
+        assert!(remote_plays(&app).is_empty());
+        // Clearing the account's data drops one too.
+        app.play_request(one_song(song), false);
+        assert!(app.song_radio.is_some());
+        app.reset_data();
+        assert!(app.song_radio.is_none());
         app.backend.shutdown();
     }
 
