@@ -691,24 +691,63 @@ fn background(app: &mut App, ui: &mut egui::Ui, rect: Rect) {
         .now_playing()
         .and_then(|now| preferred_backdrop_art(now.art_small, now.art_url));
     let painter = ui.painter().with_clip_rect(rect);
-    if let Some(texture) = app
+    // One layer the size of the window, already as dark as it ends up. The
+    // art, a veil and a gradient were three, and every frame draws them all
+    // again, whatever small thing moved.
+    let (tint, veil) = backdrop_shades();
+    let texture = app
         .lyrics_backdrop
-        .texture(ui.ctx(), app.backend.art(), art.as_deref())
-    {
-        painter.image(
+        .texture(ui.ctx(), app.backend.art(), art.as_deref());
+    painter.add(match texture {
+        Some(texture) => shaded_image(
             texture.id(),
             rect,
             cover_uv(rect.size(), texture.size_vec2()),
-            Color32::from_gray(180),
-        );
+            tint.map(Color32::from_gray),
+        ),
+        None => widgets::vertical_gradient(
+            rect,
+            Color32::from_black_alpha(veil[0]),
+            Color32::from_black_alpha(veil[1]),
+        ),
+    });
+}
+
+/// How much of its light the backdrop keeps at the top of the view and at
+/// the bottom. It darkens downwards, so the words and the player bar read
+/// over any cover.
+const BACKDROP_LIGHT: [f32; 2] = [135.0 / 255.0, 135.0 / 255.0 * 160.0 / 255.0];
+
+/// The backdrop's shades at the top and the bottom of the view: the tint of
+/// the blurred art, and how opaque the black over the bare window is while
+/// there is no art.
+fn backdrop_shades() -> ([u8; 2], [u8; 2]) {
+    const ART: f32 = 180.0;
+    (
+        BACKDROP_LIGHT.map(|light| (ART * light).round() as u8),
+        BACKDROP_LIGHT.map(|light| (255.0 * (1.0 - light)).round() as u8),
+    )
+}
+
+/// `texture` over `rect`, cut to `uv` and tinted from `top` down to `bottom`.
+fn shaded_image(
+    texture: egui::TextureId,
+    rect: Rect,
+    uv: Rect,
+    [top, bottom]: [Color32; 2],
+) -> egui::Shape {
+    let mut mesh = egui::Mesh::with_texture(texture);
+    for (pos, uv, color) in [
+        (rect.left_top(), uv.left_top(), top),
+        (rect.right_top(), uv.right_top(), top),
+        (rect.right_bottom(), uv.right_bottom(), bottom),
+        (rect.left_bottom(), uv.left_bottom(), bottom),
+    ] {
+        mesh.vertices.push(egui::epaint::Vertex { pos, uv, color });
     }
-    painter.rect_filled(rect, 0.0, Color32::from_black_alpha(120));
-    widgets::paint_vertical_gradient(
-        ui,
-        rect,
-        Color32::from_black_alpha(0),
-        Color32::from_black_alpha(95),
-    );
+    mesh.add_triangle(0, 1, 2);
+    mesh.add_triangle(0, 2, 3);
+    egui::Shape::mesh(mesh)
 }
 
 fn cover_uv(view: egui::Vec2, image: egui::Vec2) -> Rect {
@@ -1006,6 +1045,20 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui) {
 #[cfg(test)]
 mod tests {
     use super::{fullscreen_content_width, preferred_backdrop_art};
+
+    /// The backdrop is one layer as dark as the three it was: the art at 180
+    /// of 255, under black at 120, under a gradient to black that reached 95
+    /// at the bottom. Without art the same black lies over the bare window.
+    #[test]
+    fn the_backdrop_is_one_layer_as_dark_as_the_three_it_was() {
+        let veiled = 1.0 - 120.0 / 255.0;
+        let shaded = veiled * (1.0 - 95.0 / 255.0);
+        let (tint, veil) = super::backdrop_shades();
+        let art = |light: f32| (180.0 * light).round() as u8;
+        assert_eq!(tint, [art(veiled), art(shaded)]);
+        assert_eq!(tint, [95, 60]);
+        assert_eq!(veil, [120, 170]);
+    }
 
     #[test]
     fn fullscreen_backdrop_prefers_small_art_with_large_art_as_fallback() {
