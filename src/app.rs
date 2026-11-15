@@ -2251,7 +2251,10 @@ impl App {
     fn reconcile_remote_track_intent(&mut self, poll: u64, reported: Option<&str>) {
         let mut settled = false;
         let mut recheck = false;
+        // A song held for its radio has not been asked of the device yet.
+        let held = self.song_radio.as_ref().map(|wait| wait.seed.as_str());
         if let Some(intent) = &mut self.intent_track
+            && held != Some(intent.uri.as_str())
             && let TrackConfirmation::Remote {
                 after_poll,
                 mismatches,
@@ -32809,6 +32812,39 @@ mod tests {
         let radio = vec![radio_song("one", "Radio"), radio_song("two", "Radio")];
         app.receive_radio(song, generation, Ok(radio));
         assert!(remote_plays(&app).is_empty());
+        app.backend.shutdown();
+    }
+
+    /// Polls while a song waits for its radio describe what played before
+    /// it, so they cannot settle the song the player bar shows.
+    #[test]
+    fn polls_while_a_song_waits_for_its_radio_keep_its_title() {
+        let mut app = radio_speaker_app();
+        let song = "spotify:track:one";
+        let shown = |app: &App| app.intent_track.as_ref().map(|intent| intent.uri.clone());
+        // #given a song waiting for its radio
+        app.play_request(one_song(song), false);
+        assert!(app.song_radio.is_some());
+        // #when the speaker twice reports the song before it
+        for _ in 0..2 {
+            app.remote_poll_seq += 1;
+            let poll = app.remote_poll_seq;
+            app.reconcile_remote_track_intent(poll, Some("spotify:track:before"));
+        }
+        // #then the song stays, and only a poll sent after it counts
+        assert_eq!(shown(&app).as_deref(), Some(song));
+        let generation = app.radio_pages[song].generation;
+        app.receive_radio(song, generation, Err("no radio".into()));
+        assert_eq!(remote_plays(&app).len(), 1);
+        let sent = app.remote_poll_seq;
+        app.reconcile_remote_track_intent(sent, Some("spotify:track:before"));
+        assert_eq!(
+            shown(&app).as_deref(),
+            Some(song),
+            "a poll sent before the play"
+        );
+        app.reconcile_remote_track_intent(sent + 1, Some(song));
+        assert!(app.intent_track.is_none(), "the speaker confirms the song");
         app.backend.shutdown();
     }
 

@@ -260,6 +260,15 @@ impl App {
         let Some(wait) = self.song_radio.take() else {
             return;
         };
+        // The song is asked of the device only now, so only a poll from now
+        // on can confirm it, and the player bar holds it from now.
+        if let Some(intent) = &mut self.intent_track
+            && intent.uri == wait.seed
+            && let TrackConfirmation::Remote { after_poll, .. } = &mut intent.confirmation
+        {
+            *after_poll = self.remote_poll_seq;
+            intent.at = Instant::now();
+        }
         let request = self
             .with_radio(&wait.seed, &wait.request)
             .unwrap_or(wait.request);
