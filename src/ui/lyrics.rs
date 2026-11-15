@@ -233,6 +233,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
             .auto_shrink([false, false]),
         egui::Vec2b::new(false, true),
         |ui| {
+            let top = ui.cursor().top();
             // Before the first line there is nothing to highlight, so the
             // panel sits at the top rather than wherever it was left.
             if follow && lyrics.synced && active.is_none() {
@@ -244,6 +245,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
             }
             ui.add_space(12.0);
             for (index, line) in lyrics.lines.iter().enumerate() {
+                snap_to_pixel(ui, top);
                 let is_active = active == Some(index);
                 let lit = ui.ctx().animate_bool_with_time(
                     egui::Id::new("lyric-line").with(index),
@@ -323,6 +325,21 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
         app.lyrics_following = false;
     }
     app.lyrics_line_shown = Some(active);
+}
+
+/// Moves the cursor down to the next whole pixel below `top`, the top of
+/// the scrolled lines. egui puts that top on a whole pixel and then nudges
+/// it by up to 1/64 point, and snaps each line of text to a pixel on its
+/// own. A line that sat half a pixel off the grid flipped between two
+/// pixels with that nudge as the panel scrolled, and wiggled against its
+/// neighbours. A line on a whole pixel moves with the others.
+fn snap_to_pixel(ui: &mut egui::Ui, top: f32) {
+    let pixels_per_point = ui.pixels_per_point();
+    let at = ui.cursor().top() - top;
+    // The hundredth of a pixel absorbs float error, so a line already on
+    // the grid stays where it is.
+    let snapped = (at * pixels_per_point - 0.01).ceil() / pixels_per_point;
+    ui.add_space((snapped - at).max(0.0));
 }
 
 /// How long full screen lyrics keep their controls, the player bar and the
@@ -1244,9 +1261,47 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui, scroll_right: f32, cont
 mod tests {
     use super::{
         edge_fade, fullscreen_content_width, preferred_backdrop_art, room_around_lyrics,
-        widgets::edge_opacity,
+        snap_to_pixel, widgets::edge_opacity,
     };
     use egui::{Rect, pos2};
+
+    /// egui snaps the scrolled lines' top to a pixel and then nudges it by a
+    /// hair, so a line half a pixel off the grid flipped between two pixels
+    /// as the side panel scrolled. Every line starts on a whole pixel below
+    /// the top, so the gaps between the drawn lines never change.
+    #[test]
+    fn side_lines_scroll_as_one() {
+        for scale in [1.25_f32, 1.5, 1.75] {
+            for gap in [1.0_f32, 2.0, 10.0 / 3.0] {
+                let ctx = egui::Context::default();
+                ctx.set_pixels_per_point(scale);
+                let mut first = None;
+                for step in 0..40 {
+                    let mut tops = Vec::new();
+                    let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                        let area =
+                            egui::ScrollArea::vertical().vertical_scroll_offset(step as f32 / 7.0);
+                        area.show(ui, |ui| {
+                            let top = ui.cursor().top();
+                            ui.add_space(12.0);
+                            for _ in 0..8 {
+                                snap_to_pixel(ui, top);
+                                tops.push(ui.label("Your missing signal").rect.top());
+                                ui.add_space(gap);
+                            }
+                        });
+                    });
+                    output.textures_delta.clear();
+                    let gaps: Vec<f32> = tops
+                        .windows(2)
+                        .map(|pair| (pair[1] * scale).round() - (pair[0] * scale).round())
+                        .collect();
+                    let first = first.get_or_insert_with(|| gaps.clone());
+                    assert_eq!(*first, gaps, "scale {scale}, gap {gap}, step {step}");
+                }
+            }
+        }
+    }
 
     /// A sentence wrapped over two lines is gone by the time its top line
     /// reaches the top of the view, so the clip never cuts it in half.
