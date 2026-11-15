@@ -7315,6 +7315,8 @@ impl App {
     /// rows as a fresh list instead used to take seconds, threw the
     /// context away, and left Spotify's copy of the queue to reappear.
     fn play_queue_item(&mut self, index: usize, uri: String) {
+        // A newer choice outranks a song still waiting for its radio.
+        self.song_radio = None;
         self.resume_load = None;
         if self.resume_only() {
             // Nothing is playing anywhere, so there is no live queue to
@@ -32751,6 +32753,62 @@ mod tests {
         remote.received_at = Instant::now();
         app.play_request(song(four), false);
         assert_eq!(sent(&app), [vec![four.to_string()]]);
+        app.backend.shutdown();
+    }
+
+    /// The demo playing to a speaker, where a lone song waits for its radio.
+    fn radio_speaker_app() -> App {
+        let mut app = headless_app();
+        crate::demo::populate(&mut app);
+        app.local.connected = false;
+        app.selected_device = Some("speaker".into());
+        app.shuffle_wanted = false;
+        app
+    }
+
+    fn one_song(uri: &str) -> PlayRequest {
+        PlayRequest::tracks(vec![uri.into()]).starting_at_index(0)
+    }
+
+    /// The plays sent to the speaker since the last look.
+    fn remote_plays(app: &App) -> Vec<PlayRequest> {
+        app.backend
+            .take_remote_play_requests()
+            .into_iter()
+            .filter_map(|request| match request {
+                ApiRequest::Remote {
+                    play: Some(play), ..
+                } => Some(play),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// A Next up row chosen while a song waits for its radio is the newer
+    /// choice, so the waiting song never plays over it.
+    #[test]
+    fn a_next_up_row_drops_a_song_waiting_for_its_radio() {
+        let ctx = egui::Context::default();
+        let mut app = radio_speaker_app();
+        let song = "spotify:track:one";
+        // #given a song waiting for its radio
+        app.play_request(one_song(song), false);
+        assert!(app.song_radio.is_some());
+        // #when a Next up row is chosen
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Queue,
+                uri: "spotify:track:queued".into(),
+                index: 0,
+            },
+            &ctx,
+        );
+        // #then the song does not play, even once its radio comes
+        assert!(app.song_radio.is_none());
+        let generation = app.radio_pages[song].generation;
+        let radio = vec![radio_song("one", "Radio"), radio_song("two", "Radio")];
+        app.receive_radio(song, generation, Ok(radio));
+        assert!(remote_plays(&app).is_empty());
         app.backend.shutdown();
     }
 
