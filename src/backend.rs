@@ -2452,6 +2452,20 @@ impl Worker {
                 }
                 Command::ApplyProxy { request, config } => self.change_proxy(request, config, None),
                 Command::Player(command) => {
+                    if let Some(mut play) = self.transfer_after(&command) {
+                        let commands = self.commands.clone();
+                        let mut session = self.session.subscribe();
+                        tokio::spawn(async move {
+                            tokio::select! {
+                                biased;
+                                _ = session.changed() => {}
+                                _ = play.changed() => {
+                                    let _ = commands.send(Command::Player(command));
+                                }
+                            }
+                        });
+                        continue;
+                    }
                     if matches!(&command, PlayerCommand::Load(_)) {
                         self.resume = None;
                     }
@@ -5012,6 +5026,18 @@ impl Worker {
         let (answered, unanswered) = watch::channel(());
         self.play_unanswered = Some(unanswered);
         (after, Some(answered))
+    }
+
+    /// The play a transfer to this computer waits for. A transfer takes
+    /// over what the playing device plays, so a play still on its way there
+    /// would start that device again after it.
+    fn transfer_after(&self, command: &PlayerCommand) -> Option<watch::Receiver<()>> {
+        if *command != PlayerCommand::Transfer {
+            return None;
+        }
+        self.play_unanswered
+            .clone()
+            .filter(|play| play.has_changed().is_ok())
     }
 
     /// Cancel requests on sign-out and report completion under their original generation.
@@ -10317,6 +10343,35 @@ mod tests {
             drop(pause_sent);
             assert!(after.changed().await.is_err(), "the pause has gone");
         });
+    }
+
+    /// Choosing this computer while a play is on its way to a speaker takes
+    /// the speaker over after the play, which would otherwise start it again.
+    #[test]
+    fn a_transfer_here_waits_for_the_play_sent_before_it() {
+        let (_runtime, mut worker, _events) = super::authorization_tests::worker("play-transfer");
+        let play = ApiRequest::Remote {
+            action: RemoteAction::Play,
+            device_id: Some("speaker".into()),
+            play: Some(PlayRequest::tracks(vec!["spotify:track:a".into()])),
+            position_ms: 0,
+            percent: 0,
+            flag: false,
+            repeat: String::new(),
+        };
+        assert!(
+            worker.transfer_after(&PlayerCommand::Transfer).is_none(),
+            "nothing to wait for"
+        );
+        // #given a play Spotify has not answered yet
+        let answered = worker.play_order(&play).1.expect("the play holds back");
+        // #then a transfer here waits for it, and the local player's own
+        // controls do not
+        assert!(worker.transfer_after(&PlayerCommand::Transfer).is_some());
+        assert!(worker.transfer_after(&PlayerCommand::Toggle).is_none());
+        // #when the play is answered, the transfer goes
+        drop(answered);
+        assert!(worker.transfer_after(&PlayerCommand::Transfer).is_none());
     }
 
     #[test]
