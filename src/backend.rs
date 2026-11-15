@@ -1908,6 +1908,8 @@ struct Worker {
     /// Cached audio is being cleared on the disk worker.
     audio_cache_clearing: bool,
     search_tasks: Vec<tokio::task::AbortHandle>,
+    /// The last play sent to a device, until Spotify answers it.
+    play_unanswered: Option<watch::Receiver<()>>,
     /// A user changed engine-affecting settings while the current connection
     /// attempt was in flight. Its result is stale and must not be installed.
     engine_restart_pending: bool,
@@ -2021,6 +2023,7 @@ impl Worker {
             engine_busy: false,
             audio_cache_clearing: false,
             search_tasks: Vec::new(),
+            play_unanswered: None,
             engine_restart_pending: false,
             signed_in: false,
             premium: None,
@@ -2484,7 +2487,8 @@ impl Worker {
                     if let ApiRequest::PlaybackState { seq } = &request {
                         self.connect.poll_sent(*seq, self.cluster_playing());
                     }
-                    self.dispatch(request);
+                    let (after, answered) = self.play_order(&request);
+                    self.dispatch_after(request, after, answered);
                 }
                 Command::ApiFinished {
                     generation,
@@ -4976,8 +4980,52 @@ impl Worker {
         self.search_tasks.push(self.dispatch(request));
     }
 
+    /// What a request waits for, and what it holds back until answered.
+    /// Each request runs as its own task, so a pause pressed as a song
+    /// starts could reach the device before the play, which a shuffled play
+    /// sends as two writes: a player command waits for the play before it.
+    fn play_order(
+        &mut self,
+        request: &ApiRequest,
+    ) -> (Option<watch::Receiver<()>>, Option<watch::Sender<()>>) {
+        if command_device(request).is_none() {
+            return (None, None);
+        }
+        // A play already answered holds nothing back.
+        let after = self
+            .play_unanswered
+            .take()
+            .filter(|play| play.has_changed().is_ok());
+        let starts = matches!(
+            request,
+            ApiRequest::Remote {
+                action: RemoteAction::Play,
+                play: Some(_),
+                ..
+            } | ApiRequest::ShufflePlay { .. }
+        );
+        if !starts {
+            self.play_unanswered = after.clone();
+            return (after, None);
+        }
+        let (answered, unanswered) = watch::channel(());
+        self.play_unanswered = Some(unanswered);
+        (after, Some(answered))
+    }
+
     /// Cancel requests on sign-out and report completion under their original generation.
     fn dispatch(&self, request: ApiRequest) -> tokio::task::AbortHandle {
+        self.dispatch_after(request, None, None)
+    }
+
+    /// Runs `request` once `after` is answered. Dropping `answered`, when
+    /// this request's task ends, lets the requests waiting for it go.
+    fn dispatch_after(
+        &self,
+        request: ApiRequest,
+        after: Option<watch::Receiver<()>>,
+        answered: Option<watch::Sender<()>>,
+    ) -> tokio::task::AbortHandle {
         let soloist = self
             .soloist
             .as_ref()
@@ -5005,9 +5053,13 @@ impl Worker {
         let mut session = self.session.subscribe();
         let generation = *session.borrow_and_update();
         tokio::spawn(async move {
+            let _answered = answered;
             let (response, expired) = tokio::select! {
                 _ = session.changed() => return,
                 result = async {
+                    if let Some(mut play) = after {
+                        let _ = play.changed().await;
+                    }
                     if let Some(soloist) = soloist && let Some(response) = soloist.dispatch(&request).await {
                         return (response, Vec::new());
                     }
@@ -10178,6 +10230,49 @@ mod tests {
                 assert_eq!(sent, [shuffle.clone(), play.clone()]);
             }
         }
+    }
+
+    /// A pause pressed as a song starts reaches the device after the play,
+    /// though each request runs as its own task.
+    #[test]
+    fn a_player_command_waits_for_the_play_sent_before_it() {
+        let (runtime, mut worker, _events) = super::authorization_tests::worker("play-order");
+        let play = ApiRequest::ShufflePlay {
+            device_id: Some("speaker".into()),
+            play: PlayRequest::tracks(vec!["spotify:track:a".into()]),
+        };
+        let pause = ApiRequest::Remote {
+            action: RemoteAction::Pause,
+            device_id: Some("speaker".into()),
+            play: None,
+            position_ms: 0,
+            percent: 0,
+            flag: false,
+            repeat: String::new(),
+        };
+        // #given a play Spotify has not answered yet
+        let (first, answered) = worker.play_order(&play);
+        assert!(first.is_none(), "nothing came before the play");
+        let answered = answered.expect("the play holds later commands back");
+        // #when a pause follows it
+        let (after, held) = worker.play_order(&pause);
+        assert!(held.is_none(), "a pause holds nothing back");
+        let mut after = after.expect("the pause waits for the play");
+        // #then the pause goes once the play is answered, and not before
+        runtime.block_on(async {
+            let waiting = tokio::time::timeout(Duration::from_millis(20), after.changed());
+            assert!(waiting.await.is_err(), "the play is still unanswered");
+            drop(answered);
+            assert!(after.changed().await.is_err(), "the play was answered");
+        });
+        assert!(
+            worker.play_order(&pause).0.is_none(),
+            "an answered play holds nothing"
+        );
+        assert!(
+            matches!(worker.play_order(&ApiRequest::Devices), (None, None)),
+            "a read never waits"
+        );
     }
 
     #[test]
