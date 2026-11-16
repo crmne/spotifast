@@ -1860,6 +1860,7 @@ fn track_row_contents(
     }
     // The row highlight also shows keyboard focus. Do not add an outline
     // when a mouse click gives the row focus for arrow-key navigation.
+
     // A song that cannot play fades in every cell. A removed song keeps its
     // cover, album and dates but loses its title, so dimming the title alone
     // left the row looking playable.
