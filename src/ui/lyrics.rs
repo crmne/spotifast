@@ -58,6 +58,22 @@ fn scaled(galley: std::sync::Arc<egui::Galley>, scale: f32) -> std::sync::Arc<eg
     }
     let mut shape = egui::epaint::TextShape::new(pos2(0.0, 0.0), galley, Color32::TRANSPARENT);
     shape.transform(egui::emath::TSTransform::from_scaling(scale));
+    // That scales the rows and their letters, and leaves each glyph where
+    // and as large as it was laid out. The emoji plugin paints its pictures
+    // from the glyphs, so they go along.
+    for placed in &mut std::sync::Arc::make_mut(&mut shape.galley).rows {
+        for glyph in &mut std::sync::Arc::make_mut(&mut placed.row).glyphs {
+            glyph.pos *= scale;
+            glyph.advance_width *= scale;
+            glyph.line_height *= scale;
+            glyph.font_ascent *= scale;
+            glyph.font_height *= scale;
+            glyph.font_face_ascent *= scale;
+            glyph.font_face_height *= scale;
+            glyph.uv_rect.offset *= scale;
+            glyph.uv_rect.size *= scale;
+        }
+    }
     shape.galley
 }
 
@@ -1055,9 +1071,14 @@ mod tests {
 
     /// A lyric line laid out at `size` points.
     fn line(ui: &egui::Ui, size: f32) -> std::sync::Arc<egui::Galley> {
+        line_of(ui, "Words of a song", size)
+    }
+
+    /// `text` as a lyric line laid out at `size` points.
+    fn line_of(ui: &egui::Ui, text: &str, size: f32) -> std::sync::Arc<egui::Galley> {
         crate::bidi::layout(
             ui.painter(),
-            "Words of a song",
+            text,
             crate::theme::bold(size),
             egui::Color32::WHITE,
             f32::INFINITY,
@@ -1101,6 +1122,47 @@ mod tests {
             let _galley = line(ui, 31.5);
         });
         assert!(after != resized, "a size of its own adds its letters");
+    }
+
+    /// Whether every letter `galley` draws has its middle inside the span
+    /// its glyph says it takes.
+    fn letters_in_place(galley: &egui::Galley) -> bool {
+        galley.rows.iter().all(|placed| {
+            let row = &placed.row;
+            row.glyphs.iter().all(|glyph| {
+                if glyph.uv_rect.is_nothing() {
+                    return true;
+                }
+                let first = glyph.first_vertex as usize;
+                let quad = &row.visuals.mesh.vertices[first..first + 4];
+                let middle = quad.iter().map(|vertex| vertex.pos.x).sum::<f32>() / 4.0;
+                (glyph.pos.x..=glyph.max_x()).contains(&middle)
+            })
+        })
+    }
+
+    /// A scaled line's glyphs say where its letters now are. An emoji's
+    /// picture is painted from its glyph, so on a growing line it would
+    /// otherwise stay where the emoji was laid out, off its place by more
+    /// the further along the line it is.
+    #[test]
+    fn a_scaled_line_keeps_each_glyph_under_its_letter() {
+        let ctx = egui::Context::default();
+        crate::theme::install(&ctx);
+        // Fonts set on a context take effect from its next pass.
+        ctx.run_ui(egui::RawInput::default(), |_| {})
+            .textures_delta
+            .clear();
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let text = "Words of a song that goes on \u{1F600} and on";
+            let laid_out = line_of(ui, text, 30.0);
+            assert!(letters_in_place(&laid_out), "as laid out");
+            for scale in [0.935, 1.05, 1.075] {
+                let scaled = super::scaled(laid_out.clone(), scale);
+                assert!(letters_in_place(&scaled), "scaled by {scale}");
+            }
+        });
+        output.textures_delta.clear();
     }
 
     #[test]
