@@ -174,6 +174,10 @@ Local songs show readable titles, artists, and albums, including spaces and
 accented characters. Names saved in older playlist caches are corrected
 automatically when the cache is read.
 
+A song that is no longer available, or not available in your country, stays
+in its playlist with its whole row greyed out and does not play. A removed
+song often keeps only its cover and album, without a title or length.
+
 Sorted and filtered views omit unavailable songs and local files from playback.
 The rows stay visible, and selecting a repeated song starts that occurrence. Filtering a playlist or Liked Songs plays only the matching songs,
 including repeated entries. Play is disabled when the view has no playable
