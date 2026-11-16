@@ -1574,6 +1574,9 @@ pub fn context_menu_items(
     }
 }
 
+/// The opacity of every cell in a row whose song cannot play.
+const UNAVAILABLE_ROW_OPACITY: f32 = 0.4;
+
 /// Whether a row can start playback through Spotify. Unknown availability
 /// remains playable, while local files and missing entries cannot be requested.
 pub(crate) fn row_playable(item: &PlayableItem) -> bool {
@@ -1857,6 +1860,13 @@ fn track_row_contents(
     }
     // The row highlight also shows keyboard focus. Do not add an outline
     // when a mouse click gives the row focus for arrow-key navigation.
+    // A song that cannot play fades in every cell. A removed song keeps its
+    // cover, album and dates but loses its title, so dimming the title alone
+    // left the row looking playable.
+    let opacity = ui.opacity();
+    if unavailable {
+        ui.multiply_opacity(UNAVAILABLE_ROW_OPACITY);
+    }
     let cols = columns(width, &row);
     let painter = ui.painter().clone();
     let mut x = rect.left() + 8.0;
@@ -1958,10 +1968,8 @@ fn track_row_contents(
         pos2((text_right - 12.0).max(x), rect.bottom()),
     );
 
-    // Title and artists.
-    let title_color = if unavailable {
-        palette.dim
-    } else if is_current {
+    // Title and artists. An unplayable row is already faded whole.
+    let title_color = if is_current {
         palette.accent
     } else {
         palette.text
@@ -2321,6 +2329,7 @@ fn track_row_contents(
                 )
             });
     }
+    ui.set_opacity(opacity);
 
     // Row interactions.
     let mut pick = None;
@@ -4835,6 +4844,116 @@ mod tests {
                 assert!(app.actions.is_empty());
             }
         }
+    }
+
+    /// A removed song keeps its cover, album and dates but has no title, so
+    /// every cell of a row that cannot play fades, not only the title.
+    #[test]
+    fn a_song_that_cannot_play_fades_its_whole_row() {
+        let song = |is_playable| {
+            PlayableItem::Track(Track {
+                uri: "spotify:track:removed".to_string(),
+                name: "Gone".to_string(),
+                explicit: true,
+                duration_ms: 200_000,
+                artists: vec![ArtistRef {
+                    name: "Someone".to_string(),
+                    ..Default::default()
+                }],
+                album: Some(Album {
+                    id: "album".to_string(),
+                    name: "WOW".to_string(),
+                    ..Default::default()
+                }),
+                is_playable,
+                ..Default::default()
+            })
+        };
+        let mut app = test_app();
+        app.backend.shutdown();
+        let ctx = egui::Context::default();
+        theme::install(&ctx);
+        theme::apply(&ctx, &app.palette);
+        let context = RowContext::Queue;
+        // The strongest alpha each piece of text is drawn with.
+        let mut strengths = |item: &PlayableItem| {
+            let mut draw = || {
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            vec2(760.0, 520.0),
+                        )),
+                        events: vec![egui::Event::PointerGone],
+                        ..Default::default()
+                    },
+                    |ui| {
+                        track_row_response(
+                            ui,
+                            &mut app,
+                            TrackRow {
+                                index: 0,
+                                number: Some(1),
+                                item,
+                                context: &context,
+                                show_cover: true,
+                                show_album: true,
+                                added_at: None,
+                                added_by: None,
+                                show_added_by: false,
+                                show_plays: false,
+                                compact: false,
+                                thin: false,
+                                shift: 0.0,
+                                picked: false,
+                                picked_songs: &[],
+                                picked_positions: &[],
+                                position: None,
+                            },
+                        );
+                    },
+                );
+                output.textures_delta.clear();
+                output
+            };
+            draw();
+            let output = draw();
+            output
+                .shapes
+                .iter()
+                .filter_map(|shape| match &shape.shape {
+                    egui::epaint::Shape::Text(text) => {
+                        let alpha = text
+                            .galley
+                            .rows
+                            .iter()
+                            .flat_map(|placed| placed.row.visuals.mesh.vertices.iter())
+                            .map(|vertex| match vertex.color {
+                                Color32::PLACEHOLDER => {
+                                    text.override_text_color.unwrap_or(text.fallback_color)
+                                }
+                                color => color,
+                            })
+                            .map(|color| color.a())
+                            .max()?;
+                        Some((text.galley.text().to_string(), alpha))
+                    }
+                    _ => None,
+                })
+                .collect::<std::collections::BTreeMap<_, _>>()
+        };
+        let shown = strengths(&song(None));
+        let faded = strengths(&song(Some(false)));
+        for text in ["1", "Gone", "Someone", "WOW", "3:20"] {
+            let (Some(&before), Some(&after)) = (shown.get(text), faded.get(text)) else {
+                panic!("{text} is drawn in both rows: {shown:?} {faded:?}");
+            };
+            assert!(
+                f32::from(after) <= f32::from(before) * UNAVAILABLE_ROW_OPACITY + 1.0,
+                "{text} fades with its row: {before} -> {after}"
+            );
+        }
+        assert!(app.actions.is_empty());
     }
 
     #[test]
