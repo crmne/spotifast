@@ -792,6 +792,8 @@ pub struct LyricsBackdrop {
     retry_at: Option<Instant>,
     pending: Option<std::sync::mpsc::Receiver<Result<Option<egui::ColorImage>, String>>>,
     texture: Option<egui::TextureHandle>,
+    /// Whether `texture` has no see-through pixel.
+    opaque: bool,
 }
 
 /// How long a backdrop whose artwork failed to download waits to ask again.
@@ -816,6 +818,7 @@ impl LyricsBackdrop {
             *self = Self {
                 uri: uri.map(str::to_owned),
                 texture: self.texture.take().filter(|_| uri.is_some()),
+                opaque: self.opaque,
                 ..Default::default()
             };
         }
@@ -845,6 +848,9 @@ impl LyricsBackdrop {
         if let Some(receiver) = &self.pending {
             match receiver.try_recv() {
                 Ok(Ok(image)) => {
+                    self.opaque = image
+                        .as_ref()
+                        .is_some_and(|image| image.pixels.iter().all(|pixel| pixel.a() == 255));
                     self.texture = image.map(|image| {
                         ctx.load_texture("lyrics-backdrop", image, egui::TextureOptions::LINEAR)
                     });
@@ -860,6 +866,13 @@ impl LyricsBackdrop {
             }
         }
         self.texture.as_ref()
+    }
+
+    /// Whether the backdrop last handed out fills its whole picture. A
+    /// cover with see-through parts, as a local file can carry, shows
+    /// whatever is painted behind it through them.
+    pub fn is_opaque(&self) -> bool {
+        self.opaque
     }
 }
 
@@ -1582,6 +1595,66 @@ mod tests {
         );
 
         assert!(backdrop.texture(&ctx, &loader, None).is_none());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A cover with see-through parts shows the window through them, so the
+    /// backdrop says whether its picture is whole. The answer goes with the
+    /// picture on screen: while the next song's artwork fails to arrive, it
+    /// is still the one for the previous song's.
+    #[test]
+    fn lyrics_backdrop_tells_a_see_through_cover_from_a_whole_one() {
+        let runtime = artwork_test_runtime();
+        let dir =
+            std::env::temp_dir().join(format!("spotifast-backdrop-holes-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let loader = artwork_test_loader(&runtime, dir.clone());
+        let ctx = egui::Context::default();
+        let holed = "https://i.scdn.co/image/holed";
+        let whole = "https://i.scdn.co/image/whole";
+        // Nothing listens here, so this song's artwork never arrives.
+        let missing = "http://127.0.0.1:9/missing";
+        let image = image::RgbaImage::from_fn(64, 64, |x, _| {
+            if x < 32 {
+                image::Rgba([40, 40, 200, 255])
+            } else {
+                image::Rgba([40, 40, 200, 0])
+            }
+        });
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        image.write_to(&mut bytes, image::ImageFormat::Png).unwrap();
+        std::fs::write(loader.inner.cache_path(holed), bytes.into_inner()).unwrap();
+        cached_png(&loader, whole, [200, 40, 40]);
+        let mut backdrop = LyricsBackdrop::default();
+        backdrop_frames(
+            &runtime,
+            &mut backdrop,
+            &ctx,
+            &loader,
+            Some(holed),
+            || {},
+            |t| t.is_some(),
+        );
+        assert!(!backdrop.is_opaque(), "half of it is see-through");
+        let shown = backdrop.texture.as_ref().unwrap().id();
+
+        backdrop_frames(
+            &runtime,
+            &mut backdrop,
+            &ctx,
+            &loader,
+            Some(whole),
+            || {},
+            |t| t.is_some_and(|t| t.id() != shown),
+        );
+        assert!(backdrop.is_opaque(), "an RGB cover is whole");
+        let shown = backdrop.texture.as_ref().unwrap().id();
+
+        let held = backdrop
+            .texture(&ctx, &loader, Some(missing))
+            .map(|t| t.id());
+        assert_eq!(held, Some(shown), "the old backdrop stays");
+        assert!(backdrop.is_opaque(), "and it is still whole");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

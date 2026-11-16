@@ -691,26 +691,23 @@ fn background(app: &mut App, ui: &mut egui::Ui, rect: Rect) {
         .now_playing()
         .and_then(|now| preferred_backdrop_art(now.art_small, now.art_url));
     let painter = ui.painter().with_clip_rect(rect);
-    // One layer the size of the window, already as dark as it ends up. The
-    // art, a veil and a gradient were three, and every frame draws them all
-    // again, whatever small thing moved.
-    let (tint, veil) = backdrop_shades();
-    let texture = app
+    let image = app
         .lyrics_backdrop
-        .texture(ui.ctx(), app.backend.art(), art.as_deref());
-    painter.add(match texture {
-        Some(texture) => shaded_image(
-            texture.id(),
-            rect,
-            cover_uv(rect.size(), texture.size_vec2()),
-            tint.map(Color32::from_gray),
-        ),
-        None => widgets::vertical_gradient(
-            rect,
-            Color32::from_black_alpha(veil[0]),
-            Color32::from_black_alpha(veil[1]),
-        ),
-    });
+        .texture(ui.ctx(), app.backend.art(), art.as_deref())
+        .map(|texture| (texture.id(), texture.size_vec2()));
+    // Art that fills its picture is one layer the size of the window, already
+    // as dark as it ends up. The art, a veil and a gradient were three, and
+    // every frame draws them all again, whatever small thing moved.
+    let (tint, veil) = backdrop_layers(image.map(|_| app.lyrics_backdrop.is_opaque()));
+    if let (Some((texture, size)), Some(tint)) = (image, tint) {
+        let uv = cover_uv(rect.size(), size);
+        let tint = tint.map(Color32::from_gray);
+        painter.add(shaded_image(texture, rect, uv, tint));
+    }
+    if let Some(veil) = veil {
+        let [top, bottom] = veil.map(Color32::from_black_alpha);
+        painter.add(widgets::vertical_gradient(rect, top, bottom));
+    }
 }
 
 /// How much of its light the backdrop keeps at the top of the view and at
@@ -718,15 +715,28 @@ fn background(app: &mut App, ui: &mut egui::Ui, rect: Rect) {
 /// over any cover.
 const BACKDROP_LIGHT: [f32; 2] = [135.0 / 255.0, 135.0 / 255.0 * 160.0 / 255.0];
 
-/// The backdrop's shades at the top and the bottom of the view: the tint of
-/// the blurred art, and how opaque the black over the bare window is while
-/// there is no art.
-fn backdrop_shades() -> ([u8; 2], [u8; 2]) {
-    const ART: f32 = 180.0;
-    (
-        BACKDROP_LIGHT.map(|light| (ART * light).round() as u8),
-        BACKDROP_LIGHT.map(|light| (255.0 * (1.0 - light)).round() as u8),
-    )
+/// The tint of the blurred art before anything darkens it.
+const BACKDROP_ART: u8 = 180;
+
+/// What the backdrop paints, each as its shade at the top and at the bottom
+/// of the view: the tint of the blurred art, and black over the whole view.
+///
+/// `art` is whether the art fills its whole picture, `None` while there is
+/// no art. Art that does is tinted as dark as the black would make it and
+/// needs no black: one layer the size of the window instead of two. A cover
+/// with see-through parts shows the window through them, which only the
+/// black darkens, so it keeps its own tint and the black over it. Without
+/// art the black lies over the bare window.
+fn backdrop_layers(art: Option<bool>) -> (Option<[u8; 2]>, Option<[u8; 2]>) {
+    let black = BACKDROP_LIGHT.map(|light| (255.0 * (1.0 - light)).round() as u8);
+    match art {
+        Some(true) => {
+            let tint = |light: f32| (f32::from(BACKDROP_ART) * light).round() as u8;
+            (Some(BACKDROP_LIGHT.map(tint)), None)
+        }
+        Some(false) => (Some([BACKDROP_ART; 2]), Some(black)),
+        None => (None, Some(black)),
+    }
 }
 
 /// `texture` over `rect`, cut to `uv` and tinted from `top` down to `bottom`.
@@ -1053,11 +1063,25 @@ mod tests {
     fn the_backdrop_is_one_layer_as_dark_as_the_three_it_was() {
         let veiled = 1.0 - 120.0 / 255.0;
         let shaded = veiled * (1.0 - 95.0 / 255.0);
-        let (tint, veil) = super::backdrop_shades();
+        let (tint, veil) = super::backdrop_layers(Some(true));
         let art = |light: f32| (180.0 * light).round() as u8;
-        assert_eq!(tint, [art(veiled), art(shaded)]);
-        assert_eq!(tint, [95, 60]);
-        assert_eq!(veil, [120, 170]);
+        assert_eq!(tint, Some([art(veiled), art(shaded)]));
+        assert_eq!(tint, Some([95, 60]));
+        assert_eq!(veil, None, "art that fills its picture needs no black");
+        assert_eq!(super::backdrop_layers(None), (None, Some([120, 170])));
+    }
+
+    /// A cover with see-through parts shows the window through them, and
+    /// only black over the whole view darkens that. So it is the art at 180
+    /// under the two blacks as one, which leaves the art as dark as before.
+    #[test]
+    fn a_see_through_cover_keeps_the_black_over_it() {
+        let (tint, veil) = super::backdrop_layers(Some(false));
+        assert_eq!(tint, Some([180, 180]));
+        assert_eq!(veil, Some([120, 170]));
+        let under = |veil: u8| (180.0 * (1.0 - f32::from(veil) / 255.0)).round() as u8;
+        let (whole, _) = super::backdrop_layers(Some(true));
+        assert_eq!(whole, Some([under(120), under(170)]));
     }
 
     #[test]
