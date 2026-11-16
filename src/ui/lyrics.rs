@@ -36,6 +36,31 @@ fn blend(from: egui::Color32, to: egui::Color32, t: f32) -> egui::Color32 {
     egui::Color32::from(egui::Rgba::from(from) * (1.0 - t) + egui::Rgba::from(to) * t)
 }
 
+/// What a line `grown` times its quiet size is drawn from: the size its
+/// letters are laid out at, as a multiple of the quiet size, and how far
+/// that picture is then scaled. Letters are only ever drawn at the quiet
+/// and the sung size. The font atlas keeps every letter at every size it
+/// was asked for until it is full, so a line growing through a size of its
+/// own each frame fills it with letters used once, up to a gigabyte (#954).
+fn drawn_from(grown: f32) -> (f32, f32) {
+    if grown < (1.0 + SUNG_LINE_GROWTH) / 2.0 {
+        (1.0, grown)
+    } else {
+        (SUNG_LINE_GROWTH, grown / SUNG_LINE_GROWTH)
+    }
+}
+
+/// `galley` drawn `scale` times as large, from the letters it already has
+/// in the font atlas.
+fn scaled(galley: std::sync::Arc<egui::Galley>, scale: f32) -> std::sync::Arc<egui::Galley> {
+    if scale == 1.0 {
+        return galley;
+    }
+    let mut shape = egui::epaint::TextShape::new(pos2(0.0, 0.0), galley, Color32::TRANSPARENT);
+    shape.transform(egui::emath::TSTransform::from_scaling(scale));
+    shape.galley
+}
+
 pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     let fit = super::yielding_panel(
@@ -929,8 +954,11 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui) {
                 } else {
                     1.0
                 };
-                let wrap = ui.available_width() / SUNG_LINE_GROWTH * grown;
-                let font = theme::bold(size * grown);
+                // On its way between quiet and sung, a line is the nearer
+                // size's letters scaled, never a size of its own.
+                let (drawn, scale) = drawn_from(grown);
+                let wrap = ui.available_width() / SUNG_LINE_GROWTH * drawn;
+                let font = theme::bold(size * drawn);
                 // A timed line with no words is the band playing on.
                 let text = if line.text.is_empty() && lyrics.synced {
                     "\u{266a}"
@@ -942,6 +970,7 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui) {
                 let sense = Sense::click();
                 let galley =
                     crate::bidi::layout(ui.painter(), text, font, color, wrap, usize::MAX, None);
+                let galley = scaled(galley, scale);
                 let center = ui.cursor().top() + galley.size().y * 0.5;
                 let edge = ((center - viewport.top()).min(viewport.bottom() - center)
                     / (size * 2.0))
@@ -1006,6 +1035,73 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui) {
 #[cfg(test)]
 mod tests {
     use super::{fullscreen_content_width, preferred_backdrop_art};
+
+    /// A line growing into the sung line is laid out at one of two sizes all
+    /// the way, and scaled to the rest, so the font atlas is asked for two
+    /// sizes however long the songs go on.
+    #[test]
+    fn a_growing_line_is_drawn_from_the_quiet_or_the_sung_letters() {
+        let sung = super::SUNG_LINE_GROWTH;
+        for step in 0..=300 {
+            let grown = 1.0 + (sung - 1.0) * step as f32 / 300.0;
+            let (drawn, scale) = super::drawn_from(grown);
+            assert!(drawn == 1.0 || drawn == sung, "step {step}");
+            assert!((drawn * scale - grown).abs() < 1e-6, "step {step}");
+        }
+        // At rest a line is its letters as they were drawn.
+        assert_eq!(super::drawn_from(1.0), (1.0, 1.0));
+        assert_eq!(super::drawn_from(sung), (sung, 1.0));
+    }
+
+    /// A lyric line laid out at `size` points.
+    fn line(ui: &egui::Ui, size: f32) -> std::sync::Arc<egui::Galley> {
+        crate::bidi::layout(
+            ui.painter(),
+            "Words of a song",
+            crate::theme::bold(size),
+            egui::Color32::WHITE,
+            f32::INFINITY,
+            usize::MAX,
+            None,
+        )
+    }
+
+    /// What the font atlas holds after a pass that draws `pass`.
+    fn atlas_after(ctx: &egui::Context, pass: impl Fn(&egui::Ui)) -> egui::ColorImage {
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| pass(ui));
+        output.textures_delta.clear();
+        ctx.fonts(|fonts| fonts.image())
+    }
+
+    /// A scaled line takes the room of its size and is made of the letters
+    /// already in the font atlas, where a line laid out at a size of its own
+    /// adds its letters to it.
+    #[test]
+    fn a_scaled_line_adds_no_letters_to_the_font_atlas() {
+        let ctx = egui::Context::default();
+        crate::theme::install(&ctx);
+        // Fonts set on a context take effect from its next pass.
+        ctx.run_ui(egui::RawInput::default(), |_| {})
+            .textures_delta
+            .clear();
+        let before = atlas_after(&ctx, |ui| {
+            let _galley = line(ui, 30.0);
+        });
+        let after = atlas_after(&ctx, |ui| {
+            let size = line(ui, 30.0).size();
+            for step in 1..=20 {
+                let scale = 1.0 + 0.15 * step as f32 / 20.0;
+                let grown = super::scaled(line(ui, 30.0), scale).size();
+                assert!((grown.x - size.x * scale).abs() < 0.01, "step {step}");
+                assert!((grown.y - size.y * scale).abs() < 0.01, "step {step}");
+            }
+        });
+        assert!(before == after, "a scaled line added letters");
+        let resized = atlas_after(&ctx, |ui| {
+            let _galley = line(ui, 31.5);
+        });
+        assert!(after != resized, "a size of its own adds its letters");
+    }
 
     #[test]
     fn fullscreen_backdrop_prefers_small_art_with_large_art_as_fallback() {
