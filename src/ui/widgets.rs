@@ -1710,14 +1710,16 @@ fn columns(width: f32, row: &TrackRow<'_>) -> Columns {
     }
 }
 
-/// How often the playing song's bars move: smooth on a 16 point mark
-/// without redrawing the window at the screen's full rate, and at half
-/// that rate, as other animations, while saving energy or out of focus.
+/// How often the playing song's bars move: 15 times a second, which is
+/// smooth enough on a 16 point mark. Every frame draws the whole window
+/// again, so the bars cost what their pace costs. They keep this pace
+/// while saving energy or out of focus: half of it would stutter.
 /// `None` while nobody can see the window: no frames.
 fn playing_bars_frame(budget: crate::power::Budget) -> Option<std::time::Duration> {
     match budget {
-        crate::power::Budget::Normal => Some(std::time::Duration::from_millis(33)),
-        crate::power::Budget::Saver => Some(std::time::Duration::from_millis(66)),
+        crate::power::Budget::Normal | crate::power::Budget::Saver => {
+            Some(std::time::Duration::from_millis(66))
+        }
         crate::power::Budget::Background => None,
     }
 }
@@ -5127,7 +5129,7 @@ mod playing_bars_tests {
     }
 
     #[test]
-    fn the_playing_bars_slow_down_with_other_animations() {
+    fn the_playing_bars_keep_one_slow_pace_and_stop_unseen() {
         use crate::power::Budget;
         use std::time::Duration;
         // The repaint delay egui is left with after a playing row's fourth
@@ -5158,13 +5160,13 @@ mod playing_bars_tests {
         // bars add it back, so what is left is their own pace.
         let normal = delay(Budget::Normal, false);
         assert!(
-            (Duration::from_millis(30)..Duration::from_millis(40)).contains(&normal),
-            "about 30 frames a second: {normal:?}"
+            (Duration::from_millis(60)..Duration::from_millis(70)).contains(&normal),
+            "about 15 frames a second: {normal:?}"
         );
         let saver = delay(Budget::Saver, false);
         assert!(
             (Duration::from_millis(60)..Duration::from_millis(70)).contains(&saver),
-            "half as many while saving energy or out of focus: {saver:?}"
+            "and as many while saving energy or out of focus: {saver:?}"
         );
         assert!(
             delay(Budget::Background, false) > Duration::from_secs(1),
