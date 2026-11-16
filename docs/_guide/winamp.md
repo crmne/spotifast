@@ -67,8 +67,9 @@ Spotifast comes with two of its own, listed first under Windows Media Player
 in Settings. **Spotifast Tall** is small enough to keep at the side of your screen: a white
 ceramic ribbon round a smoked-glass core. It opens with a thread of green light
 tracing its outline, and that light burns under the arch while the music plays.
-Click the square, or the small button below it, to switch between the album art
-and the visualizer. The dots at the top of the glass change its page, from Now
+Click the square to switch between the album art and the visualizer, or to open
+full-screen lyrics when the song has them. The small button below the square
+toggles art and visualizer. The dots at the top of the glass change its page, from Now
 Playing to the equalizer to the queue, where a click plays a song. It remembers
 what you chose. **Spotifast Wide**, listed after it, is the same object laid on
 its side, with the ribbon arching over the right of a long glass core, for the

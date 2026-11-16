@@ -205,6 +205,14 @@ function togglePane() {
     change();
 }
 
+function showLyricsOrTogglePane() {
+    if (player.currentMedia.getItemInfo("Lyrics") == "yes") {
+        player.controls.showLyrics();
+    } else {
+        togglePane();
+    }
+}
+
 function setPage(wanted) {
     page = wanted;
     theme.savePreference(REMEMBER + "page", page == PAGE_EQ ? "eq" : page == PAGE_QUEUE ? "queue" : "now");

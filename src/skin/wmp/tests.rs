@@ -24,6 +24,7 @@ fn playing() -> Deck {
         album: "Album".into(),
         uri: "spotify:track:1".into(),
         duration_s: 200.0,
+        has_lyrics: false,
     };
     Deck {
         state: PlayState::Playing,

@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use super::deck::{Command, Deck, PlayState};
 use super::live::WindowCommand;
 use super::paint::Paint;
-use super::ribbon_tests::{FRAME, click, deck, paint_all, run, song, text};
+use super::ribbon_tests::{FRAME, click, deck, paint_all, run, song, song_with_lyrics, text};
 use super::runtime::{Input, Modifiers, Runtime};
 use crate::skin::Skin;
 
@@ -159,6 +159,23 @@ fn the_visualizer_fills_the_glass_under_the_words() {
     run(&mut runtime, &deck, &mut now, Duration::from_millis(800));
     assert_eq!(runtime.read(key, "visual", "visible"), 0.0);
     assert_eq!(runtime.read(key, "art", "visible"), 1.0);
+}
+
+#[test]
+fn clicking_art_with_lyrics_opens_full_screen_lyrics() {
+    let mut deck = deck(PlayState::Playing);
+    deck.song = Some(song_with_lyrics());
+    let (mut runtime, key, mut now) = opened(&deck);
+    click(&mut runtime, key, SQUARE, now);
+    let commands = run(&mut runtime, &deck, &mut now, FRAME);
+    assert!(
+        commands
+            .iter()
+            .any(|command| matches!(command, Command::ShowLyrics)),
+        "{commands:?}"
+    );
+    assert_eq!(runtime.read(key, "art", "visible"), 1.0);
+    assert_eq!(runtime.read(key, "visual", "visible"), 0.0);
 }
 
 #[test]
