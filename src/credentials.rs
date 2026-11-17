@@ -571,10 +571,18 @@ impl Portal {
     }
 
     /// Runs on the credential thread, which may wait for the desktop to
-    /// unlock its keyring, but never longer than the caller does.
+    /// unlock its keyring, but never longer than the caller does: a portal
+    /// that stops answering must not hold every save and sign-out queued
+    /// behind it. Giving up closes the connection, and the portal drops the
+    /// requests of a client that has gone.
     fn retrieve() -> Result<Vec<u8>, Error> {
         let runtime = tokio::runtime::Handle::try_current().map_err(portal_unavailable)?;
-        runtime.block_on(Self::exchange())
+        runtime
+            .block_on(async { tokio::time::timeout(TIMEOUT, Self::exchange()).await })
+            .unwrap_or_else(|_| {
+                log::warn!("the Secret portal did not answer");
+                Err(Error::Timeout)
+            })
     }
 
     async fn exchange() -> Result<Vec<u8>, Error> {
@@ -624,42 +632,29 @@ impl Portal {
         if returned.as_str() != handle {
             return Err(portal_unavailable("unexpected request handle"));
         }
-        let answer = async {
-            let response = responses.next().await.ok_or(Error::Unavailable)?;
-            let (status, _): (u32, HashMap<String, OwnedValue>) =
-                response.body().deserialize().map_err(portal_unavailable)?;
-            if status != 0 {
-                return Err(Error::Locked);
-            }
-            reader.set_nonblocking(true).map_err(portal_unavailable)?;
-            let mut reader =
-                tokio::net::UnixStream::from_std(reader).map_err(portal_unavailable)?;
-            let mut secret = Vec::new();
-            reader
-                .read_to_end(&mut secret)
-                .await
-                .map_err(portal_unavailable)?;
-            if secret.is_empty() {
-                return Err(portal_unavailable("empty secret"));
-            }
-            Ok(secret)
-        };
-        // A portal that stops answering must not hold the credential thread,
-        // and every save and sign-out queued behind it.
-        match tokio::time::timeout(TIMEOUT, answer).await {
-            Ok(secret) => secret,
-            Err(_) => {
-                let _ = request.call_method("Close", &()).await;
-                log::warn!("the Secret portal did not answer");
-                Err(Error::Timeout)
-            }
+        let response = responses.next().await.ok_or(Error::Unavailable)?;
+        let (status, _): (u32, HashMap<String, OwnedValue>) =
+            response.body().deserialize().map_err(portal_unavailable)?;
+        if status != 0 {
+            return Err(Error::Locked);
         }
+        reader.set_nonblocking(true).map_err(portal_unavailable)?;
+        let mut reader = tokio::net::UnixStream::from_std(reader).map_err(portal_unavailable)?;
+        let mut secret = Vec::new();
+        reader
+            .read_to_end(&mut secret)
+            .await
+            .map_err(portal_unavailable)?;
+        if secret.is_empty() {
+            return Err(portal_unavailable("empty secret"));
+        }
+        Ok(secret)
     }
 }
 
 #[cfg(target_os = "linux")]
 fn portal_unavailable(error: impl std::fmt::Display) -> Error {
-    log::warn!("the Secret portal is portal_unavailable: {error}");
+    log::warn!("the Secret portal is unavailable: {error}");
     Error::Unavailable
 }
 
