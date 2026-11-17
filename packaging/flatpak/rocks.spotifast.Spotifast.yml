@@ -33,8 +33,6 @@ finish-args:
   - --share=network
   # The tray item, media keys and Now Playing over MPRIS, and the name the
   # single instance is found by.
-  # Platform storage for this application's Spotify grants.
-  - --talk-name=org.freedesktop.secrets
   - --talk-name=org.kde.StatusNotifierWatcher
   - --own-name=org.mpris.MediaPlayer2.spotifast
   # Older Flatpak versions leave XDG_STATE_HOME unset. Keep the fallback

@@ -406,20 +406,20 @@ impl<P: ProtectedStore, C: ProtectedStore> ProtectedStore for WithSealedCopy<P, 
 
 /// Encrypts a secret so only the current user can decrypt it. `context` is
 /// bound to the result: a sealed grant opens only under its own key.
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_os = "linux", test))]
 trait Sealer: Send {
     fn seal(&self, secret: &[u8], context: &[u8]) -> Result<Vec<u8>, Error>;
     fn open(&self, sealed: &[u8], context: &[u8]) -> Result<Vec<u8>, Error>;
 }
 
 /// Sealed grants, one file per key, replaced whole on every write.
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_os = "linux", test))]
 struct SealedFiles<S> {
     dir: PathBuf,
     sealer: S,
 }
 
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_os = "linux", test))]
 impl<S> SealedFiles<S> {
     const MAGIC: &'static [u8] = b"spotifast-sealed-grant-1\n";
 
@@ -433,7 +433,7 @@ impl<S> SealedFiles<S> {
     }
 }
 
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_os = "linux", test))]
 impl<S: Sealer> ProtectedStore for SealedFiles<S> {
     fn read(&mut self, key: &str) -> Result<Option<Vec<u8>>, Error> {
         let bytes = match std::fs::read(self.path(key)) {
@@ -536,6 +536,164 @@ impl Sealer for Dpapi {
     }
 }
 
+/// The Flatpak's key: the Secret portal keeps a secret for this application
+/// alone, so the sandbox needs no access to the desktop's shared keyring.
+/// AES-256-GCM under a key derived from it seals each grant.
+#[cfg(target_os = "linux")]
+#[derive(Default)]
+struct Portal {
+    key: std::sync::OnceLock<ring::aead::LessSafeKey>,
+}
+
+#[cfg(target_os = "linux")]
+impl Portal {
+    const DESKTOP: &'static str = "org.freedesktop.portal.Desktop";
+    const PATH: &'static str = "/org/freedesktop/portal/desktop";
+
+    fn derive(secret: &[u8]) -> ring::aead::LessSafeKey {
+        use ring::{aead, hkdf};
+        let prk = hkdf::Salt::new(hkdf::HKDF_SHA256, &[]).extract(secret);
+        let info = [SERVICE.as_bytes()];
+        let key = prk
+            .expand(&info, &aead::AES_256_GCM)
+            .expect("an AES-256 key is within HKDF's limit");
+        aead::LessSafeKey::new(key.into())
+    }
+
+    fn key(&self) -> Result<&ring::aead::LessSafeKey, Error> {
+        if let Some(key) = self.key.get() {
+            return Ok(key);
+        }
+        let mut secret = Self::retrieve()?;
+        let key = Self::derive(&secret);
+        secret.fill(0);
+        Ok(self.key.get_or_init(|| key))
+    }
+
+    /// Runs on the credential thread, which may wait for the desktop to
+    /// unlock its keyring, but never longer than the caller does: a portal
+    /// that stops answering must not hold every save and sign-out queued
+    /// behind it. Giving up closes the connection, and the portal drops the
+    /// requests of a client that has gone.
+    fn retrieve() -> Result<Vec<u8>, Error> {
+        let runtime = tokio::runtime::Handle::try_current().map_err(portal_unavailable)?;
+        runtime
+            .block_on(async { tokio::time::timeout(TIMEOUT, Self::exchange()).await })
+            .unwrap_or_else(|_| {
+                log::warn!("the Secret portal did not answer");
+                Err(Error::Timeout)
+            })
+    }
+
+    async fn exchange() -> Result<Vec<u8>, Error> {
+        use futures_util::StreamExt;
+        use std::{collections::HashMap, os::fd::AsFd, os::unix::net::UnixStream};
+        use tokio::io::AsyncReadExt;
+        use zbus::zvariant::{Fd, OwnedObjectPath, OwnedValue, Value};
+        let connection = zbus::Connection::session()
+            .await
+            .map_err(portal_unavailable)?;
+        let sender = connection
+            .unique_name()
+            .ok_or(Error::Unavailable)?
+            .as_str()
+            .trim_start_matches(':')
+            .replace('.', "_");
+        let token = format!("spotifast{}", rand::random::<u32>());
+        let handle = format!("{}/request/{sender}/{token}", Self::PATH);
+        let request = zbus::Proxy::new(
+            &connection,
+            Self::DESKTOP,
+            handle.as_str(),
+            "org.freedesktop.portal.Request",
+        )
+        .await
+        .map_err(portal_unavailable)?;
+        // Subscribe before asking, so an answer that comes first is not missed.
+        let mut responses = request
+            .receive_signal("Response")
+            .await
+            .map_err(portal_unavailable)?;
+        let portal = zbus::Proxy::new(
+            &connection,
+            Self::DESKTOP,
+            Self::PATH,
+            "org.freedesktop.portal.Secret",
+        )
+        .await
+        .map_err(portal_unavailable)?;
+        let (reader, writer) = UnixStream::pair().map_err(portal_unavailable)?;
+        let options = HashMap::from([("handle_token", Value::from(token.as_str()))]);
+        let returned: OwnedObjectPath = portal
+            .call("RetrieveSecret", &(Fd::from(writer.as_fd()), options))
+            .await
+            .map_err(portal_unavailable)?;
+        drop(writer);
+        if returned.as_str() != handle {
+            return Err(portal_unavailable("unexpected request handle"));
+        }
+        let response = responses.next().await.ok_or(Error::Unavailable)?;
+        let (status, _): (u32, HashMap<String, OwnedValue>) =
+            response.body().deserialize().map_err(portal_unavailable)?;
+        if status != 0 {
+            return Err(Error::Locked);
+        }
+        reader.set_nonblocking(true).map_err(portal_unavailable)?;
+        let mut reader = tokio::net::UnixStream::from_std(reader).map_err(portal_unavailable)?;
+        let mut secret = Vec::new();
+        reader
+            .read_to_end(&mut secret)
+            .await
+            .map_err(portal_unavailable)?;
+        if secret.is_empty() {
+            return Err(portal_unavailable("empty secret"));
+        }
+        Ok(secret)
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn portal_unavailable(error: impl std::fmt::Display) -> Error {
+    log::warn!("the Secret portal is unavailable: {error}");
+    Error::Unavailable
+}
+
+#[cfg(target_os = "linux")]
+impl Sealer for Portal {
+    fn seal(&self, secret: &[u8], context: &[u8]) -> Result<Vec<u8>, Error> {
+        use ring::{aead, rand::SecureRandom};
+        let key = self.key()?;
+        let mut nonce = [0; aead::NONCE_LEN];
+        ring::rand::SystemRandom::new()
+            .fill(&mut nonce)
+            .map_err(|_| Error::Unavailable)?;
+        let mut sealed = secret.to_vec();
+        key.seal_in_place_append_tag(
+            aead::Nonce::assume_unique_for_key(nonce),
+            aead::Aad::from(context),
+            &mut sealed,
+        )
+        .map_err(|_| Error::Unavailable)?;
+        Ok([&nonce[..], &sealed[..]].concat())
+    }
+    fn open(&self, sealed: &[u8], context: &[u8]) -> Result<Vec<u8>, Error> {
+        use ring::aead;
+        let key = self.key()?;
+        if sealed.len() < aead::NONCE_LEN {
+            return Err(Error::Invalid);
+        }
+        let (nonce, sealed) = sealed.split_at(aead::NONCE_LEN);
+        let nonce = aead::Nonce::try_assume_unique_for_key(nonce).map_err(|_| Error::Invalid)?;
+        let mut bytes = sealed.to_vec();
+        let length = key
+            .open_in_place(nonce, aead::Aad::from(context), &mut bytes)
+            .map_err(|_| Error::Invalid)?
+            .len();
+        bytes.truncate(length);
+        Ok(bytes)
+    }
+}
+
 /// The profile a state folder's grants are saved under, when it records one.
 const PROFILE_FILE: &str = "credential-profile";
 /// The profile a portable folder takes its first grants from (#703).
@@ -624,7 +782,16 @@ impl Store {
                 sealer: Dpapi,
             },
         });
-        #[cfg(not(windows))]
+        #[cfg(target_os = "linux")]
+        let backend: Box<dyn ProtectedStore> = if Path::new("/.flatpak-info").exists() {
+            Box::new(SealedFiles {
+                dir: dirs.state.join("credential-storage"),
+                sealer: Portal::default(),
+            })
+        } else {
+            Box::new(NativeStore::default())
+        };
+        #[cfg(not(any(windows, target_os = "linux")))]
         let backend = Box::new(NativeStore::default());
         Self::with_backend(dirs, backend)
     }
@@ -1680,6 +1847,128 @@ mod tests {
         files.delete(&key).unwrap();
         files.delete(&key).unwrap();
         assert_eq!(files.read(&key), Ok(None));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn portal_sealed_grants_open_only_under_their_key_and_secret() {
+        let f = Fixture::new();
+        let portal = |secret: &[u8]| SealedFiles {
+            dir: f.dirs.state.join("credential-storage"),
+            sealer: Portal {
+                key: Portal::derive(secret).into(),
+            },
+        };
+        let mut files = portal(b"dummy-portal-secret");
+        let key = f.store.lease(Slot::Shared).key();
+        files.write(&key, b"dummy-sealed-grant").unwrap();
+        assert_eq!(
+            files.read(&key).unwrap().as_deref(),
+            Some(b"dummy-sealed-grant".as_slice())
+        );
+        let on_disk = std::fs::read(files.path(&key)).unwrap();
+        assert!(!on_disk.windows(18).any(|w| w == b"dummy-sealed-grant"));
+        let other = f.store.lease(Slot::Personal).key();
+        std::fs::write(files.path(&other), &on_disk).unwrap();
+        assert_eq!(files.read(&other), Err(Error::Invalid));
+        assert_eq!(
+            portal(b"another-portal-secret").read(&key),
+            Err(Error::Invalid)
+        );
+    }
+
+    /// The exchange with the Secret portal, against a fake portal on a
+    /// private bus: the secret arrives through the descriptor, and a
+    /// dismissed request is a locked store.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn portal_secret_arrives_through_the_descriptor_on_a_private_bus() {
+        use std::collections::HashMap;
+        use zbus::zvariant::{OwnedFd, OwnedObjectPath, OwnedValue};
+        const CHILD: &str = "SPOTIFAST_PORTAL_PRIVATE_BUS";
+        if std::env::var_os(CHILD).is_none() {
+            let root = std::env::temp_dir().join(format!(
+                "spotifast-portal-bus-{:016x}",
+                rand::random::<u64>()
+            ));
+            std::fs::create_dir(&root).unwrap();
+            let config = root.join("session.conf");
+            std::fs::write(&config, r#"<busconfig><type>session</type><listen>unix:tmpdir=/tmp</listen><auth>EXTERNAL</auth><policy context="default"><allow own="*"/><allow send_destination="*"/><allow receive_sender="*"/></policy></busconfig>"#).unwrap();
+            let result = std::process::Command::new("dbus-run-session")
+                .arg("--config-file")
+                .arg(config)
+                .arg("--")
+                .arg(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "credentials::tests::portal_secret_arrives_through_the_descriptor_on_a_private_bus",
+                    "--nocapture",
+                ])
+                .env(CHILD, "1")
+                .output()
+                .unwrap();
+            std::fs::remove_dir_all(root).unwrap();
+            assert!(
+                result.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&result.stdout),
+                String::from_utf8_lossy(&result.stderr)
+            );
+            return;
+        }
+        let portal = zbus::blocking::Connection::session().unwrap();
+        portal.request_name(Portal::DESKTOP).unwrap();
+        let messages = zbus::blocking::MessageIterator::from(&portal);
+        let server = portal.clone();
+        std::thread::spawn(move || {
+            // The first request is answered, the second dismissed.
+            for (status, message) in (0u32..).zip(messages.flatten().filter(|message| {
+                message
+                    .header()
+                    .member()
+                    .is_some_and(|m| m == "RetrieveSecret")
+            })) {
+                let header = message.header();
+                let (fd, options): (OwnedFd, HashMap<String, OwnedValue>) =
+                    message.body().deserialize().unwrap();
+                let token = String::try_from(options["handle_token"].try_clone().unwrap()).unwrap();
+                let sender = header.sender().unwrap().to_owned();
+                let handle = OwnedObjectPath::try_from(format!(
+                    "{}/request/{}/{token}",
+                    Portal::PATH,
+                    sender.trim_start_matches(':').replace('.', "_")
+                ))
+                .unwrap();
+                if status == 0 {
+                    let mut file = std::fs::File::from(std::os::fd::OwnedFd::from(fd));
+                    std::io::Write::write_all(&mut file, b"dummy-portal-secret").unwrap();
+                }
+                server.reply(&header, &handle).unwrap();
+                server
+                    .emit_signal(
+                        Some(sender),
+                        handle,
+                        "org.freedesktop.portal.Request",
+                        "Response",
+                        &(status, HashMap::<String, OwnedValue>::new()),
+                    )
+                    .unwrap();
+            }
+        });
+        // The credential thread runs inside the backend's runtime.
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let _entered = runtime.enter();
+        let secret = Portal::retrieve().unwrap();
+        assert_eq!(secret, b"dummy-portal-secret");
+        let key = Portal::derive(&secret);
+        let sealed = Portal { key: key.into() }
+            .seal(b"grant", b"context")
+            .unwrap();
+        let fresh = Portal {
+            key: Portal::derive(b"dummy-portal-secret").into(),
+        };
+        assert_eq!(fresh.open(&sealed, b"context").unwrap(), b"grant");
+        assert_eq!(Portal::retrieve(), Err(Error::Locked));
     }
 
     /// Credential Manager refuses every write on some machines (#748).

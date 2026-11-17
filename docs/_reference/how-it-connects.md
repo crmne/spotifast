@@ -243,8 +243,9 @@ out, or a reconnection that gives up stops it.
   one from the installed copy's state it saves those grants again under
   entries of its own, never moving or deleting the installed copy's
   ([portable copies](/settings-and-files/#portable-copies)). Librespot retains its reusable credential in
-  memory; Spotifast owns persistence. Flatpak can talk to
-  `org.freedesktop.secrets` for this.
+  memory; Spotifast owns persistence. The Flatpak has no access to the
+  shared keyring: it seals each grant in its state folder with a key that
+  the Secret portal keeps for Spotifast alone.
   Version 0.7.1 still uses the older unencrypted files.
   See [migration, sign-out, and storage protection](/settings-and-files/).
 - Downloaded audio and artwork, in the cache directory, within the budget

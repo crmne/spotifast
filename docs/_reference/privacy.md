@@ -17,7 +17,8 @@ current release.
 - **Spotify sign-ins.** The grants Spotify issues when you sign in, and the
   reusable playback credential, are kept in the system credential store:
   Credential Manager on Windows, Keychain on macOS, and Secret Service on
-  Linux. On Windows a copy encrypted for your Windows account also stays in
+  Linux. The Flatpak, which cannot read your other passwords, seals them in
+  its own folder with a key the Secret portal keeps for it. On Windows a copy encrypted for your Windows account also stays in
   the data folder, for when Credential Manager loses it. Your Spotify
   password never passes through Spotifast; you sign in on Spotify's own
   pages. A proxy password, if you set one, uses the same store.
