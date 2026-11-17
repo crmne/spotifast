@@ -71,6 +71,7 @@ Spotify lyrics without changing players.
 
 | Feature | What you can do |
 |---|---|
+| **Home shelves** | Browse recommendations and recent listening with left and right arrows. Faded edges show where more cards are available. |
 | **Library and search** | Browse playlists, Liked Songs, albums, artists, and podcasts. Discover upcoming albums on artist pages and open their countdown to pre-save. Search the catalogue and edit playlists you own. Copy a song's link, title, or artists from its menu. |
 | **Local files** | Play the local files your playlists list from a folder you choose in Settings, at any sample rate. Names show spaces and accents correctly, including in cached playlists. |
 | **Lyrics** | Spotify lyrics when the playback session is signed in, with LRCLIB as fallback. Temporary LRCLIB overloads retry and try search; older cached lyrics remain available during outages. |
