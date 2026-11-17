@@ -11,6 +11,7 @@
 #include <atomic>
 #include <chrono>
 #include <thread>
+#include <vector>
 namespace {
 void check(OSStatus status) { if (status != noErr) throw status; }
 AudioObjectPropertyAddress property(AudioObjectPropertySelector selector) {
@@ -40,13 +41,50 @@ struct Ring {
         read.store(r + count, std::memory_order_release); return count;
     }
 };
+// Where the device plays stereo: the output stream holding its preferred
+// pair and the pair's channels within it. A pair split across streams, a
+// mono stream or an unreadable layout falls back to a stereo mixdown, which
+// is quiet on a multichannel interface but always carries the source.
+struct Layout {
+    bool mixdown = true;
+    UInt32 stream = 0, left = 0, right = 1;
+    bool operator!=(const Layout &other) const {
+        return mixdown != other.mixdown || stream != other.stream || left != other.left || right != other.right;
+    }
+};
+Layout layout(AudioObjectID output) {
+    UInt32 stereo[2] = {1, 2}; UInt32 size = sizeof stereo;
+    AudioObjectPropertyAddress address = {kAudioDevicePropertyPreferredChannelsForStereo,
+        kAudioObjectPropertyScopeOutput, kAudioObjectPropertyElementMain};
+    AudioObjectGetPropertyData(output, &address, 0, nullptr, &size, stereo);
+    address.mSelector = kAudioDevicePropertyStreamConfiguration;
+    if (AudioObjectGetPropertyDataSize(output, &address, 0, nullptr, &size) || size < sizeof(AudioBufferList))
+        return {};
+    std::vector<UInt64> storage((size + sizeof(UInt64) - 1) / sizeof(UInt64));
+    auto *streams = reinterpret_cast<AudioBufferList *>(storage.data());
+    if (AudioObjectGetPropertyData(output, &address, 0, nullptr, &size, streams)) return {};
+    // Device channels are numbered from 1 across every stream in order.
+    UInt32 first = 1;
+    for (UInt32 stream = 0; stream < streams->mNumberBuffers; ++stream) {
+        const UInt32 count = streams->mBuffers[stream].mNumberChannels;
+        auto inside = [&](UInt32 channel) { return channel >= first && channel < first + count; };
+        if (stereo[0] != stereo[1] && inside(stereo[0]) && inside(stereo[1]))
+            return {false, stream, stereo[0] - first, stereo[1] - first};
+        first += count;
+    }
+    return {};
+}
 struct API_AVAILABLE(macos(14.2)) Route {
     void *context; Control control;
     AudioObjectID tap = 0, device = 0, output = 0;
     AudioDeviceIOProcID io = nullptr;
     AudioQueueRef queue = nullptr;
     CATapDescription *description = nil;
-    AudioStreamBasicDescription format{};
+    // The tap carries the output stream's own channels; `format` is the
+    // stereo pair taken from it, which the DSP and the queue play.
+    AudioStreamBasicDescription tapFormat{}, format{};
+    Layout channels;
+    std::array<float, 4096> pair{};
     Ring input, rendered;
     std::atomic<bool> audible{false}, overflow{false}, resetOutput{false};
     std::atomic<OSStatus> error{noErr};
@@ -63,13 +101,26 @@ struct API_AVAILABLE(macos(14.2)) Route {
                             const AudioTimeStamp *, AudioBufferList *, const AudioTimeStamp *, void *ctx) {
         auto &self = *static_cast<Route *>(ctx);
         if (!(self.control(self.context) & 2) || !buffers) return noErr;
-        // initStereoMixdownOfProcesses delivers interleaved float32 stereo.
-        if (buffers->mNumberBuffers != 1 || buffers->mBuffers[0].mNumberChannels != 2) {
+        // The tapped stream's interleaved float32 channels; only the stereo
+        // pair goes on. A stereo mixdown would fold every channel of a
+        // multichannel interface into two at a fraction of their level.
+        const UInt32 channels = self.tapFormat.mChannelsPerFrame;
+        if (buffers->mNumberBuffers != 1 || buffers->mBuffers[0].mNumberChannels != channels) {
             self.error.store(kAudioHardwareUnsupportedOperationError); return noErr;
         }
         const auto &buffer = buffers->mBuffers[0];
-        if (buffer.mData && !self.input.push(static_cast<const float *>(buffer.mData), buffer.mDataByteSize / sizeof(float)))
-            self.overflow.store(true);
+        if (!buffer.mData) return noErr;
+        const auto *data = static_cast<const float *>(buffer.mData);
+        const size_t frames = buffer.mDataByteSize / (sizeof(float) * channels);
+        for (size_t at = 0; at < frames;) {
+            const size_t count = std::min(frames - at, self.pair.size() / 2);
+            for (size_t i = 0; i < count; ++i) {
+                self.pair[2 * i] = data[(at + i) * channels + self.channels.left];
+                self.pair[2 * i + 1] = data[(at + i) * channels + self.channels.right];
+            }
+            if (!self.input.push(self.pair.data(), count * 2)) { self.overflow.store(true); break; }
+            at += count;
+        }
         return noErr;
     }
     static void render(void *ctx, AudioQueueRef queue, AudioQueueBufferRef buffer) {
@@ -90,19 +141,27 @@ struct API_AVAILABLE(macos(14.2)) Route {
         auto address = property(kAudioHardwarePropertyTranslatePIDToProcessObject);
         if (AudioObjectGetPropertyData(kAudioObjectSystemObject, &address, sizeof pid, &pid, &size, &process) || !process)
             return false; // Soloist has not opened its audio device yet.
-        description = [[CATapDescription alloc] initStereoMixdownOfProcesses:@[@(process)]];
+        output = get<AudioObjectID>(kAudioObjectSystemObject, kAudioHardwarePropertyDefaultOutputDevice);
+        NSString *uid = (__bridge_transfer NSString *)get<CFStringRef>(output, kAudioDevicePropertyDeviceUID);
+        channels = layout(output);
+        description = channels.mixdown
+            ? [[CATapDescription alloc] initStereoMixdownOfProcesses:@[@(process)]]
+            : [[CATapDescription alloc] initWithProcesses:@[@(process)] andDeviceUID:uid withStream:channels.stream];
         description.name = @"Spotifast Soloist";
         description.privateTap = YES;
         // Waiting for permission must not silence ordinary playback.
         description.muteBehavior = CATapUnmuted;
         check(AudioHardwareCreateProcessTap(description, &tap));
-        format = get<AudioStreamBasicDescription>(tap, kAudioTapPropertyFormat);
-        if (format.mFormatID != kAudioFormatLinearPCM || !(format.mFormatFlags & kAudioFormatFlagIsFloat)
-            || (format.mFormatFlags & (kAudioFormatFlagIsNonInterleaved | kAudioFormatFlagIsBigEndian))
-            || format.mBitsPerChannel != 32 || format.mChannelsPerFrame != 2
-            || format.mSampleRate < 8000 || format.mSampleRate > 192000)
+        tapFormat = get<AudioStreamBasicDescription>(tap, kAudioTapPropertyFormat);
+        if (tapFormat.mFormatID != kAudioFormatLinearPCM || !(tapFormat.mFormatFlags & kAudioFormatFlagIsFloat)
+            || (tapFormat.mFormatFlags & (kAudioFormatFlagIsNonInterleaved | kAudioFormatFlagIsBigEndian))
+            || tapFormat.mBitsPerChannel != 32 || tapFormat.mChannelsPerFrame <= std::max(channels.left, channels.right)
+            || (channels.mixdown && tapFormat.mChannelsPerFrame != 2)
+            || tapFormat.mSampleRate < 8000 || tapFormat.mSampleRate > 192000)
             throw static_cast<OSStatus>(kAudioHardwareUnsupportedOperationError);
-        output = get<AudioObjectID>(kAudioObjectSystemObject, kAudioHardwarePropertyDefaultOutputDevice);
+        format = tapFormat;
+        format.mChannelsPerFrame = 2;
+        format.mBytesPerFrame = format.mBytesPerPacket = 2 * sizeof(float);
         NSDictionary *aggregate = @{@kAudioAggregateDeviceNameKey:@"Spotifast Soloist (private)",
             @kAudioAggregateDeviceUIDKey:NSUUID.UUID.UUIDString, @kAudioAggregateDeviceIsPrivateKey:@YES,
             @kAudioAggregateDeviceTapAutoStartKey:@YES,
@@ -145,8 +204,8 @@ struct API_AVAILABLE(macos(14.2)) Route {
                 nextCheck = now + std::chrono::milliseconds(500);
                 auto current = get<AudioStreamBasicDescription>(tap, kAudioTapPropertyFormat);
                 if (output != get<AudioObjectID>(kAudioObjectSystemObject, kAudioHardwarePropertyDefaultOutputDevice)
-                    || current.mSampleRate != format.mSampleRate || current.mFormatFlags != format.mFormatFlags
-                    || current.mChannelsPerFrame != format.mChannelsPerFrame)
+                    || current.mSampleRate != tapFormat.mSampleRate || current.mFormatFlags != tapFormat.mFormatFlags
+                    || current.mChannelsPerFrame != tapFormat.mChannelsPerFrame || layout(output) != channels)
                     throw static_cast<OSStatus>(kAudioHardwareBadDeviceError);
             }
             size_t count = input.pop(samples.data(), samples.size());
