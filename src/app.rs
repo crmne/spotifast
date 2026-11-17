@@ -12330,8 +12330,9 @@ impl App {
             .iter()
             .map(|item| item.uri().to_string())
             .collect();
-        // A fetched or currently playing addition is no longer pending.
-        let current = self.current_track_uri();
+        // A fetched or currently playing addition is no longer pending. A
+        // waiting discography play only shows its song: nothing played it.
+        let current = self.started_track_uri();
         self.pending_queue_adds.retain(|addition| {
             !fetched.contains(addition.item.uri())
                 && current.as_deref() != Some(addition.item.uri())
