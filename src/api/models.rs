@@ -589,6 +589,38 @@ impl Playlist {
     pub fn owned_by(&self, user_id: &str) -> bool {
         self.owner.id.as_deref() == Some(user_id)
     }
+
+    /// Whether Spotify itself owns the playlist: its editorial lists and
+    /// the mixes it makes for each listener.
+    pub fn owned_by_spotify(&self) -> bool {
+        self.owner.id.as_deref() == Some("spotify")
+    }
+
+    /// Whether Spotify generates the playlist for each listener: Daily
+    /// Mix, Discover Weekly, Release Radar, On Repeat and the like. Their
+    /// ids carry Spotify's personalised prefixes (`37i9dQZF1E` for the
+    /// mixes, `37i9dQZEVX` for the weekly ones); editorial lists use
+    /// other prefixes. Spotify keeps no saves count for these.
+    pub fn made_for_listener(&self) -> bool {
+        let id = if self.id.is_empty() {
+            self.uri
+                .strip_prefix("spotify:playlist:")
+                .unwrap_or_default()
+        } else {
+            self.id.as_str()
+        };
+        self.owned_by_spotify() && (id.starts_with("37i9dQZF1E") || id.starts_with("37i9dQZEVX"))
+    }
+
+    /// The saves count Spotify itself shows: none for a mix it makes per
+    /// listener, and none where it owns the list and reports no saves.
+    pub fn shown_saves(&self) -> Option<u64> {
+        let total = self.followers.as_ref()?.total;
+        if self.made_for_listener() || (total == 0 && self.owned_by_spotify()) {
+            return None;
+        }
+        Some(total)
+    }
 }
 
 /// A track or an episode, as returned wherever Spotify mixes both.
@@ -902,6 +934,51 @@ pub struct ApiErrorDetail {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Spotify shows no saves count for the mixes it makes for each
+    /// listener, nor for a list of its own that reports none.
+    #[test]
+    fn a_playlists_saves_show_as_spotify_shows_them() {
+        let playlist = |id: &str, owner: &str, saves: u64| Playlist {
+            id: id.into(),
+            uri: format!("spotify:playlist:{id}"),
+            owner: Owner {
+                id: Some(owner.into()),
+                ..Default::default()
+            },
+            followers: Some(Followers { total: saves }),
+            ..Default::default()
+        };
+        // A Daily Mix and Discover Weekly.
+        assert_eq!(
+            playlist("37i9dQZF1E39vTG3GurFPW", "spotify", 3).shown_saves(),
+            None
+        );
+        assert_eq!(
+            playlist("37i9dQZEVXcJZyENOWUFo7", "spotify", 0).shown_saves(),
+            None
+        );
+        // An editorial list keeps its count, unless it reports none.
+        assert_eq!(
+            playlist("37i9dQZF1DXcBWIGoYBM5M", "spotify", 35_000_000).shown_saves(),
+            Some(35_000_000)
+        );
+        assert_eq!(
+            playlist("37i9dQZF1DX0XUsuxWHRQd", "spotify", 0).shown_saves(),
+            None
+        );
+        // A listener's own playlist shows its count, none included.
+        assert_eq!(playlist("abc", "alice", 0).shown_saves(), Some(0));
+        assert_eq!(
+            playlist("37i9dQZF1E39vTG3GurFPW", "alice", 3).shown_saves(),
+            Some(3)
+        );
+        // An id the Web API left out is read from the uri.
+        let mut mix = playlist("37i9dQZF1E39vTG3GurFPW", "spotify", 3);
+        mix.id.clear();
+        assert!(mix.made_for_listener());
+        assert_eq!(mix.shown_saves(), None);
+    }
 
     #[test]
     fn an_albums_year_reads_a_date_the_way_format_date_does() {
