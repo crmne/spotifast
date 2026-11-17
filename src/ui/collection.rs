@@ -878,9 +878,9 @@ fn table_contents(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
     let list_top = ui.cursor().top();
     let move_slot = move_playlist.as_ref().and_then(|playlist_id| {
         let held = egui::DragAndDrop::payload::<DragTrack>(ui.ctx())?;
-        // Several rows from this playlist have no single source index to
+        // Rows from this playlist that came without their positions cannot
         // move, and inserting them would add copies, so refuse the drop.
-        if held.from.is_none() && held.source_playlist.as_ref() == Some(playlist_id) {
+        if own_rows(&held, playlist_id).is_some_and(|rows| rows.is_empty()) {
             return None;
         }
         if !ui.rect_contains_pointer(ui.clip_rect()) {
@@ -1108,15 +1108,13 @@ fn table_contents(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
                 table.row_offset.saturating_add(slot as u32)
             };
             // The slot is Spotify's insert_before, exactly what the
-            // action's handler sends; a row dropped back on its own
-            // edges moves nothing.
-            if let Some((origin, from)) = &track.from
-                && *origin == playlist_id
-            {
-                if to != *from && to != from.saturating_add(1) {
+            // action's handler sends; rows dropped back on their own
+            // edges move nothing.
+            if let Some(rows) = own_rows(&track, &playlist_id) {
+                if !crate::model::range_moves(&rows, to).is_empty() {
                     app.actions.push(Action::MoveInPlaylist {
                         playlist_id,
-                        from: *from,
+                        rows,
                         to,
                     });
                 }
@@ -1376,6 +1374,26 @@ fn placeholder_row(
                 egui::Button::new(gettext(locale, "Retry").as_ref()),
             )
             .clicked()
+}
+
+/// The positions of rows dragged out of `playlist_id` itself, which a drop
+/// between its rows moves; empty when they came without them, and `None`
+/// for songs from anywhere else.
+fn own_rows(track: &DragTrack, playlist_id: &str) -> Option<Vec<u32>> {
+    match &track.from {
+        Some((origin, from)) if origin == playlist_id => Some(vec![*from]),
+        _ => track
+            .source_playlist
+            .as_ref()
+            .filter(|(source, _)| source == playlist_id)
+            .map(|(_, rows)| {
+                if rows.len() == track.items.len() {
+                    rows.clone()
+                } else {
+                    Vec::new()
+                }
+            }),
+    }
 }
 
 /// The playlist positions of the picked songs, so removing one copy of a

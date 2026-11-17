@@ -105,10 +105,10 @@ playlist to insert, or on Liked Songs to save every selected song.
 Selected rows have a translucent neutral highlight. Keyboard focus uses
 the row highlight without an extra outline.
 
-Dragging an unselected row copies just that song. Reordering within a
-playlist still moves one song at a time. Several selected songs dropped back
-between the rows of their own open playlist stay where they are. Dropped on
-that playlist in the sidebar, they ask before being added again.
+Dragging an unselected row copies just that song. Several selected songs
+dropped between the rows of their own open playlist move there together, in
+the playlist's order, and the selection clears. Dropped on that playlist in
+the sidebar, they ask before being added again.
 
 ## Copying and pasting songs
 
