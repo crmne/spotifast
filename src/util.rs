@@ -114,7 +114,8 @@ pub fn is_relative_date(iso: &str, now: jiff::Timestamp) -> bool {
     (0..RELATIVE_DATE_LIMIT_SECONDS).contains(&seconds)
 }
 
-/// `5 minutes ago` for recent ISO-8601 timestamps, otherwise the usual date.
+/// `Just now` or `5 minutes ago` for recent ISO-8601 timestamps, otherwise
+/// the usual date.
 ///
 /// Dates are shown relatively for their first 30 days, matching the playlist
 /// table's compact, time-aware presentation. `now` is an argument so callers
@@ -128,17 +129,13 @@ pub fn format_relative_date(locale: Locale, iso: &str, now: jiff::Timestamp) -> 
         return format_date(locale, iso);
     }
 
-    let (count, text) = if seconds < 60 {
-        let count = seconds;
-        let text = ngettext(
-            locale,
-            // Translators: How long ago a song was added. Keep {count}.
-            "{count} second ago",
-            "{count} seconds ago",
-            count as u32,
-        );
-        (count, text)
-    } else if seconds < 60 * 60 {
+    // A count of seconds would tick up on screen until the minute: under a
+    // minute it all happened just now.
+    if seconds < 60 {
+        // Translators: When a song was added or played, less than a minute ago.
+        return gettext(locale, "Just now").into_owned();
+    }
+    let (count, text) = if seconds < 60 * 60 {
         let count = seconds / 60;
         let text = ngettext(
             locale,
@@ -535,7 +532,15 @@ mod tests {
         let now: jiff::Timestamp = "2026-08-31T12:00:00Z".parse().unwrap();
         assert_eq!(
             format_relative_date(Locale::English, "2026-08-31T11:59:30Z", now),
-            "30 seconds ago"
+            "Just now"
+        );
+        assert_eq!(
+            format_relative_date(Locale::English, "2026-08-31T12:00:00Z", now),
+            "Just now"
+        );
+        assert_eq!(
+            format_relative_date(Locale::English, "2026-08-31T11:59:01Z", now),
+            "Just now"
         );
         assert_eq!(
             format_relative_date(Locale::English, "2026-08-31T11:59:00Z", now),
@@ -579,7 +584,7 @@ mod tests {
         assert_eq!(format_total_ms(Locale::Spanish, 7_980_000), "2 h 13 min");
         assert_eq!(format_episode_ms(Locale::Spanish, 2_280_000), "38 min");
         for (added, expected) in [
-            ("2026-08-31T11:59:59Z", "hace 1 segundo"),
+            ("2026-08-31T11:59:59Z", "Justo ahora"),
             ("2026-08-31T11:58:00Z", "hace 2 minutos"),
             ("2026-08-30T12:00:00Z", "hace 1 día"),
             ("2026-08-17T12:00:00Z", "hace 2 semanas"),
@@ -598,7 +603,7 @@ mod tests {
         assert_eq!(format_total_ms(Locale::Turkish, 7_980_000), "2 sa 13 dk");
         assert_eq!(format_episode_ms(Locale::Turkish, 2_280_000), "38 dk");
         for (added, expected) in [
-            ("2026-08-31T11:59:59Z", "1 saniye önce"),
+            ("2026-08-31T11:59:59Z", "Az önce"),
             ("2026-08-31T11:58:00Z", "2 dakika önce"),
             ("2026-08-30T12:00:00Z", "1 gün önce"),
             ("2026-08-17T12:00:00Z", "2 hafta önce"),
@@ -613,7 +618,7 @@ mod tests {
         assert_eq!(format_total_ms(Locale::Ukrainian, 7_980_000), "2 год 13 хв");
         assert_eq!(format_episode_ms(Locale::Ukrainian, 2_280_000), "38 хв");
         for (added, expected) in [
-            ("2026-08-31T11:59:59Z", "1 секунду тому"),
+            ("2026-08-31T11:59:59Z", "Щойно"),
             ("2026-08-31T11:58:00Z", "2 хвилини тому"),
             ("2026-08-31T07:00:00Z", "5 годин тому"),
             ("2026-08-30T12:00:00Z", "1 день тому"),
@@ -629,7 +634,7 @@ mod tests {
         assert_eq!(format_total_ms(Locale::Korean, 7_980_000), "2시간 13분");
         assert_eq!(format_episode_ms(Locale::Korean, 2_280_000), "38분");
         for (added, expected) in [
-            ("2026-08-31T11:59:59Z", "1초 전"),
+            ("2026-08-31T11:59:59Z", "방금 전"),
             ("2026-08-31T11:58:00Z", "2분 전"),
             ("2026-08-31T07:00:00Z", "5시간 전"),
             ("2026-08-30T12:00:00Z", "1일 전"),
