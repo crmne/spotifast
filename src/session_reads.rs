@@ -19,13 +19,16 @@ use librespot_protocol::extended_metadata::{
     BatchedEntityRequest, BatchedExtensionResponse, EntityRequest, ExtensionQuery,
 };
 use librespot_protocol::extension_kind::ExtensionKind;
-use librespot_protocol::playlist4_external::{Item, ListItems, MetaItem, SelectedListContent};
+use librespot_protocol::playlist4_external::{
+    Item, ListItems, ListSignals, MetaItem, SelectedListContent,
+};
+use librespot_protocol::signal_model::Signal;
 use protobuf::{EnumOrUnknown, Message as _};
 
 use crate::api::ApiError;
 use crate::api::models::{
-    Album, Artist, ArtistRef, Episode, Image, Owner, Page, PlayableItem, Playlist, PlaylistItem,
-    Show, Track, TrackCount, UserRef,
+    Album, Artist, ArtistRef, Episode, Image, Owner, Page, PlayableItem, Playlist, PlaylistChip,
+    PlaylistItem, Show, Track, TrackCount, UserRef,
 };
 
 const IMAGE_HOST: &str = "https://i.scdn.co/image/";
@@ -728,8 +731,33 @@ fn removal_changes(
 
 /// A playlist's header: name, owner, cover, and snapshot.
 pub async fn playlist(session: &Session, id: &str) -> Result<Playlist, Failure> {
-    let list = window(session, id, 0, 0).await?;
+    // The header window also carries the list's signals, which the
+    // metadata parse drops: read it once and take the chips from it too.
+    let uri = SpotifyUri::Playlist {
+        id: SpotifyId::from_base62(id)?,
+        user: None,
+    };
+    let SpotifyUri::Playlist {
+        id: playlist_id, ..
+    } = &uri
+    else {
+        unreachable!("built as a playlist above");
+    };
+    let bytes = session
+        .spclient()
+        .get_playlist_range(playlist_id, 0, 0)
+        .await
+        .map_err(refused)?;
+    let content = SelectedListContent::parse_from_bytes(&bytes)
+        .map_err(|error| Failure::Retry(error.into()))?;
+    let list = <SessionPlaylist as librespot_metadata::Metadata>::parse(&content, &uri)?;
     let mut playlist = header(id, &list);
+    playlist.chips = chips_of(&content);
+    playlist.chips_read = true;
+    log::debug!(
+        "playlist header over session: {} chips",
+        playlist.chips.len()
+    );
     // `Playlist::owner_name` reads a missing name as Spotify's for its own
     // lists and as the id for anyone else's, until the app finds the name
     // where the Web API gave it: the account's own, or the library list.
@@ -739,6 +767,112 @@ pub async fn playlist(session: &Session, id: &str) -> Result<Playlist, Failure> 
             .and_then(|profile| profile.name);
     }
     Ok(playlist)
+}
+
+/// Prefix of the signals behind the filter chips Spotify shows on its own
+/// mixes. A signal reads `session_control_display$<concept>$<key>`.
+const CHIP_SIGNAL: &str = "session_control_display";
+/// The signal that clears the chosen chip.
+pub const CHIP_RESET: &str = "session-control-reset";
+/// The list attribute naming the chosen chip's signal.
+const CHIP_SELECTED: &str = "session_control.selected_signals";
+/// The list attribute prefix naming each chip, by its key.
+const CHIP_NAME: &str = "session_control_display.displayName.";
+
+/// The filter chips of one of Spotify's mixes, in the order of the list's
+/// signals, named by its format attributes. Lists without chips have none.
+fn chips_of(content: &SelectedListContent) -> Vec<PlaylistChip> {
+    let attributes: HashMap<&str, &str> = content
+        .attributes
+        .as_ref()
+        .map(|attributes| {
+            attributes
+                .format_attributes
+                .iter()
+                .map(|attribute| (attribute.key(), attribute.value()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let selected = attributes.get(CHIP_SELECTED).copied().unwrap_or_default();
+    let mut chips: Vec<PlaylistChip> = content
+        .contents
+        .as_ref()
+        .map(|contents| contents.available_signals.as_slice())
+        .unwrap_or_default()
+        .iter()
+        .map(|signal| signal.identifier.as_str())
+        .filter(|signal| signal.starts_with(CHIP_SIGNAL))
+        .filter_map(|signal| {
+            let key = signal.rsplit('$').next()?;
+            let label = attributes.get(format!("{CHIP_NAME}{key}").as_str())?;
+            Some(PlaylistChip {
+                signal: signal.to_string(),
+                label: label.to_string(),
+                selected: !selected.is_empty() && selected.split(',').any(|s| s == signal),
+            })
+        })
+        .collect();
+    // Spotify's apps lead with the chosen chip.
+    chips.sort_by_key(|chip| !chip.selected);
+    chips
+}
+
+/// Chooses one of a mix's filter chips, or clears the choice with
+/// [`CHIP_RESET`], as Spotify's apps do: Spotify rebuilds the playlist
+/// around it and keeps the choice for the account's other apps.
+///
+/// `snapshot` is the revision the page shows, as its snapshot id; it saves
+/// reading the list first. Should Spotify turn it away, as when the list was
+/// rebuilt since, the current revision is read and the signal sent again.
+pub async fn send_chip(
+    session: &Session,
+    id: &str,
+    signal: &str,
+    snapshot: Option<&str>,
+) -> anyhow::Result<()> {
+    if let Some(revision) = snapshot.and_then(revision_of) {
+        match post_signal(session, id, signal, revision).await {
+            Ok(()) => return Ok(()),
+            Err(error) => log::debug!("chip signal on the shown revision failed: {error:#}"),
+        }
+    }
+    let header = session
+        .spclient()
+        .get_playlist_range(&SpotifyId::from_base62(id)?, 0, 0)
+        .await?;
+    let header = SelectedListContent::parse_from_bytes(&header)?;
+    post_signal(session, id, signal, header.revision().to_vec()).await
+}
+
+/// The revision a snapshot id names; see [`snapshot`].
+fn revision_of(snapshot: &str) -> Option<Vec<u8>> {
+    base64::engine::general_purpose::STANDARD_NO_PAD
+        .decode(snapshot.trim_end_matches('='))
+        .ok()
+        .filter(|revision| !revision.is_empty())
+}
+
+async fn post_signal(
+    session: &Session,
+    id: &str,
+    signal: &str,
+    revision: Vec<u8>,
+) -> anyhow::Result<()> {
+    let mut body = ListSignals::new();
+    body.set_base_revision(revision);
+    let mut emitted = Signal::new();
+    emitted.identifier = signal.to_string();
+    body.emitted_signals.push(emitted);
+    session
+        .spclient()
+        .request(
+            &reqwest::Method::POST,
+            &format!("/playlist/v2/playlist/{id}/signals"),
+            None,
+            Some(&body.write_to_bytes()?),
+        )
+        .await?;
+    Ok(())
 }
 
 /// One page of a playlist's rows, as the Web API pages them.
@@ -2093,6 +2227,77 @@ mod tests {
     use librespot_metadata::Metadata as _;
 
     use super::*;
+
+    fn chip_list(selected: &str) -> SelectedListContent {
+        use librespot_protocol::playlist4_external::{FormatListAttribute, ListAttributes};
+        let mut attributes = ListAttributes::new();
+        for (key, value) in [
+            ("session_control.selected_signals", selected),
+            (
+                "session_control_display.displayName.editors_pick",
+                "Editors' picks",
+            ),
+            ("session_control_display.displayName.highlife", "Highlife"),
+            (
+                "session_control_display.displayName.new_artists_for_me",
+                "Discover new artists",
+            ),
+        ] {
+            let mut attribute = FormatListAttribute::new();
+            attribute.set_key(key.into());
+            attribute.set_value(value.into());
+            attributes.format_attributes.push(attribute);
+        }
+        let mut contents = ListItems::new();
+        for identifier in [
+            "session_control_display$c1$new_artists_for_me",
+            "session_control_display$c1$editors_pick",
+            "session_control_display$c2$highlife",
+            "session_control_display$c3$unnamed",
+            "session-control-reset",
+        ] {
+            let mut signal = Signal::new();
+            signal.identifier = identifier.into();
+            contents.available_signals.push(signal);
+        }
+        let mut list = SelectedListContent::new();
+        list.attributes = protobuf::MessageField::some(attributes);
+        list.contents = protobuf::MessageField::some(contents);
+        list
+    }
+
+    #[test]
+    fn chips_follow_spotify_order_with_the_chosen_one_first() {
+        let chips = chips_of(&chip_list("session_control_display$c2$highlife"));
+        let shown: Vec<(&str, bool)> = chips
+            .iter()
+            .map(|chip| (chip.label.as_str(), chip.selected))
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                ("Highlife", true),
+                ("Discover new artists", false),
+                ("Editors' picks", false),
+            ]
+        );
+        assert_eq!(chips[0].signal, "session_control_display$c2$highlife");
+    }
+
+    #[test]
+    fn a_chip_signal_names_the_revision_the_page_shows() {
+        let revision = vec![0, 1, 2, 250, 251, 252, 9];
+        assert_eq!(revision_of(&snapshot(&revision)), Some(revision));
+        assert_eq!(revision_of(""), None);
+        assert_eq!(revision_of("not base64!"), None);
+    }
+
+    #[test]
+    fn no_chip_is_chosen_without_a_selected_signal() {
+        let chips = chips_of(&chip_list(""));
+        assert_eq!(chips.len(), 3);
+        assert!(chips.iter().all(|chip| !chip.selected));
+    }
 
     #[test]
     fn related_artist_cards_keep_order_identity_and_images() {

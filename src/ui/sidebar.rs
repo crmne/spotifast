@@ -1060,6 +1060,19 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
     {
         app.actions.push(Action::FocusSearch);
     }
+    // Hiding Made for you from Home hides its page's entry too.
+    if app.settings.home.made_for_you.visible
+        && nav_row(
+            ui,
+            &palette,
+            Icon::Sparkles,
+            &gettext(locale, "Made for you"),
+            page == Page::MadeForYou,
+        )
+        .clicked()
+    {
+        app.actions.push(Action::Open(Page::MadeForYou));
+    }
     ui.add_space(10.0);
     ui.painter().hline(
         ui.max_rect().x_range().shrink(4.0),

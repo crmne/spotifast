@@ -1982,6 +1982,7 @@ pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
                 app.actions
                     .push(Action::LoadMore(Page::Playlist(id.to_string())));
             }
+            playlist_chips(app, ui, id, &playlist.chips);
             let editable = app
                 .can_edit_playlist(playlist)
                 .then(|| (playlist.id.clone(), playlist.snapshot_id.clone()));
@@ -2071,6 +2072,53 @@ pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
         }
     }
     app.playlist_pages.insert(id.to_string(), page);
+}
+
+/// The filter chips Spotify offers on its own mixes, such as Release
+/// Radar's "Discover new artists", "Editors' picks" or a genre. Choosing one
+/// has Spotify rebuild the playlist around it; choosing it again clears it.
+fn playlist_chips(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    id: &str,
+    chips: &[crate::api::models::PlaylistChip],
+) {
+    if chips.is_empty() {
+        return;
+    }
+    let enabled = app.network_reachable;
+    let mut chosen = None;
+    ui.add_space(4.0);
+    widgets::chip_row(
+        ui,
+        ui.id().with(("playlist-chips", id)),
+        app.palette.window,
+        |ui| {
+            ui.spacing_mut().item_spacing.x = 8.0;
+            ui.add_enabled_ui(enabled, |ui| {
+                for chip in chips {
+                    let response = crate::theme::soft_button(
+                        ui,
+                        &app.palette,
+                        None,
+                        &chip.label,
+                        chip.selected,
+                    );
+                    if response.clicked() {
+                        response.scroll_to_me(None);
+                        chosen = Some(chip.signal.clone());
+                    }
+                }
+            });
+        },
+    );
+    ui.add_space(8.0);
+    if let Some(signal) = chosen {
+        app.actions.push(Action::ChoosePlaylistChip {
+            id: id.to_string(),
+            signal,
+        });
+    }
 }
 
 pub fn album(app: &mut App, ui: &mut egui::Ui, id: &str) {
