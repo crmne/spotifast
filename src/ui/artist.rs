@@ -9,7 +9,7 @@ use crate::model::{Action, DiscographyFilter, Loadable, Page, RowContext};
 use crate::theme::{self, Icon};
 use crate::util;
 
-use super::collection::{Hero, HeroArt, hero, hero_images};
+use super::collection::{Hero, HeroArt, hero, hero_images, song_count};
 use super::widgets::{self, TrackRow};
 
 /// Draws the artist page and keeps discography loading placeholders in place.
@@ -28,6 +28,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
         Loadable::Loaded(artist) => {
             artist_hero(app, ui, artist, preview.as_deref());
             artist_actions(app, ui, artist);
+            liked_songs_row(app, ui, artist);
             // The same overview supplies both play counts and the upcoming release.
             app.actions
                 .push(Action::RequestPlayCounts(artist.uri.clone()));
@@ -365,6 +366,119 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
         }
     }
     app.artist_pages.insert(id.to_string(), page);
+}
+
+/// The artist's songs in Liked Songs, as the mobile app offers them under
+/// the artist's buttons: a row that opens them, drawn once Liked Songs holds
+/// one. Its count grows while the rest of Liked Songs is read.
+fn liked_songs_row(app: &mut App, ui: &mut egui::Ui, artist: &Artist) {
+    let count = liked_song_count(app, ui, &artist.id);
+    if count == 0 {
+        return;
+    }
+    let palette = app.palette;
+    let title = gettext(app.locale, "Liked Songs");
+    let subtitle = song_count(app.locale, count);
+    // A row across the page, lit on hover and focus like the song rows
+    // under it, with even room around the picture.
+    const PICTURE: f32 = 56.0;
+    const PAD: f32 = 8.0;
+    const GAP: f32 = 14.0;
+    const END: f32 = 16.0;
+    const LEADING: f32 = 2.0;
+    let room = (ui.available_width() - PAD - PICTURE - GAP - END).max(1.0);
+    let lines = [
+        widgets::ellipsized(ui, &title, theme::semibold(15.0), palette.text, room, 1),
+        widgets::ellipsized(
+            ui,
+            &subtitle,
+            theme::regular(13.0),
+            palette.secondary,
+            room,
+            1,
+        ),
+    ];
+    let (rect, response) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), PICTURE + 2.0 * PAD),
+        egui::Sense::click(),
+    );
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(
+            egui::WidgetType::Button,
+            ui.is_enabled(),
+            format!("{title}: {subtitle}"),
+        )
+    });
+    if response.gained_focus() {
+        response.scroll_to_me(None);
+    }
+    if ui.is_enabled() && (ui.rect_contains_pointer(rect) || response.has_focus()) {
+        ui.painter().rect_filled(
+            rect,
+            egui::CornerRadius::same(6),
+            palette
+                .surface_hover
+                .gamma_multiply(if palette.dark { 0.7 } else { 1.0 }),
+        );
+    }
+    // The artist's picture with a heart on it, as Spotify draws this row.
+    let picture = egui::Rect::from_min_size(
+        rect.min + egui::Vec2::splat(PAD),
+        egui::Vec2::splat(PICTURE),
+    );
+    widgets::paint_cover(
+        ui,
+        &palette,
+        pick_image(&artist.images, app.art_px(PICTURE)),
+        picture,
+        PICTURE / 2.0,
+        Icon::User,
+        Some(app.backend.art()),
+    );
+    let badge = egui::Rect::from_center_size(
+        picture.right_bottom() - egui::vec2(9.0, 9.0),
+        egui::Vec2::splat(22.0),
+    );
+    ui.painter()
+        .circle_filled(badge.center(), 11.0, palette.accent);
+    theme::paint_icon(ui, Icon::HeartFilled, badge, 12.0, palette.on_accent);
+    let left = picture.right() + GAP;
+    let right = rect.right() - END;
+    let height = lines.iter().map(|line| line.size().y).sum::<f32>() + LEADING;
+    let mut y = rect.center().y - height / 2.0;
+    for (line, color) in lines.into_iter().zip([palette.text, palette.secondary]) {
+        let x = if line.job.halign == egui::Align::RIGHT {
+            right
+        } else {
+            left
+        };
+        let line_height = line.size().y;
+        ui.painter().galley(egui::pos2(x, y), line, color);
+        y += line_height + LEADING;
+    }
+    if response
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .clicked()
+    {
+        app.actions
+            .push(Action::Open(Page::ArtistLikedSongs(artist.id.clone())));
+    }
+    ui.add_space(20.0);
+}
+
+/// How many liked songs credit the artist, counted again only when Liked
+/// Songs changes.
+fn liked_song_count(app: &App, ui: &egui::Ui, artist_id: &str) -> u32 {
+    let liked = &app.library.liked;
+    let id = egui::Id::new(("artist-liked-count", app.user_id(), artist_id));
+    if let Some((revision, count)) = ui.data(|data| data.get_temp::<(u64, u32)>(id))
+        && revision == liked.revision
+    {
+        return count;
+    }
+    let count = crate::liked::by_artist(&liked.items, artist_id).count() as u32;
+    ui.data_mut(|data| data.insert_temp(id, (liked.revision, count)));
+    count
 }
 
 fn upcoming_release(

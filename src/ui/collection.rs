@@ -2642,8 +2642,268 @@ pub fn liked(app: &mut App, ui: &mut egui::Ui) {
     );
 }
 
+/// One artist's songs in Liked Songs, opened from the artist's page: the
+/// rows of Liked Songs that credit the artist, which play as a view of
+/// Liked Songs. The app reads Liked Songs to the end while this is open.
+pub fn artist_liked(app: &mut App, ui: &mut egui::Ui, artist_id: &str) {
+    let palette = app.palette;
+    let locale = app.locale;
+    let page = Page::ArtistLikedSongs(artist_id.to_string());
+    let revision = app.library.liked.revision;
+    let names = app.user_names_revision;
+    let items = if let Some(items) = table_items_hit(app, &page, revision, revision, names) {
+        items
+    } else {
+        let rows = crate::liked::by_artist(&app.library.liked.items, artist_id)
+            .map(liked_row)
+            .collect();
+        remember_table_items(app, page.clone(), revision, revision, names, rows)
+    };
+    if items.is_empty() && !app.network_reachable {
+        widgets::empty_state(
+            ui,
+            &palette,
+            Icon::WifiOff,
+            &gettext(locale, "You're offline"),
+            &gettext(
+                locale,
+                "Spotifast will reconnect automatically when your connection returns.",
+            ),
+        );
+        return;
+    }
+    let artist = app
+        .artist_pages
+        .get(artist_id)
+        .and_then(|page| page.artist.get())
+        .or_else(|| app.known_artist(artist_id));
+    // A page restored before the artist's has the name its songs credit.
+    let name = artist.map(|artist| artist.name.clone()).or_else(|| {
+        items.iter().find_map(|(item, _, _)| match item {
+            PlayableItem::Track(track) => track
+                .artists
+                .iter()
+                .find(|credit| credit.id.as_deref() == Some(artist_id))
+                .map(|credit| credit.name.clone()),
+            _ => None,
+        })
+    });
+    let picture = artist
+        .and_then(|artist| pick_image(&artist.images, app.art_px(18.0)))
+        .map(str::to_string);
+    let total = items.len() as u32;
+    let count_text = if app.library.liked.is_complete() {
+        songs_and_duration(locale, total, total_duration(&items))
+    } else {
+        song_count(locale, total)
+    };
+    let title = gettext(locale, "Liked Songs");
+    let mut byline = Vec::new();
+    let mut avatar = None;
+    if let Some(name) = name {
+        avatar = Some(picture.map_or(Avatar::Placeholder, Avatar::Url));
+        byline.push((name, Some(Page::Artist(artist_id.to_string()))));
+    }
+    byline.push((count_text, None));
+    hero(
+        app,
+        ui,
+        Hero {
+            images: HeroImages::default(),
+            liked: true,
+            kind: gettext(locale, "Playlist"),
+            title: &title,
+            description: None,
+            byline,
+            byline_tooltip: None,
+            avatar,
+            round: false,
+        },
+    );
+    let collection_uri = app
+        .user
+        .as_ref()
+        .map(|user| format!("spotify:user:{}:collection", user.id));
+    let filter_id = egui::Id::new(("artist-liked-filter", artist_id));
+    let mut filter = ui
+        .data(|data| data.get_temp::<String>(filter_id))
+        .unwrap_or_default();
+    let needle = filter.trim().to_lowercase();
+    let sort = app.table_sorts.get(&page).copied();
+    let view = prepare_table_view(
+        ui,
+        app,
+        &page,
+        &items,
+        ViewOptions {
+            needle: &needle,
+            sort,
+            plays_shown_rows: true,
+        },
+        revision,
+    );
+    let uris = view
+        .view_uris
+        .as_ref()
+        .map_or_else(|| Arc::from(Vec::new()), Arc::clone);
+    let enabled = app.network_reachable;
+    ui.add_enabled_ui(enabled, |ui| {
+        artist_liked_actions(
+            app,
+            ui,
+            collection_uri.as_deref(),
+            &uris,
+            &mut filter,
+            artist_id,
+        )
+    });
+    ui.data_mut(|data| data.insert_temp(filter_id, filter.clone()));
+    let context = match collection_uri {
+        Some(uri) => RowContext::Context {
+            uri,
+            editable_playlist: None,
+        },
+        None => RowContext::Uris(Arc::clone(&uris)),
+    };
+    let loading = app.library.liked.loading;
+    let error = app.library.liked.error.clone();
+    table(
+        app,
+        ui,
+        Table {
+            items: &items,
+            row_offset: 0,
+            pagination: None,
+            context,
+            show_album: true,
+            show_cover: true,
+            show_added: true,
+            show_added_by: false,
+            show_plays: false,
+            page,
+            loading,
+            error: error.as_deref(),
+            can_load_more: false,
+            filter: &filter,
+            items_revision: revision,
+            plays_shown_rows: true,
+        },
+    );
+}
+
+/// Play, Shuffle and Filter for one artist's Liked Songs. Play starts the
+/// songs shown. It pauses only while one of them plays from Liked Songs:
+/// Liked Songs playing another artist's song is not playing from here.
+fn artist_liked_actions(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    collection: Option<&str>,
+    uris: &Arc<[String]>,
+    filter: &mut String,
+    artist_id: &str,
+) {
+    let palette = app.palette;
+    let locale = app.locale;
+    let here = collection.is_some_and(|uri| app.playing_context_uri().as_deref() == Some(uri))
+        && app
+            .current_track_uri()
+            .is_some_and(|current| uris.contains(&current));
+    let playing_here = here && app.believed_playing();
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 18.0;
+        if uris.iter().any(|uri| app.play_pending(uri)) {
+            theme::circle_spinner(
+                ui,
+                56.0,
+                palette.accent,
+                palette.on_accent,
+                &gettext(locale, "Starting…"),
+            );
+        } else if ui
+            .add_enabled_ui(here || !uris.is_empty(), |ui| {
+                theme::circle_button(
+                    ui,
+                    if playing_here {
+                        Icon::PauseFilled
+                    } else {
+                        Icon::PlayFilled
+                    },
+                    56.0,
+                    palette.accent,
+                    palette.accent_hover,
+                    palette.on_accent,
+                    &if playing_here {
+                        gettext(locale, "Pause")
+                    } else {
+                        gettext(locale, "Play")
+                    },
+                )
+            })
+            .inner
+            .on_disabled_hover_text(gettext(locale, "No playable songs in this view").as_ref())
+            .clicked()
+        {
+            app.actions.push(if here {
+                Action::TogglePlay
+            } else if let Some(uri) = collection {
+                Action::PlayFromRow {
+                    context: RowContext::View {
+                        uris: Arc::clone(uris),
+                        context_uri: uri.to_string(),
+                        editable_playlist: None,
+                    },
+                    uri: String::new(),
+                    index: 0,
+                }
+            } else {
+                Action::PlayUris {
+                    uris: uris.to_vec(),
+                    index: 0,
+                }
+            });
+        }
+        let shuffle = app.playing_context_shuffle();
+        if theme::icon_button(
+            ui,
+            Icon::Shuffle,
+            26.0,
+            if shuffle {
+                palette.accent
+            } else {
+                palette.secondary
+            },
+            if shuffle {
+                palette.accent_hover
+            } else {
+                palette.text
+            },
+            &if shuffle {
+                gettext(locale, "Shuffle off")
+            } else {
+                gettext(locale, "Shuffle")
+            },
+        )
+        .clicked()
+        {
+            app.actions.push(Action::SetShuffle(!shuffle));
+        }
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            widgets::search_field(
+                ui,
+                &palette,
+                locale,
+                egui::Id::new(("collection-filter", "liked-artist", artist_id)),
+                filter,
+                &gettext(locale, "Filter"),
+                220.0,
+            );
+        });
+    });
+    ui.add_space(14.0);
+}
+
 /// `1,234 songs` in a playlist, album or Liked Songs byline.
-fn song_count(locale: Locale, count: u32) -> String {
+pub(super) fn song_count(locale: Locale, count: u32) -> String {
     ngettext(
         locale,
         // Translators: {count} is a number of songs.
