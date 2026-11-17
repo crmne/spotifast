@@ -2564,7 +2564,7 @@ pub fn liked(app: &mut App, ui: &mut egui::Ui) {
     let collection_uri = app
         .user
         .as_ref()
-        .map(|user| format!("spotify:user:{}:collection", user.id));
+        .map(|user| crate::link::liked_songs_uri(&user.id));
     let filter_id = egui::Id::new("liked-filter");
     let mut filter = ui
         .data(|data| data.get_temp::<String>(filter_id))

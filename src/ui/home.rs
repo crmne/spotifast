@@ -87,7 +87,7 @@ fn quick_access_tiles(app: &App) -> Vec<Tile> {
     let collection = app
         .user
         .as_ref()
-        .map(|user| format!("spotify:user:{}:collection", user.id));
+        .map(|user| crate::link::liked_songs_uri(&user.id));
     let liked_tile = || Tile {
         image: None,
         name: gettext(app.locale, "Liked Songs").into_owned(),
