@@ -412,6 +412,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
         );
         ui.add_space(4.0);
         let context = RowContext::Uris(Arc::from([current.uri().to_string()]));
+        let member_image = app.jam_member_image(current.uri()).map(str::to_owned);
         widgets::track_row(
             ui,
             app,
@@ -425,6 +426,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
                 added_at: None,
                 added_by: None,
                 show_added_by: false,
+                jam_member_image: member_image.as_deref(),
                 show_plays: false,
                 compact,
                 thin: false,
@@ -686,6 +688,7 @@ fn recents_contents(app: &mut App, ui: &mut egui::Ui) {
                 added_at: entry.played_at.as_deref(),
                 added_by: None,
                 show_added_by: false,
+                jam_member_image: None,
                 show_plays: false,
                 compact: true,
                 thin: false,
@@ -738,6 +741,8 @@ fn queue_row(app: &mut App, ui: &mut egui::Ui, index: usize, compact: bool, shif
     else {
         return;
     };
+    // Read before the row borrows the app mutably.
+    let member_image = app.jam_member_image(item.uri()).map(str::to_owned);
     widgets::track_row(
         ui,
         app,
@@ -751,6 +756,7 @@ fn queue_row(app: &mut App, ui: &mut egui::Ui, index: usize, compact: bool, shif
             added_at: None,
             added_by: None,
             show_added_by: false,
+            jam_member_image: member_image.as_deref(),
             show_plays: false,
             compact,
             thin: false,

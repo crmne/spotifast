@@ -616,6 +616,9 @@ pub fn popup(app: &mut App, ctx: &egui::Context) {
                         }
                     },
                 );
+                if app.local_ready || app.jam.is_some() {
+                    crate::ui::jam::section(app, ui);
+                }
                 if app.local_ready && !hide_builtin {
                     output_picker(app, ui);
                 }

@@ -8,6 +8,7 @@ pub(crate) mod devices;
 mod dialogs;
 pub(crate) mod friends;
 pub mod home;
+mod jam;
 mod keys;
 pub mod library;
 pub mod login;
@@ -92,7 +93,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         );
     }
     player_bar::show(app, ui);
-    if app.lyrics_fullscreen.is_some() {
+    if app.jam_fullscreen {
+        jam::fullscreen(app, ui);
+    } else if app.lyrics_fullscreen.is_some() {
         lyrics::fullscreen(app, ui);
     } else {
         if app.settings.sidebar_visible {

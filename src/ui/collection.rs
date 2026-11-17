@@ -1046,6 +1046,7 @@ fn table_contents(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
                 added_at: added_at.as_deref().filter(|_| table.show_added),
                 added_by: added_by.as_deref(),
                 show_added_by: table.show_added_by,
+                jam_member_image: None,
                 show_plays: table.show_plays,
                 compact: false,
                 thin,

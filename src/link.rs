@@ -159,6 +159,42 @@ fn is_id(id: &str) -> bool {
     !id.is_empty() && id.len() <= 64 && id.bytes().all(|byte| byte.is_ascii_alphanumeric())
 }
 
+/// The Jam invite token behind a shared link, or `None`. A Jam is not a
+/// page the app opens, so it stays out of `parse`; what comes back is the
+/// token a join request needs.
+///
+/// Accepted: the official share address
+/// `https://open.spotify.com/socialsession/TOKEN`, with or without a locale
+/// segment, query, or fragment, and the URI `spotify:socialsession:TOKEN`.
+/// A bare token also passes: people paste what they were sent.
+pub fn jam_invite(text: &str) -> Option<String> {
+    let text = text.trim();
+    // What was pasted may be the token itself.
+    if crate::jam::valid_token(text) {
+        return Some(text.to_owned());
+    }
+    let token = if let Some(rest) = text.strip_prefix("spotify:socialsession:") {
+        rest.split(['?', '#']).next().unwrap_or(rest)
+    } else {
+        let rest = text
+            .strip_prefix("https://")
+            .or_else(|| text.strip_prefix("http://"))?;
+        let (host, path) = rest.split_once('/')?;
+        if !is_web_host(host) {
+            return None;
+        }
+        let path = &path[..path.find(['?', '#']).unwrap_or(path.len())];
+        let path = if path.starts_with("intl-") {
+            path.split_once('/')?.1
+        } else {
+            path
+        };
+        path.strip_prefix("socialsession/")?
+    };
+    let token = token.trim();
+    crate::jam::valid_token(token).then(|| token.to_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -265,6 +301,39 @@ mod tests {
         }
         let long = format!("spotify:track:{}", "x".repeat(65));
         assert_eq!(parse(&long), None);
+    }
+
+    #[test]
+    fn jam_invites_reveal_their_token_in_every_shared_shape() {
+        for (link, token) in [
+            (
+                "https://open.spotify.com/socialsession/AbC123xyz",
+                "AbC123xyz",
+            ),
+            (
+                "https://open.spotify.com/socialsession/AbC123xyz?si=friend",
+                "AbC123xyz",
+            ),
+            (
+                "https://open.spotify.com/intl-de/socialsession/AbC123xyz",
+                "AbC123xyz",
+            ),
+            ("spotify:socialsession:AbC123xyz", "AbC123xyz"),
+            ("  AbC123xyz\n", "AbC123xyz"),
+        ] {
+            assert_eq!(jam_invite(link).as_deref(), Some(token), "{link}");
+        }
+        for refused in [
+            "",
+            "https://open.spotify.com/socialsession/",
+            "https://open.spotify.com/socialsession/../../etc",
+            "https://open.spotify.com/socialsession/with space",
+            "https://example.com/socialsession/AbC123xyz",
+            "spotify:socialsession:",
+            "spotify:track:4uLU6hMCjMI75M1A2tKUQC",
+        ] {
+            assert_eq!(jam_invite(refused), None, "{refused:?}");
+        }
     }
 
     #[test]
