@@ -5096,6 +5096,10 @@ impl App {
     fn wmp_deck(&self) -> crate::skin::wmp::deck::Deck {
         use crate::skin::wmp::deck::{Deck, PlayState, Song};
         let now = self.now_playing();
+        let has_lyrics = matches!(
+            &self.lyrics,
+            Loadable::Loaded(Some(lyrics)) if !lyrics.instrumental && !lyrics.lines.is_empty()
+        );
         let song = now.as_ref().map(|now| Song {
             title: now.title.clone(),
             artist: now
@@ -5107,6 +5111,7 @@ impl App {
             album: now.album_name.clone(),
             uri: now.uri.clone(),
             duration_s: f64::from(now.duration_ms) / 1000.0,
+            has_lyrics,
         });
         let state = match &now {
             Some(now) if now.loading => PlayState::Buffering,
@@ -5122,6 +5127,7 @@ impl App {
                 album: String::new(),
                 uri: item.uri().to_owned(),
                 duration_s: f64::from(item.duration_ms()) / 1000.0,
+                has_lyrics: false,
             }));
         }
         let presets = crate::eq::PRESETS
@@ -5191,6 +5197,9 @@ impl App {
             return;
         };
         let deck = self.wmp_deck();
+        if deck.song.is_some() {
+            self.request_lyrics();
+        }
         if self.winamp.runtime.is_none() {
             let context = ctx.clone();
             let measure: std::sync::Arc<crate::skin::wmp::paint::Measure> =
@@ -5346,6 +5355,18 @@ impl App {
                 #[cfg(not(feature = "milkdrop"))]
                 let _ = by;
                 self.actions.push(Action::CycleVisualiser);
+            }
+            Command::ShowLyrics => {
+                if self.skin_return || self.lyrics_fullscreen.is_some() {
+                    return;
+                }
+                if self.settings.winamp_window {
+                    self.skin_return = true;
+                    self.lyrics_after_switch = true;
+                    self.actions.push(Action::ToggleWinampWindow);
+                } else {
+                    self.actions.push(Action::SetLyricsFullscreen(true));
+                }
             }
             Command::BackToMain => {
                 if self.settings.winamp_window {
@@ -27008,6 +27029,45 @@ mod tests {
     }
 
     /// Quitting in the middle of the trip counts as having gone home.
+    /// The same round trip as MilkDrop, but for lyrics: clicking the album
+    /// art in the mini player opens full-screen lyrics in the main window,
+    /// and leaving it returns to the same skin.
+    #[test]
+    fn lyrics_full_screen_from_a_skin_goes_there_and_back() {
+        let ctx = egui::Context::default();
+        let mut app = test_app("lyrics-trip");
+        app.settings.winamp_window = true;
+        app.settings.random_skin = true;
+        app.settings.skin = Some("mine".into());
+        let deck = crate::skin::wmp::deck::Deck::default();
+        app.wmp_command(crate::skin::wmp::deck::Command::ShowLyrics, &deck);
+        assert!(
+            app.actions
+                .iter()
+                .any(|action| matches!(action, Action::ToggleWinampWindow)),
+            "{:?}",
+            app.actions
+        );
+        app.apply_actions(&ctx);
+        assert!(!app.settings.winamp_window);
+        assert!(app.skin_return);
+        assert!(app.lyrics_after_switch);
+        assert_eq!(app.settings.skin.as_deref(), Some("mine"));
+
+        // The new window's first frame.
+        app.switch_intent = false;
+        app.lyrics_after_switch = false;
+        app.actions.push(Action::SetLyricsFullscreen(true));
+        app.apply_actions(&ctx);
+        assert!(app.lyrics_fullscreen.is_some());
+
+        app.actions.push(Action::SetLyricsFullscreen(false));
+        app.apply_actions(&ctx);
+        assert!(app.settings.winamp_window, "back in the mini player");
+        assert!(!app.skin_return);
+        assert_eq!(app.settings.skin.as_deref(), Some("mine"));
+    }
+
     #[test]
     fn quitting_on_a_trip_from_a_skin_opens_the_mini_player_next() {
         let ctx = egui::Context::default();

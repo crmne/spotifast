@@ -170,6 +170,7 @@ fn song_info(song: Option<&Song>, bitrate: u32, name: &str) -> Value {
         "durationstring" => text(&clock(song.duration_s)),
         "bitrate" => number(f64::from(bitrate)),
         "mediatype" => text("audio"),
+        "lyrics" => text(if song.has_lyrics { "yes" } else { "no" }),
         _ => text(""),
     }
 }
@@ -932,6 +933,7 @@ impl Host for Bridge<'_> {
                     "previous" => self.command(Command::Previous),
                     "fastforward" => self.command(Command::SeekBy(10_000)),
                     "fastreverse" => self.command(Command::SeekBy(-10_000)),
+                    "showlyrics" => self.command(Command::ShowLyrics),
                     "isavailable" => {
                         return Ok(Value::Bool(self.deck().available(&arg_text(args, 0))));
                     }

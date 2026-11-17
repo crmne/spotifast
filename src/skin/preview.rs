@@ -45,6 +45,7 @@ fn deck() -> Deck {
         album: "Spotifast".to_owned(),
         uri: format!("spotify:track:{title}"),
         duration_s: 214.0,
+        has_lyrics: false,
     };
     let queue = vec![song("Song one"), song("Song two"), song("Song three")];
     Deck {

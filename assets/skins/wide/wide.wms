@@ -21,7 +21,7 @@
     <!-- The square, showing through a hole in the glass. -->
     <SUBVIEW id="paneBack" left="20" top="44" width="104" height="104" zIndex="1" backgroundColor="#0a0c0e" visible="false"/>
     <SUBVIEW id="art" left="20" top="44" width="104" height="104" zIndex="2" visible="false" backgroundImage="wmpimage_albumart"
-             onClick="togglePane();" cursor="hand"/>
+             onClick="showLyricsOrTogglePane();" cursor="hand"/>
     <SUBVIEW id="veilSlot" left="20" top="44" width="104" height="104" zIndex="4" passThrough="true">
       <SUBVIEW id="veil" left="0" top="0" backgroundImage="veil.png" passThrough="true" onEndMove="veilArrived();"/>
     </SUBVIEW>

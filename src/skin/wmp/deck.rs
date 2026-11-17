@@ -26,6 +26,8 @@ pub struct Song {
     pub album: String,
     pub uri: String,
     pub duration_s: f64,
+    /// Whether the playing track has lyrics the skin can open.
+    pub has_lyrics: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -151,6 +153,8 @@ pub enum Command {
     ResetEq,
     /// Move the visualisation on or back.
     Effect(i32),
+    /// Open the full-screen lyrics view for the current track.
+    ShowLyrics,
     /// The skin closed itself, or asked for the full player.
     BackToMain,
 }

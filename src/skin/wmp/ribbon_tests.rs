@@ -20,6 +20,18 @@ pub(super) fn song() -> Song {
         album: "Album".into(),
         uri: "spotify:track:1".into(),
         duration_s: 200.0,
+        has_lyrics: false,
+    }
+}
+
+pub(super) fn song_with_lyrics() -> Song {
+    Song {
+        title: "Song".into(),
+        artist: "Band".into(),
+        album: "Album".into(),
+        uri: "spotify:track:1".into(),
+        duration_s: 200.0,
+        has_lyrics: true,
     }
 }
 
@@ -277,6 +289,24 @@ fn the_visualizer_fills_the_glass_under_the_ribbon_and_the_words() {
     assert_eq!(runtime.read(key, "visual", "visible"), 0.0);
     assert_eq!(runtime.read(key, "art", "visible"), 1.0);
     assert_eq!(runtime.read(key, "veil", "top"), -126.0);
+}
+
+#[test]
+fn clicking_art_with_lyrics_opens_full_screen_lyrics() {
+    let mut deck = deck(PlayState::Playing);
+    deck.song = Some(song_with_lyrics());
+    let (mut runtime, key, mut now) = opened(&deck);
+    click(&mut runtime, key, (125.0, 138.0), now);
+    let commands = run(&mut runtime, &deck, &mut now, FRAME);
+    assert!(
+        commands
+            .iter()
+            .any(|command| matches!(command, Command::ShowLyrics)),
+        "{commands:?}"
+    );
+    // The skin asks the app to open lyrics; it does not toggle the pane.
+    assert_eq!(runtime.read(key, "art", "visible"), 1.0);
+    assert_eq!(runtime.read(key, "visual", "visible"), 0.0);
 }
 
 #[test]
