@@ -105,7 +105,9 @@ clients. Spotifast uses its session for:
   user presses the button. No Web API grant implements this operation.
 - **Display names and avatars** for the user IDs attached to songs in a
   playlist and for a playlist's owner, from the profile view Spotify's own
-  clients read.
+  clients read. A lookup Spotify does not answer, such as one it rate limits,
+  is asked again after one minute, then two, four and eight, five asks in
+  all; the ID shows until a name arrives.
 - **Precise EP types** for releases that the Web API groups with singles.
 - **Made for you** through Spotify's personalized Home section. This private
   request uses the playback session and an already verified Web API grant;
