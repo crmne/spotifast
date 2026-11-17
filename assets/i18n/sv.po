@@ -2511,6 +2511,16 @@ msgid ""
 msgstr ""
 "Soloist körs. Det brukar hjälpa att spela en låt på den från Spotify-appen."
 
+#: src/ui/soloist.rs:813
+msgid "Changing audio output…"
+msgstr "Byter ljudutgång…"
+
+#: src/ui/soloist.rs:816
+msgid ""
+"Soloist is moving to the new audio output and will be back in a few seconds."
+msgstr ""
+"Soloist byter till den nya ljudutgången och är tillbaka om några sekunder."
+
 #: src/ui/soloist.rs:835
 msgid "Spotify's own player, running on this computer. Requires Premium."
 msgstr "Spotifys egen spelare, som körs på den här datorn. Kräver Premium."

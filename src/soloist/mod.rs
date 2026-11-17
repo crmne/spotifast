@@ -152,6 +152,11 @@ impl Status {
 pub enum Update {
     Status(Status),
     Audio(bool),
+    /// The player is starting again on a new default output. `playing` is
+    /// the player's own word, fresher than the app's last snapshot.
+    OutputMoved {
+        playing: bool,
+    },
     OutputVolume,
     Changed {
         queue: bool,
@@ -397,6 +402,7 @@ async fn run(args: Config, client: Client, mut stopped: watch::Receiver<bool>) -
                 notify(Update::RolledBack);
                 build = previous;
             }
+            Outcome::OutputChanged => {}
             Outcome::Update(next) => build = next,
             Outcome::Expired if expired_retries == 0 => {
                 expired_retries += 1;
@@ -470,12 +476,127 @@ fn early_crash(code: Option<i32>, played: bool, ran: Duration) -> bool {
 
 enum Outcome {
     Stopped,
+    /// The system's default output moved, and this player cannot follow it.
+    OutputChanged,
     Update(install::Build),
     Expired,
     /// The player exited by itself after its API came up.
     Crashed {
         early: bool,
     },
+}
+
+/// On Windows, Soloist opens the output that is the default when it starts
+/// and keeps it: neither a new default nor the volume mixer moves it (#1214).
+/// Spotifast starts it again on the new default instead.
+#[derive(Debug, Default)]
+struct DefaultOutput {
+    launched: Option<fastframe_audio::DeviceId>,
+}
+impl DefaultOutput {
+    fn new(launched: Option<fastframe_audio::DeviceId>) -> Self {
+        Self { launched }
+    }
+    /// Whether the player should start again for the default seen `now`.
+    /// No default, or one Spotifast could not read, never restarts it; a
+    /// default first seen after launch is only remembered.
+    fn moved(&mut self, now: Option<fastframe_audio::DeviceId>) -> bool {
+        let Some(now) = now else { return false };
+        match &self.launched {
+            Some(launched) => *launched != now,
+            None => {
+                self.launched = Some(now);
+                false
+            }
+        }
+    }
+}
+
+/// The system's default output. Listing asks the sound system about every
+/// device, so this runs off the async runtime.
+fn default_output() -> Option<fastframe_audio::DeviceId> {
+    fastframe_audio::output_devices()
+        .ok()?
+        .into_iter()
+        .find(|device| device.is_default)
+        .map(|device| device.id)
+}
+
+/// Whether a moved default output starts the player again now. A paused
+/// session waits, as for an update, so its queue is kept: it moves once it
+/// plays again or goes idle.
+fn restarts_for_output(moved: bool, playing: bool, idle: bool) -> bool {
+    moved && (playing || idle)
+}
+
+/// Pauses the player and waits, at most `PAUSE_WAIT` in all, until it says
+/// it has paused. Returns whether its song carries on after the restart:
+/// not when the player went idle meanwhile, as the song ended. Anything
+/// else going wrong only means the restart comes sooner.
+async fn pause_before_restart(socket: &mut protocol::Socket, port: u16) -> bool {
+    tokio::time::timeout(PAUSE_WAIT, async {
+        if protocol::send_reconnecting(socket, port, json!({"command":"pause"}))
+            .await
+            .is_err()
+        {
+            return true;
+        }
+        while let Ok((message, _)) = protocol::receive_reconnecting(socket, port).await {
+            match message.as_ref().and_then(carries_on_after_pause) {
+                Some(true) => {
+                    // Give the player a moment to tell Spotify the position.
+                    tokio::time::sleep(PAUSE_SETTLE).await;
+                    return true;
+                }
+                Some(false) => return false,
+                None => {}
+            }
+        }
+        true
+    })
+    .await
+    .unwrap_or(true)
+}
+
+/// Whether a playback event ends the wait before a restart, and if so
+/// whether the song carries on: yes once paused, no once idle.
+fn carries_on_after_pause(message: &serde_json::Value) -> Option<bool> {
+    if !matches!(
+        message["type"].as_str(),
+        Some("playback_state" | "playback_changed")
+    ) {
+        return None;
+    }
+    match message["status"].as_str() {
+        Some("paused") => Some(true),
+        Some("idle") => Some(false),
+        _ => None,
+    }
+}
+
+/// Reads the default output every `OUTPUT_CHECK` beside the player loop,
+/// which keeps reading the player's events meanwhile: each reading meets
+/// the player's state as it is then. Ends with the loop.
+fn watch_default_output() -> tokio::sync::mpsc::Receiver<Option<fastframe_audio::DeviceId>> {
+    let (sender, receiver) = tokio::sync::mpsc::channel(1);
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(OUTPUT_CHECK);
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            tick.tick().await;
+            if sender.send(read_default_output().await).await.is_err() {
+                break;
+            }
+        }
+    });
+    receiver
+}
+
+async fn read_default_output() -> Option<fastframe_audio::DeviceId> {
+    tokio::task::spawn_blocking(default_output)
+        .await
+        .ok()
+        .flatten()
 }
 struct Player<'a> {
     root: &'a std::path::Path,
@@ -514,6 +635,12 @@ async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Resu
     let (builds, account) = (root.to_owned(), data.to_owned());
     let _ = tokio::task::spawn_blocking(move || reclaim(&builds, &account)).await;
     let bridge = audio::Bridge::open(audio_config.clone(), output_volume.clone()).await;
+    let follows_default = cfg!(windows);
+    let mut output = DefaultOutput::new(if follows_default {
+        read_default_output().await
+    } else {
+        None
+    });
     let mut command = tokio::process::Command::new(build.path(root));
     #[cfg(target_os = "linux")]
     if let Some(bridge) = &bridge {
@@ -605,6 +732,7 @@ async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Resu
             name: name.into(),
             version: build.version.clone(),
         }));
+        let mut outputs = follows_default.then(watch_default_output);
         let mut audio_tick = tokio::time::interval(Duration::from_millis(250));
         let mut audio_routed = false;
         let mut repairs = audio::Repairs::default();
@@ -614,6 +742,7 @@ async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Resu
         let mut idle = false;
         let mut active = true;
         let mut player_idle = false;
+        let mut playing = false;
         let mut logged_in = false;
         let mut pending = None;
         let mut downloading: Option<tokio::task::JoinHandle<Result<install::Build>>> = None;
@@ -630,6 +759,22 @@ async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Resu
             let mut reconnected = false;
             tokio::select! {
                 _ = stopped.changed() => return Ok(Outcome::Stopped),
+                Some(now) = async { outputs.as_mut()?.recv().await }, if follows_default => {
+                    if restarts_for_output(output.moved(now), playing, idle) {
+                        log::info!("The default audio output changed; starting Soloist again on it");
+                        // A player stopped mid-song leaves Spotify an older
+                        // position, or none: the song came back seconds
+                        // early or from its start. A pause reports where it
+                        // is, and whether the song ended meanwhile.
+                        let carries_on = playing && pause_before_restart(&mut socket, port).await;
+                        // Said in the player's own words, before the app
+                        // sees it go, so only a song still playing carries on.
+                        notify(Update::OutputMoved { playing: carries_on });
+                        notify(Update::Status(Status::Starting));
+                        // A renewal waiting for an idle moment starts now.
+                        return Ok(pending.take().map_or(Outcome::OutputChanged, Outcome::Update));
+                    }
+                }
                 _ = audio_tick.tick(), if bridge.is_some() => {
                     let bridge = bridge.as_ref().expect("audio bridge");
                     if bridge.failed() {
@@ -746,6 +891,7 @@ async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Resu
                                 played = true;
                                 if on_trial { prove(root, build).await?; on_trial = false; }
                             }
+                            if let Some(status) = message["status"].as_str() { playing = matches!(status, "playing" | "buffering"); }
                         }
                         idle = !active || player_idle;
                         if matches!(kind, "track_changed" | "playback_changed" | "device_changed" | "context_changed" | "options_changed" | "queue_changed" | "position_sync" | "volume_changed") {
@@ -883,6 +1029,15 @@ const REROUTE_LIMIT: Duration = Duration::from_secs(5);
 /// A second dropped event socket this soon after the last ends the player.
 const RECONNECT_WINDOW: Duration = Duration::from_secs(30);
 
+/// How often Windows checks whether the default output moved (#1214).
+const OUTPUT_CHECK: Duration = Duration::from_secs(2);
+
+/// How long a restart for a new output waits for the player to pause.
+const PAUSE_WAIT: Duration = Duration::from_secs(2);
+
+/// After pausing, how long the player has to report its position.
+const PAUSE_SETTLE: Duration = Duration::from_millis(300);
+
 /// Drains one of the child's streams to the end, as a full pipe would stall it.
 async fn copy_output(
     stream: impl tokio::io::AsyncRead + Unpin,
@@ -973,6 +1128,65 @@ fn exited(system: &mut sysinfo::System, pid: sysinfo::Pid) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_new_default_output_starts_the_player_again() {
+        let id = |id: &str| Some(fastframe_audio::DeviceId::new(id));
+        let mut output = DefaultOutput::new(id("speakers"));
+        assert!(!output.moved(id("speakers")));
+        // Unplugging everything, or a listing that failed, is not a move.
+        assert!(!output.moved(None));
+        assert!(output.moved(id("headphones")));
+    }
+
+    #[test]
+    fn a_paused_session_keeps_its_queue_until_it_plays_or_goes_idle() {
+        // moved, playing, idle
+        assert!(restarts_for_output(true, true, false));
+        assert!(restarts_for_output(true, false, true));
+        assert!(
+            !restarts_for_output(true, false, false),
+            "paused and active"
+        );
+        assert!(!restarts_for_output(false, true, false));
+        assert!(!restarts_for_output(false, false, true));
+    }
+
+    #[test]
+    fn a_paused_or_idle_playback_event_ends_the_wait_before_a_restart() {
+        let ends = |message| carries_on_after_pause(&message);
+        assert_eq!(
+            ends(json!({"type":"playback_changed", "status":"paused"})),
+            Some(true)
+        );
+        assert_eq!(
+            ends(json!({"type":"playback_state", "status":"paused"})),
+            Some(true)
+        );
+        // The last song ended during the wait: nothing carries on.
+        assert_eq!(
+            ends(json!({"type":"playback_changed", "status":"idle"})),
+            Some(false)
+        );
+        assert_eq!(
+            ends(json!({"type":"playback_changed", "status":"playing"})),
+            None
+        );
+        // The acknowledgement comes before the player has actually paused.
+        assert_eq!(
+            ends(json!({"type":"command_result", "command":"pause"})),
+            None
+        );
+    }
+
+    #[test]
+    fn a_default_first_seen_after_launch_is_only_remembered() {
+        let id = |id: &str| Some(fastframe_audio::DeviceId::new(id));
+        let mut output = DefaultOutput::new(None);
+        assert!(!output.moved(None));
+        assert!(!output.moved(id("speakers")));
+        assert!(output.moved(id("headphones")));
+    }
+
     #[tokio::test]
     async fn soloist_output_is_kept_without_the_key() {
         use tokio::io::AsyncWriteExt;

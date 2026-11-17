@@ -505,6 +505,9 @@ pub struct App {
     soloist_bound_at: Option<Instant>,
     /// Music was playing on Soloist when it stopped.
     soloist_resume: bool,
+    /// Soloist is starting again on a new default output, so the banner
+    /// says that rather than that it is reconnecting.
+    pub(crate) soloist_moving_output: bool,
     /// Setup was chosen in this run, not resumed from `session.json`.
     soloist_setup_chosen: bool,
     /// Setup is open for someone whose Soloist was already set up, who can
@@ -1291,6 +1294,7 @@ impl App {
             soloist_retries: 0,
             soloist_bound_at: None,
             soloist_resume: false,
+            soloist_moving_output: false,
             soloist_setup_chosen: false,
             soloist_setup_optional: false,
             local: LocalState::default(),
@@ -3265,7 +3269,10 @@ impl App {
                 if !ready {
                     // Remembered before the target goes: the player may stop
                     // mid-song, and its song should carry on when it is back.
-                    self.soloist_resume |= self.soloist_device_id.is_some()
+                    // An output move already took the player's own word; this
+                    // snapshot can lag it and bring back a song that ended.
+                    self.soloist_resume |= !self.soloist_moving_output
+                        && self.soloist_device_id.is_some()
                         && self.targets_own_soloist()
                         && self.now_playing().is_some_and(|now| now.playing);
                     self.soloist_audio = false;
@@ -3273,6 +3280,9 @@ impl App {
                     self.backend.send(Command::SoloistDevice(None));
                 }
                 if let Status::Ready { version, .. } = &status && self.soloist_update.as_ref() == Some(version) { self.soloist_update = None; }
+                if matches!(status, Status::Off | Status::NeedsKey | Status::Failed(_)) {
+                    self.soloist_moving_output = false;
+                }
                 if let Status::Failed(failure) = &status {
                     self.schedule_soloist_retry(&failure.clone());
                 }
@@ -3286,6 +3296,13 @@ impl App {
                 }
             }
             Update::Audio(available) => self.soloist_audio = available && self.settings.soloist_enabled && matches!(self.soloist_status, Status::Ready { .. }),
+            Update::OutputMoved { playing } => {
+                self.soloist_moving_output = true;
+                // The player knows it plays before the remote snapshot does.
+                self.soloist_resume |= playing
+                    && self.soloist_device_id.is_some()
+                    && self.targets_own_soloist();
+            }
             Update::OutputVolume => self.session_dirty = true,
             Update::Changed { queue } => {
                 if self.soloist_device_id.is_some() {
@@ -3372,6 +3389,7 @@ impl App {
         self.soloist_device_id = device.as_ref().and_then(|device| device.id.clone());
         self.backend.send(Command::SoloistDevice(device));
         if newly_bound && let Some(id) = self.soloist_device_id.clone() {
+            self.soloist_moving_output = false;
             self.soloist_settled = true;
             self.soloist_retry_at = None;
             self.soloist_bound_at = Some(Instant::now());
@@ -3441,6 +3459,7 @@ impl App {
                 self.soloist_settled = false;
                 self.soloist_retries = 0;
                 self.soloist_resume = false;
+                self.soloist_moving_output = false;
                 self.soloist_give_up();
                 if matches!(self.dialog, Some(Dialog::PersonalAppIntro)) {
                     self.dialog = None;
@@ -23844,6 +23863,80 @@ mod tests {
         assert!(matches!(app.soloist_status, Status::Starting));
         app.on_soloist(Update::Status(Status::Failed(Failure::Stopped)));
         assert!(app.soloist_retry_at.is_some(), "Try again starts afresh");
+        app.backend.shutdown();
+    }
+
+    /// The banner says the output is changing for as long as that restart
+    /// lasts, and no longer: a later reconnect is a reconnect again.
+    #[test]
+    fn a_soloist_moving_to_a_new_output_says_so_until_it_is_back() {
+        use crate::soloist::{Failure, Status, Update};
+        let (_ctx, mut app) = listening_on_soloist("soloist-moving-output");
+        app.on_soloist(Update::OutputMoved { playing: false });
+        app.on_soloist(Update::Status(Status::Starting));
+        assert!(app.soloist_moving_output);
+        assert!(app.soloist_recovering());
+        app.on_soloist(Update::Status(Status::Ready {
+            name: "owned".into(),
+            version: "test".into(),
+            expires: u64::MAX,
+        }));
+        assert!(app.soloist_moving_output, "verified, but not listed yet");
+        app.bind_soloist_device();
+        assert!(!app.soloist_moving_output);
+
+        app.on_soloist(Update::OutputMoved { playing: false });
+        app.on_soloist(Update::Status(Status::Failed(Failure::Stopped)));
+        assert!(!app.soloist_moving_output);
+        app.backend.shutdown();
+    }
+
+    /// A song started a moment before the output moved is not in the
+    /// remote snapshot yet; the player's own word still brings it back.
+    #[test]
+    fn a_song_the_player_reports_playing_carries_on_after_an_output_move() {
+        use crate::soloist::{Status, Update};
+        let (_ctx, mut app) = listening_on_soloist("soloist-moving-playing");
+        assert!(!app.now_playing().is_some_and(|now| now.playing));
+        app.on_soloist(Update::OutputMoved { playing: true });
+        app.on_soloist(Update::Status(Status::Starting));
+        assert!(app.soloist_resume);
+        app.backend.shutdown();
+    }
+
+    /// A player that went idle a moment before the output moved may still
+    /// look playing in the remote snapshot; the restart does not start the
+    /// ended song again.
+    #[test]
+    fn a_player_idle_before_an_output_move_stays_stopped() {
+        use crate::soloist::{Status, Update};
+        let (_ctx, mut app) = listening_on_soloist("soloist-moving-idle");
+        app.remote = Some(RemoteSnapshot {
+            state: PlaybackState {
+                device: Some(Device {
+                    id: Some("own".into()),
+                    name: "owned".into(),
+                    is_active: true,
+                    ..Default::default()
+                }),
+                item: Some(crate::api::models::PlayableItem::Track(
+                    crate::api::models::Track {
+                        uri: "spotify:track:ended".into(),
+                        ..Default::default()
+                    },
+                )),
+                is_playing: true,
+                ..Default::default()
+            },
+            received_at: Instant::now(),
+        });
+        assert!(
+            app.now_playing().is_some_and(|now| now.playing),
+            "stale snapshot"
+        );
+        app.on_soloist(Update::OutputMoved { playing: false });
+        app.on_soloist(Update::Status(Status::Starting));
+        assert!(!app.soloist_resume);
         app.backend.shutdown();
     }
 

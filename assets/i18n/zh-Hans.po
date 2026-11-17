@@ -2439,6 +2439,15 @@ msgid ""
 "Soloist is running. Playing a song on it from the Spotify app usually helps."
 msgstr "Soloist 正在运行。在 Spotify 应用中用它播放一首歌曲通常会有帮助。"
 
+#: src/ui/soloist.rs:813
+msgid "Changing audio output…"
+msgstr "正在切换音频输出…"
+
+#: src/ui/soloist.rs:816
+msgid ""
+"Soloist is moving to the new audio output and will be back in a few seconds."
+msgstr "Soloist 正在切换到新的音频输出，几秒后恢复。"
+
 #: src/ui/soloist.rs:835
 msgid "Spotify's own player, running on this computer. Requires Premium."
 msgstr "Spotify 官方播放器，在这台电脑上运行。需要 Premium。"
