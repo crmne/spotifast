@@ -833,8 +833,9 @@ does not take over HTTP or HTTPS associations.
 **Show all**, beside the filters under an artist's **Discography**, opens a
 page with every release of that kind, each with its songs. It opens on the
 filter the artist page showed; the menu at the top switches between
-**All**, **Albums**, **Singles & EPs**, and **Appears On**. Releases are listed
-newest first, and the clock button turns the order round to oldest first.
+**All**, **Albums**, **Singles & EPs**, **Compilations**, and **Appears On**.
+Releases are listed newest first, and the clock button turns the order round
+to oldest first.
 Every version of a release is listed, including clean and explicit editions
 of the same album.
 
