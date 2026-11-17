@@ -544,7 +544,10 @@ as restricted and sends the same command over the Connect route once, so later
 commands go there directly.
 
 Shuffle Play enables shuffle before starting the context, as it does for
-Web API devices. If enabling shuffle fails, playback does not start.
+Web API devices. If enabling shuffle fails, playback does not start. On a Web
+API device, one refusal is the exception: "Restriction violated" means what
+plays now forbids shuffle, as autoplay does, so the start goes first and
+shuffle follows. If shuffle is refused again, the start keeps playing in order.
 
 Individual and album queue additions use the same Connect route, one song at
 a time. A later addition waits for the whole album, repeated songs keep their
