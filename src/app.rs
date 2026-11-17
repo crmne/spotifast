@@ -600,6 +600,8 @@ pub struct App {
     pub show_pages: HashMap<String, ShowPage>,
     /// Radio pages by the seed's URI.
     pub radio_pages: HashMap<String, RadioPage>,
+    /// A lone song for a remote device, held a moment for its radio.
+    song_radio: Option<radio::SongRadio>,
     /// Songs the account hid in Spotify's playlists, by playlist URI, as
     /// Spotify's apps hide them with "Hide in this playlist" (#779).
     pub hidden_songs: HashMap<String, HashSet<String>>,
@@ -1364,6 +1366,7 @@ impl App {
             artist_top_tracks_generation: 0,
             show_pages: HashMap::new(),
             radio_pages: HashMap::new(),
+            song_radio: None,
             hidden_songs: HashMap::new(),
             hidden_songs_revision: 0,
             hidden_songs_generation: 0,
@@ -2248,7 +2251,10 @@ impl App {
     fn reconcile_remote_track_intent(&mut self, poll: u64, reported: Option<&str>) {
         let mut settled = false;
         let mut recheck = false;
+        // A song held for its radio has not been asked of the device yet.
+        let held = self.song_radio.as_ref().map(|wait| wait.seed.as_str());
         if let Some(intent) = &mut self.intent_track
+            && held != Some(intent.uri.as_str())
             && let TrackConfirmation::Remote {
                 after_poll,
                 mismatches,
@@ -3737,6 +3743,8 @@ impl App {
         self.pending_remote_volume = None;
         self.local_transfer_sequence = None;
         self.queue_start_pending = None;
+        // A song held for its radio was asked by the signed-out account.
+        self.song_radio = None;
         self.pending_album_queues.clear();
         self.pending_queue_batches.clear();
         self.last_album_queue = None;
@@ -4505,6 +4513,9 @@ impl App {
     fn tick(&mut self, ctx: &egui::Context) {
         self.poll_custom_themes(ctx);
         self.retry_soloist_when_due(ctx);
+        if let Some(wait) = self.send_song_radio_when_due() {
+            ctx.request_repaint_after(wait);
+        }
         if self.queued_play.is_some() && self.soloist_waiting() && !self.soloist_recovering() {
             self.soloist_give_up();
         }
@@ -7334,6 +7345,8 @@ impl App {
     /// rows as a fresh list instead used to take seconds, threw the
     /// context away, and left Spotify's copy of the queue to reappear.
     fn play_queue_item(&mut self, index: usize, uri: String) {
+        // A newer choice outranks a song still waiting for its radio.
+        self.song_radio = None;
         self.resume_load = None;
         if self.resume_only() {
             // Nothing is playing anywhere, so there is no live queue to
@@ -10264,6 +10277,10 @@ impl App {
             }
             _ => {}
         }
+        // A song waiting for its radio keeps the radio it waits for.
+        if let Some(wait) = &self.song_radio {
+            protected_radios.insert(wait.seed.clone());
+        }
         if let Some(uri) = self.playing_context_uri()
             && let Some(kind) = util::uri_kind(&uri)
             && let Some(id) = util::uri_id(&uri)
@@ -10643,6 +10660,8 @@ impl App {
     }
 
     fn start_play(&mut self, request: PlayRequest, shuffle_first: bool) {
+        // A newer play outranks a song still waiting for its radio.
+        self.song_radio = None;
         if self.soloist_waiting() && !self.soloist_recovering() {
             self.clear_play_pending();
             return;
@@ -10768,24 +10787,26 @@ impl App {
             // playing, which a Sonos is.
             Target::Remote(device_id) => {
                 self.queued_play = None;
-                if shuffle {
-                    self.backend.api(ApiRequest::ShufflePlay {
-                        device_id,
-                        play: request,
-                    });
-                } else {
-                    self.backend.api(ApiRequest::Remote {
-                        action: RemoteAction::Play,
-                        device_id,
-                        play: Some(request),
-                        position_ms: 0,
-                        percent: 0,
-                        flag: false,
-                        repeat: String::new(),
-                    });
-                }
+                self.play_remote(device_id, request, shuffle);
                 self.optimistic_playing = Some((true, Instant::now()));
             }
+        }
+    }
+
+    fn send_remote_play(&mut self, device_id: Option<String>, play: PlayRequest, shuffle: bool) {
+        if shuffle {
+            self.backend
+                .api(ApiRequest::ShufflePlay { device_id, play });
+        } else {
+            self.backend.api(ApiRequest::Remote {
+                action: RemoteAction::Play,
+                device_id,
+                play: Some(play),
+                position_ms: 0,
+                percent: 0,
+                flag: false,
+                repeat: String::new(),
+            });
         }
     }
 
@@ -12614,6 +12635,32 @@ impl App {
         if self.changes_song_by_hand(&action) {
             self.leave_repeat_one();
         }
+        // A control used while a song waits for its radio acts on that
+        // song, so the song goes out first.
+        if matches!(
+            &action,
+            Action::TogglePlay
+                | Action::Next
+                | Action::Previous
+                | Action::Seek(_)
+                | Action::SeekBy(_)
+                | Action::ToggleShuffle
+                | Action::CycleRepeat
+                | Action::SetShuffle(_)
+                | Action::SetRepeat(_)
+                | Action::AddToQueue { .. }
+                | Action::QueueMany { .. }
+                | Action::PlayNext { .. }
+                | Action::MoveInQueue { .. }
+                | Action::InsertInQueue { .. }
+                | Action::RemoveFromQueue { .. }
+                | Action::ClearQueue
+                | Action::Transfer(_)
+                | Action::ActivateReceiver(_)
+                | Action::PlayOnAnotherDevice
+        ) {
+            self.send_song_radio();
+        }
         // Pausing or skipping while a play-search is in flight is a newer
         // choice; seeking and volume leave the search to play its match.
         if matches!(
@@ -13456,6 +13503,7 @@ impl App {
                 });
             }
             Action::SignOut => {
+                self.song_radio = None;
                 self.backend.send(Command::SignOut);
                 self.show_friends_panel = false;
                 self.history = vec![Page::Home];
@@ -32585,19 +32633,37 @@ mod tests {
             Some(2),
             "the second copy of a repeated song plays from its own place"
         );
-        // The same row sends a valid one-song request to a Connect device,
-        // with either shuffle setting, while its optimistic title stays visible.
+        // The same row sends a valid request to a Connect device, with
+        // either shuffle setting, while its optimistic title stays visible.
+        // The song waits a moment for its radio, so the device does not
+        // stop after it, then plays first with the radio after it.
         app.selected_device = Some("speaker".into());
+        let seed = "spotify:track:middle";
+        let radio = |id: &str| Track {
+            id: Some(id.into()),
+            uri: format!("spotify:track:{id}"),
+            name: format!("Radio {id}"),
+            ..Default::default()
+        };
         for shuffle in [false, true] {
             app.shuffle_wanted = shuffle;
             app.apply(
                 Action::PlayFromRow {
-                    context: RowContext::Uris(vec!["spotify:track:middle".into()].into()),
-                    uri: "spotify:track:middle".into(),
+                    context: RowContext::Uris(vec![seed.into()].into()),
+                    uri: seed.into(),
                     index: 73,
                 },
                 &ctx,
             );
+            // The first play asks for the radio; the second already has it.
+            if !shuffle {
+                assert!(
+                    app.backend.take_remote_play_requests().is_empty(),
+                    "the song waits for its radio"
+                );
+                let generation = app.radio_pages[seed].generation;
+                app.receive_radio(seed, generation, Ok(vec![radio("middle"), radio("after")]));
+            }
             let requests = app.backend.take_remote_play_requests();
             assert_eq!(requests.len(), 1);
             let (device, play) = match &requests[0] {
@@ -32611,13 +32677,32 @@ mod tests {
                 other => panic!("unexpected playback request: {other:?}"),
             };
             assert_eq!(device.as_deref(), Some("speaker"));
-            assert_eq!(play.uris, ["spotify:track:middle"]);
+            assert_eq!(
+                play.uris,
+                [seed, "spotify:track:after"],
+                "the song once, then its radio"
+            );
             assert_eq!(play.offset_position, Some(0));
             assert_eq!(
                 app.intent_track.as_ref().map(|intent| intent.uri.as_str()),
-                Some("spotify:track:middle")
+                Some(seed)
             );
         }
+        // With Autoplay off the song plays alone, at once.
+        app.settings.autoplay = false;
+        app.shuffle_wanted = false;
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Uris(vec![seed.into()].into()),
+                uri: seed.into(),
+                index: 0,
+            },
+            &ctx,
+        );
+        assert!(matches!(
+            app.backend.take_remote_play_requests().as_slice(),
+            [ApiRequest::Remote { play: Some(play), .. }] if play.uris == [seed]
+        ));
         app.backend.shutdown();
     }
 
@@ -32860,6 +32945,221 @@ mod tests {
                 ..
             }]
         ));
+        app.backend.shutdown();
+    }
+
+    /// A lone song would stop a speaker after it, so its radio follows it.
+    /// The song waits for the radio only briefly, and a control used
+    /// meanwhile sends it at once.
+    #[test]
+    fn a_lone_song_on_a_speaker_is_followed_by_its_radio() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        crate::demo::populate(&mut app);
+        app.local.connected = false;
+        app.selected_device = Some("speaker".into());
+        app.shuffle_wanted = false;
+        assert!(matches!(app.target(), Target::Remote(Some(_))));
+        let song = |uri: &str| PlayRequest::tracks(vec![uri.into()]).starting_at_index(0);
+        let sent = |app: &App| -> Vec<Vec<String>> {
+            app.backend
+                .take_remote_play_requests()
+                .into_iter()
+                .filter_map(|request| match request {
+                    ApiRequest::Remote {
+                        play: Some(play), ..
+                    } => Some(play.uris),
+                    _ => None,
+                })
+                .collect()
+        };
+        let radio = |id: &str| crate::api::models::Track {
+            id: Some(id.into()),
+            uri: format!("spotify:track:{id}"),
+            ..Default::default()
+        };
+
+        // A radio that fails lets the song go alone.
+        let one = "spotify:track:one";
+        app.play_request(song(one), false);
+        assert!(sent(&app).is_empty(), "the song waits for its radio");
+        let generation = app.radio_pages[one].generation;
+        app.receive_radio(one, generation, Err("no radio".into()));
+        assert_eq!(sent(&app), [vec![one.to_string()]]);
+
+        // A radio slower than the wait lets the song go alone.
+        let two = "spotify:track:two";
+        app.play_request(song(two), false);
+        assert!(app.send_song_radio_when_due().is_some(), "still waiting");
+        let wait = app.song_radio.as_mut().expect("the song waits");
+        wait.asked = Instant::now().checked_sub(Duration::from_secs(3)).unwrap();
+        assert!(app.send_song_radio_when_due().is_none());
+        assert_eq!(sent(&app), [vec![two.to_string()]]);
+
+        // A control used while the song waits sends the song first.
+        let three = "spotify:track:three";
+        app.play_request(song(three), false);
+        app.apply(Action::TogglePlay, &ctx);
+        assert_eq!(sent(&app).first(), Some(&vec![three.to_string()]));
+        assert!(app.song_radio.is_none());
+
+        // A newer play outranks the song still waiting, even once its
+        // radio comes.
+        let four = "spotify:track:four";
+        app.play_request(song(four), false);
+        app.play_request(PlayRequest::context("spotify:playlist:pl0"), false);
+        assert_eq!(sent(&app), [Vec::<String>::new()]);
+        let generation = app.radio_pages[four].generation;
+        app.receive_radio(four, generation, Ok(vec![radio("four"), radio("five")]));
+        assert!(sent(&app).is_empty());
+
+        // A radio already found follows the song at once.
+        app.play_request(song(four), false);
+        assert_eq!(sent(&app), [vec![four.to_string(), radio("five").uri]]);
+
+        // Repeat keeps the song on its own.
+        let remote = app.remote.as_mut().expect("the speaker's state");
+        remote.state.repeat_state = "track".into();
+        remote.received_at = Instant::now();
+        app.play_request(song(four), false);
+        assert_eq!(sent(&app), [vec![four.to_string()]]);
+        app.backend.shutdown();
+    }
+
+    /// The demo playing to a speaker, where a lone song waits for its radio.
+    fn radio_speaker_app() -> App {
+        let mut app = headless_app();
+        crate::demo::populate(&mut app);
+        app.local.connected = false;
+        app.selected_device = Some("speaker".into());
+        app.shuffle_wanted = false;
+        app
+    }
+
+    fn one_song(uri: &str) -> PlayRequest {
+        PlayRequest::tracks(vec![uri.into()]).starting_at_index(0)
+    }
+
+    /// The plays sent to the speaker since the last look.
+    fn remote_plays(app: &App) -> Vec<PlayRequest> {
+        app.backend
+            .take_remote_play_requests()
+            .into_iter()
+            .filter_map(|request| match request {
+                ApiRequest::Remote {
+                    play: Some(play), ..
+                } => Some(play),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// A Next up row chosen while a song waits for its radio is the newer
+    /// choice, so the waiting song never plays over it.
+    #[test]
+    fn a_next_up_row_drops_a_song_waiting_for_its_radio() {
+        let ctx = egui::Context::default();
+        let mut app = radio_speaker_app();
+        let song = "spotify:track:one";
+        // #given a song waiting for its radio
+        app.play_request(one_song(song), false);
+        assert!(app.song_radio.is_some());
+        // #when a Next up row is chosen
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Queue,
+                uri: "spotify:track:queued".into(),
+                index: 0,
+            },
+            &ctx,
+        );
+        // #then the song does not play, even once its radio comes
+        assert!(app.song_radio.is_none());
+        let generation = app.radio_pages[song].generation;
+        let radio = vec![radio_song("one", "Radio"), radio_song("two", "Radio")];
+        app.receive_radio(song, generation, Ok(radio));
+        assert!(remote_plays(&app).is_empty());
+        app.backend.shutdown();
+    }
+
+    /// Polls while a song waits for its radio describe what played before
+    /// it, so they cannot settle the song the player bar shows.
+    #[test]
+    fn polls_while_a_song_waits_for_its_radio_keep_its_title() {
+        let mut app = radio_speaker_app();
+        let song = "spotify:track:one";
+        let shown = |app: &App| app.intent_track.as_ref().map(|intent| intent.uri.clone());
+        // #given a song waiting for its radio
+        app.play_request(one_song(song), false);
+        assert!(app.song_radio.is_some());
+        // #when the speaker twice reports the song before it
+        for _ in 0..2 {
+            app.remote_poll_seq += 1;
+            let poll = app.remote_poll_seq;
+            app.reconcile_remote_track_intent(poll, Some("spotify:track:before"));
+        }
+        // #then the song stays, and only a poll sent after it counts
+        assert_eq!(shown(&app).as_deref(), Some(song));
+        let generation = app.radio_pages[song].generation;
+        app.receive_radio(song, generation, Err("no radio".into()));
+        assert_eq!(remote_plays(&app).len(), 1);
+        let sent = app.remote_poll_seq;
+        app.reconcile_remote_track_intent(sent, Some("spotify:track:before"));
+        assert_eq!(
+            shown(&app).as_deref(),
+            Some(song),
+            "a poll sent before the play"
+        );
+        app.reconcile_remote_track_intent(sent + 1, Some(song));
+        assert!(app.intent_track.is_none(), "the speaker confirms the song");
+        app.backend.shutdown();
+    }
+
+    /// A song asked as its own context, as a search match is, waits for
+    /// its radio too, then plays first in a list with it.
+    #[test]
+    fn a_song_asked_as_its_own_context_is_followed_by_its_radio() {
+        let mut app = radio_speaker_app();
+        let song = "spotify:track:one";
+        // #given a song asked as its own context
+        app.play_request(PlayRequest::context(song), false);
+        assert!(remote_plays(&app).is_empty(), "the song waits");
+        // #when its radio comes
+        let generation = app.radio_pages[song].generation;
+        let radio = vec![radio_song("one", "Radio"), radio_song("two", "Radio")];
+        app.receive_radio(song, generation, Ok(radio));
+        // #then the song plays first, with the radio after it
+        let plays = remote_plays(&app);
+        let [play] = plays.as_slice() else {
+            panic!("one play, not {plays:?}");
+        };
+        assert_eq!(play.context_uri, None);
+        assert_eq!(play.uris, [song, "spotify:track:two"]);
+        assert_eq!(play.offset_position, Some(0));
+        app.backend.shutdown();
+    }
+
+    /// A song still waiting for its radio at sign-out never plays for the
+    /// account that left.
+    #[test]
+    fn signing_out_drops_a_song_waiting_for_its_radio() {
+        let ctx = egui::Context::default();
+        let mut app = radio_speaker_app();
+        let song = "spotify:track:one";
+        // #given a song waiting for its radio
+        app.play_request(one_song(song), false);
+        assert!(app.song_radio.is_some());
+        // #when the account signs out
+        app.apply(Action::SignOut, &ctx);
+        // #then the song is never sent
+        assert!(app.song_radio.is_none());
+        assert!(app.send_song_radio_when_due().is_none());
+        assert!(remote_plays(&app).is_empty());
+        // Clearing the account's data drops one too.
+        app.play_request(one_song(song), false);
+        assert!(app.song_radio.is_some());
+        app.reset_data();
+        assert!(app.song_radio.is_none());
         app.backend.shutdown();
     }
 
