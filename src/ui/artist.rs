@@ -58,6 +58,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
                                     context: &context,
                                     show_cover: !app.settings.tracklist_compact,
                                     show_album: false,
+                                    show_artist: false,
                                     added_at: None,
                                     added_by: None,
                                     show_added_by: false,
