@@ -3,6 +3,8 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    # Nixpkgs 26.11 dropped Intel Macs; 26.05 keeps them until the end of 2026.
+    nixpkgs-x86_64-darwin.url = "github:NixOS/nixpkgs/nixpkgs-26.05-darwin";
     # rust-toolchain.toml pins the compiler so local builds and CI agree.
     # This reads that file rather than restating the version here.
     rust-overlay = {
@@ -15,6 +17,7 @@
     {
       self,
       nixpkgs,
+      nixpkgs-x86_64-darwin,
       rust-overlay,
       ...
     }:
@@ -30,7 +33,7 @@
         nixpkgs.lib.genAttrs systems (
           system:
           f (
-            import nixpkgs {
+            import (if system == "x86_64-darwin" then nixpkgs-x86_64-darwin else nixpkgs) {
               inherit system;
               overlays = [ (import rust-overlay) ];
             }
@@ -82,6 +85,9 @@
               ]
             )
           );
+          # The Soloist audio tap asks @available, which needs compiler-rt.
+          # Apple's clang links it by itself; the Nix one has to be told.
+          NIX_LDFLAGS = pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isDarwin "-lclang_rt.osx";
         };
       });
 
@@ -163,6 +169,12 @@
                 )
                 ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [ pkgs.apple-sdk ];
 
+              # The Soloist audio tap asks @available, which needs compiler-rt.
+              # Apple's clang links it by itself; the Nix one has to be told.
+              env = pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
+                NIX_LDFLAGS = "-lclang_rt.osx";
+              };
+
               # Nix's Rust check hook deliberately points SSL_CERT_FILE at a
               # missing path. The librespot proxy regression test constructs a
               # TLS connector before asserting its CONNECT request, so give the
@@ -170,6 +182,12 @@
               preCheck = ''
                 export SSL_CERT_FILE="${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
               '';
+
+              __darwinAllowLocalNetworking = true;
+              # CoreText's fallback test reads the system font files.
+              __impureHostDeps = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
+                "/System/Library/Fonts"
+              ];
 
               # The GUI dlopens its Wayland, X11 and GL libraries at run time.
               postFixup =
@@ -197,13 +215,18 @@
                   mkdir -p "$app/MacOS" "$app/Resources"
                   executable=Spotifast
                   identifier=rocks.spotifast.Spotifast
-                  cp "$out/bin/spotifast" "$app/MacOS/$executable"
+                  # One binary, in the bundle: the command is a link to it.
+                  mv "$out/bin/spotifast" "$app/MacOS/$executable"
+                  ln -s "$app/MacOS/$executable" "$out/bin/spotifast"
                   icnsify packaging/macos/icon-1024.png -o "$app/Resources/spotifast.icns"
                   substitute packaging/macos/Info.plist "$app/Info.plist" \
                     --replace-fail __VERSION__ "${version}" \
                     --replace-fail __BUILD__ "${pkgs.lib.head (pkgs.lib.splitString "-" version)}" \
                     --replace-fail __EXECUTABLE__ "$executable" \
                     --replace-fail __IDENTIFIER__ "$identifier"
+                  # Starting in the tray at login, as packaging/macos/bundle.sh.
+                  install -Dm644 packaging/macos/autostart.plist \
+                    "$app/Library/LaunchAgents/$identifier.autostart.plist"
                 '';
 
               meta = {
@@ -211,6 +234,7 @@
                 homepage = "https://spotifast.rocks";
                 license = pkgs.lib.licenses.mit;
                 mainProgram = "spotifast";
+                platforms = systems;
               };
             };
 
