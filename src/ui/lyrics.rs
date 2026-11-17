@@ -2,9 +2,9 @@
 
 use egui::{Align, Color32, Frame, Layout, Margin, Rect, Sense, UiBuilder, pos2, vec2};
 
-use crate::app::App;
+use crate::app::{App, NowPlaying};
 use crate::i18n::{gettext, pgettext};
-use crate::model::{Action, Loadable};
+use crate::model::{Action, Loadable, Page};
 use crate::theme::{self, Icon};
 
 use super::widgets;
@@ -544,22 +544,115 @@ fn big_cover(app: &mut App, ui: &mut egui::Ui, column: Rect, align: Align) {
             .layout(Layout::top_down(align)),
     );
     text.spacing_mut().item_spacing.y = 4.0;
-    text.add(
-        egui::Label::new(
-            egui::RichText::new(&now.title)
-                .font(theme::semibold(22.0))
-                .color(Color32::WHITE),
-        )
-        .truncate(),
+    text.set_clip_rect(words.intersect(ui.clip_rect()));
+    clickable_track_text(
+        app,
+        &mut text,
+        &now,
+        theme::regular(14.0),
+        Color32::from_gray(225),
+        align,
     );
-    text.add(
-        egui::Label::new(
-            egui::RichText::new(&now.subtitle)
-                .font(theme::regular(14.0))
-                .color(Color32::from_gray(225)),
-        )
-        .truncate(),
-    );
+}
+
+/// The playing song's title and artists under the cover, clickable as on
+/// the player bar: the title opens the album (or the show, for a podcast),
+/// an artist opens their page. The labels keep the sizes and colours the
+/// view already had; the hover underline is the only sign they are links.
+fn clickable_track_text(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    now: &NowPlaying,
+    subtitle_font: egui::FontId,
+    subtitle_color: Color32,
+    align: Align,
+) {
+    // A title with nowhere to go reads as plain text: only a real
+    // destination earns the link's underline, as with the artists below.
+    let title = if now.album_id.is_some() || now.show_id.is_some() {
+        theme::link(ui, &now.title, theme::semibold(22.0), Color32::WHITE)
+    } else {
+        theme::text(ui, &now.title, theme::semibold(22.0), Color32::WHITE)
+    };
+    if title.clicked() {
+        if let Some(id) = &now.album_id {
+            app.actions.push(Action::Open(Page::Album(id.clone())));
+        } else if let Some(id) = &now.show_id {
+            app.actions.push(Action::Open(Page::Show(id.clone())));
+        }
+    }
+    if now.artists.is_empty() {
+        // An episode: the line under the title is the show's name.
+        let response = if now.show_id.is_some() {
+            theme::link(ui, &now.subtitle, subtitle_font, subtitle_color)
+        } else {
+            theme::text(ui, &now.subtitle, subtitle_font, subtitle_color)
+        };
+        if response.clicked()
+            && let Some(id) = &now.show_id
+        {
+            app.actions.push(Action::Open(Page::Show(id.clone())));
+        }
+    } else {
+        // egui lays a row out from its left edge whatever the row's main
+        // alignment says, so centring the names where the column centres
+        // its words takes a row measured first, handed a rect of its own
+        // width. The height is measured too: an unbounded rect would show
+        // up unbounded in the screen-reader tree.
+        let measure = |text: &str| {
+            ui.painter()
+                .layout_no_wrap(text.to_owned(), subtitle_font.clone(), subtitle_color)
+                .size()
+        };
+        let mut size = egui::Vec2::ZERO;
+        for (index, artist) in now.artists.iter().enumerate() {
+            if index > 0 {
+                size.x += measure(", ").x;
+            }
+            let measured = measure(&artist.name);
+            size.x += measured.x;
+            size.y = size.y.max(measured.y);
+        }
+        let width = size.x.min(ui.available_width());
+        let left = match align {
+            Align::Center => ui.cursor().min.x + (ui.available_width() - width) / 2.0,
+            _ => ui.cursor().min.x,
+        };
+        let mut row = ui.new_child(
+            UiBuilder::new()
+                .max_rect(Rect::from_min_size(
+                    pos2(left, ui.cursor().min.y),
+                    vec2(width, size.y),
+                ))
+                .layout(Layout::left_to_right(Align::Center)),
+        );
+        row.spacing_mut().item_spacing.x = 0.0;
+        for (index, artist) in now.artists.iter().enumerate() {
+            if index > 0 {
+                theme::text(&mut row, ", ", subtitle_font.clone(), subtitle_color);
+            }
+            let response = if artist.id.is_some() {
+                theme::link(
+                    &mut row,
+                    &artist.name,
+                    subtitle_font.clone(),
+                    subtitle_color,
+                )
+            } else {
+                theme::text(
+                    &mut row,
+                    &artist.name,
+                    subtitle_font.clone(),
+                    subtitle_color,
+                )
+            };
+            if response.clicked()
+                && let Some(id) = &artist.id
+            {
+                app.actions.push(Action::Open(Page::Artist(id.clone())));
+            }
+        }
+    }
 }
 
 fn fullscreen_content_width(viewport_width: f32) -> f32 {
@@ -760,6 +853,8 @@ fn fullscreen_header(app: &mut App, ui: &mut egui::Ui) {
     });
 }
 
+/// The narrow full-screen heading: the cover at 52 points with its title and
+/// artists beside it, clickable like the wide view's, above the words.
 fn track_heading(app: &mut App, ui: &mut egui::Ui) {
     if let Some(now) = app.now_playing() {
         ui.horizontal(|ui| {
@@ -777,21 +872,13 @@ fn track_heading(app: &mut App, ui: &mut egui::Ui) {
             let art = now.art_url.is_some() || now.art_small.is_some();
             cover_opens_immersive(app, ui, rect, art);
             ui.vertical(|ui| {
-                ui.add(
-                    egui::Label::new(
-                        egui::RichText::new(&now.title)
-                            .font(theme::semibold(22.0))
-                            .color(Color32::WHITE),
-                    )
-                    .truncate(),
-                );
-                ui.add(
-                    egui::Label::new(
-                        egui::RichText::new(&now.subtitle)
-                            .font(theme::regular(13.0))
-                            .color(Color32::from_gray(235)),
-                    )
-                    .truncate(),
+                clickable_track_text(
+                    app,
+                    ui,
+                    &now,
+                    theme::regular(13.0),
+                    Color32::from_gray(235),
+                    Align::Min,
                 );
             });
         });

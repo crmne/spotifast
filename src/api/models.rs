@@ -368,6 +368,16 @@ impl Track {
                     .map(|track| format!("linked:{}", track.uri))
             })
     }
+
+    /// Whether this track is the one `uri` asked for: its own URI, or the
+    /// release it was substituted for when the market relinked one.
+    pub fn answers_to(&self, uri: &str) -> bool {
+        self.uri == uri
+            || self
+                .linked_from
+                .as_ref()
+                .is_some_and(|track| track.uri == uri)
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
