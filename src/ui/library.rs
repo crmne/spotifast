@@ -199,19 +199,15 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, page: Page) {
             );
         }
         _ => {
-            let episodes: Vec<_> = app
-                .library
-                .episodes
-                .items
-                .iter()
-                .map(|saved| saved.episode.clone())
-                .collect();
             widgets::virtual_rows(
                 ui,
-                episodes.len(),
+                app.library.episodes.items.len(),
                 super::show::EPISODE_ROW_HEIGHT,
                 |ui, index| {
-                    super::show::episode_row(app, ui, &episodes[index], None);
+                    // Release the library borrow with one visible row's copy,
+                    // rather than copying the whole list before virtualizing.
+                    let episode = app.library.episodes.items[index].episode.clone();
+                    super::show::episode_row(app, ui, &episode, None);
                 },
             );
             let list = &app.library.episodes;

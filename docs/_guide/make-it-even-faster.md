@@ -12,6 +12,9 @@ position once per sort instead of repeatedly searching the full saved order.
 This reduces the work each frame needs for large libraries while preserving
 your chosen sort, pins, and folders.
 
+Saved episodes and podcast pages prepare only the episode rows in view. This
+keeps redraw work small even when thousands of episodes are loaded.
+
 The main window draws as needed and uses the platform's frame pacing. The
 player bar and mini player visualizers draw at the **Frame rate** chosen in
 Settings > Appearance, 60 by default; a lower rate uses less power. The
