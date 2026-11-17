@@ -93,6 +93,9 @@ Spotify lyrics without changing players.
 | **Other Linux** | Find Flatpak, AppImage, Nix, and other options on the [Download page](https://spotifast.rocks/download/#linux). |
 | **From source** | Follow [Build from source](https://spotifast.rocks/getting-started/#build-from-source) for dependencies and commands. |
 
+On macOS, Spotifast uses Metal for smoother scrolling on ProMotion displays,
+with OpenGL as a fallback when Metal cannot open the window.
+
 ## Start listening
 
 1. Register Spotifast with Spotify, as the sign-in screen shows: in the
