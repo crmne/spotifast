@@ -1451,6 +1451,10 @@ pub enum Action {
     CycleVisualiser,
     /// A click on the player bar's empty space: spectrum, waveform, off.
     CyclePlayerBarVis,
+    /// Choose the player bar's visualizer from its right-click menu.
+    SetPlayerBarVis(crate::settings::PlayerBarVis),
+    /// Turn the player bar's click-to-change-visualizer on or off.
+    SetPlayerBarVisClick(bool),
     /// Set the visualizer mode directly.
     SetVisualiser(crate::settings::VisMode),
     /// Open or close the playlist window under the mini player.
