@@ -304,7 +304,11 @@ the fade to the queued audio. Natural track transitions remain gapless.
 Left and right arrows adjust a focused volume slider by five percentage
 points, or the seek slider by one percent of the song. Screen readers can
 also read and set these sliders' values. `Ctrl+F` (`Cmd+F` on macOS) focuses
-search. Since 0.9.0, `Space` plays or pauses the current song even
+the search under the pointer. Over the sidebar it opens **Search in Your
+Library**; over Settings or the global search it focuses that field. On a
+playlist page, it focuses **Filter** when the pointer is elsewhere. With no
+local search target, it focuses global search. `/` follows the same rules.
+Since 0.9.0, `Space` plays or pauses the current song even
 when a song row or control has focus. Text fields keep Space for typing.
 Unmodified letter shortcuts still yield to the focused control.
 
@@ -327,7 +331,7 @@ Winamp skins do not yet have equivalent accessibility coverage.
 | `F` | Enter or leave full screen lyrics |
 | `V` | Full screen lyrics: MilkDrop or the cover's art behind the words |
 | `N` / `P` | Full screen lyrics: next or previous MilkDrop preset |
-| `Ctrl+F` or `/` | Search |
+| `Ctrl+F` or `/` | Focus the search under the pointer, or the playlist filter |
 | `Ctrl+B` | Show or hide the sidebar |
 | `Alt+←` / `Alt+→` | Back or forward |
 | `Page Up` / `Page Down` | Scroll the main page one page |
