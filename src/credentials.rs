@@ -571,15 +571,20 @@ impl Portal {
     }
 
     /// Runs on the credential thread, which may wait for the desktop to
-    /// unlock its keyring.
+    /// unlock its keyring, but never longer than the caller does.
     fn retrieve() -> Result<Vec<u8>, Error> {
-        use std::{collections::HashMap, io::Read, os::fd::AsFd, os::unix::net::UnixStream};
+        let runtime = tokio::runtime::Handle::try_current().map_err(portal_unavailable)?;
+        runtime.block_on(Self::exchange())
+    }
+
+    async fn exchange() -> Result<Vec<u8>, Error> {
+        use futures_util::StreamExt;
+        use std::{collections::HashMap, os::fd::AsFd, os::unix::net::UnixStream};
+        use tokio::io::AsyncReadExt;
         use zbus::zvariant::{Fd, OwnedObjectPath, OwnedValue, Value};
-        fn unavailable(error: impl std::fmt::Display) -> Error {
-            log::warn!("the Secret portal is unavailable: {error}");
-            Error::Unavailable
-        }
-        let connection = zbus::blocking::Connection::session().map_err(unavailable)?;
+        let connection = zbus::Connection::session()
+            .await
+            .map_err(portal_unavailable)?;
         let sender = connection
             .unique_name()
             .ok_or(Error::Unavailable)?
@@ -588,44 +593,74 @@ impl Portal {
             .replace('.', "_");
         let token = format!("spotifast{}", rand::random::<u32>());
         let handle = format!("{}/request/{sender}/{token}", Self::PATH);
-        let request = zbus::blocking::Proxy::new(
+        let request = zbus::Proxy::new(
             &connection,
             Self::DESKTOP,
             handle.as_str(),
             "org.freedesktop.portal.Request",
         )
-        .map_err(unavailable)?;
+        .await
+        .map_err(portal_unavailable)?;
         // Subscribe before asking, so an answer that comes first is not missed.
-        let mut responses = request.receive_signal("Response").map_err(unavailable)?;
-        let portal = zbus::blocking::Proxy::new(
+        let mut responses = request
+            .receive_signal("Response")
+            .await
+            .map_err(portal_unavailable)?;
+        let portal = zbus::Proxy::new(
             &connection,
             Self::DESKTOP,
             Self::PATH,
             "org.freedesktop.portal.Secret",
         )
-        .map_err(unavailable)?;
-        let (mut reader, writer) = UnixStream::pair().map_err(unavailable)?;
+        .await
+        .map_err(portal_unavailable)?;
+        let (reader, writer) = UnixStream::pair().map_err(portal_unavailable)?;
         let options = HashMap::from([("handle_token", Value::from(token.as_str()))]);
         let returned: OwnedObjectPath = portal
             .call("RetrieveSecret", &(Fd::from(writer.as_fd()), options))
-            .map_err(unavailable)?;
+            .await
+            .map_err(portal_unavailable)?;
         drop(writer);
         if returned.as_str() != handle {
-            return Err(unavailable("unexpected request handle"));
+            return Err(portal_unavailable("unexpected request handle"));
         }
-        let response = responses.next().ok_or(Error::Unavailable)?;
-        let (status, _): (u32, HashMap<String, OwnedValue>) =
-            response.body().deserialize().map_err(unavailable)?;
-        if status != 0 {
-            return Err(Error::Locked);
+        let answer = async {
+            let response = responses.next().await.ok_or(Error::Unavailable)?;
+            let (status, _): (u32, HashMap<String, OwnedValue>) =
+                response.body().deserialize().map_err(portal_unavailable)?;
+            if status != 0 {
+                return Err(Error::Locked);
+            }
+            reader.set_nonblocking(true).map_err(portal_unavailable)?;
+            let mut reader =
+                tokio::net::UnixStream::from_std(reader).map_err(portal_unavailable)?;
+            let mut secret = Vec::new();
+            reader
+                .read_to_end(&mut secret)
+                .await
+                .map_err(portal_unavailable)?;
+            if secret.is_empty() {
+                return Err(portal_unavailable("empty secret"));
+            }
+            Ok(secret)
+        };
+        // A portal that stops answering must not hold the credential thread,
+        // and every save and sign-out queued behind it.
+        match tokio::time::timeout(TIMEOUT, answer).await {
+            Ok(secret) => secret,
+            Err(_) => {
+                let _ = request.call_method("Close", &()).await;
+                log::warn!("the Secret portal did not answer");
+                Err(Error::Timeout)
+            }
         }
-        let mut secret = Vec::new();
-        reader.read_to_end(&mut secret).map_err(unavailable)?;
-        if secret.is_empty() {
-            return Err(unavailable("empty secret"));
-        }
-        Ok(secret)
     }
+}
+
+#[cfg(target_os = "linux")]
+fn portal_unavailable(error: impl std::fmt::Display) -> Error {
+    log::warn!("the Secret portal is portal_unavailable: {error}");
+    Error::Unavailable
 }
 
 #[cfg(target_os = "linux")]
@@ -1845,6 +1880,100 @@ mod tests {
             portal(b"another-portal-secret").read(&key),
             Err(Error::Invalid)
         );
+    }
+
+    /// The exchange with the Secret portal, against a fake portal on a
+    /// private bus: the secret arrives through the descriptor, and a
+    /// dismissed request is a locked store.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn portal_secret_arrives_through_the_descriptor_on_a_private_bus() {
+        use std::collections::HashMap;
+        use zbus::zvariant::{OwnedFd, OwnedObjectPath, OwnedValue};
+        const CHILD: &str = "SPOTIFAST_PORTAL_PRIVATE_BUS";
+        if std::env::var_os(CHILD).is_none() {
+            let root = std::env::temp_dir().join(format!(
+                "spotifast-portal-bus-{:016x}",
+                rand::random::<u64>()
+            ));
+            std::fs::create_dir(&root).unwrap();
+            let config = root.join("session.conf");
+            std::fs::write(&config, r#"<busconfig><type>session</type><listen>unix:tmpdir=/tmp</listen><auth>EXTERNAL</auth><policy context="default"><allow own="*"/><allow send_destination="*"/><allow receive_sender="*"/></policy></busconfig>"#).unwrap();
+            let result = std::process::Command::new("dbus-run-session")
+                .arg("--config-file")
+                .arg(config)
+                .arg("--")
+                .arg(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "credentials::tests::portal_secret_arrives_through_the_descriptor_on_a_private_bus",
+                    "--nocapture",
+                ])
+                .env(CHILD, "1")
+                .output()
+                .unwrap();
+            std::fs::remove_dir_all(root).unwrap();
+            assert!(
+                result.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&result.stdout),
+                String::from_utf8_lossy(&result.stderr)
+            );
+            return;
+        }
+        let portal = zbus::blocking::Connection::session().unwrap();
+        portal.request_name(Portal::DESKTOP).unwrap();
+        let messages = zbus::blocking::MessageIterator::from(&portal);
+        let server = portal.clone();
+        std::thread::spawn(move || {
+            // The first request is answered, the second dismissed.
+            for (status, message) in (0u32..).zip(messages.flatten().filter(|message| {
+                message
+                    .header()
+                    .member()
+                    .is_some_and(|m| m == "RetrieveSecret")
+            })) {
+                let header = message.header();
+                let (fd, options): (OwnedFd, HashMap<String, OwnedValue>) =
+                    message.body().deserialize().unwrap();
+                let token = String::try_from(options["handle_token"].try_clone().unwrap()).unwrap();
+                let sender = header.sender().unwrap().to_owned();
+                let handle = OwnedObjectPath::try_from(format!(
+                    "{}/request/{}/{token}",
+                    Portal::PATH,
+                    sender.trim_start_matches(':').replace('.', "_")
+                ))
+                .unwrap();
+                if status == 0 {
+                    let mut file = std::fs::File::from(std::os::fd::OwnedFd::from(fd));
+                    std::io::Write::write_all(&mut file, b"dummy-portal-secret").unwrap();
+                }
+                server.reply(&header, &handle).unwrap();
+                server
+                    .emit_signal(
+                        Some(sender),
+                        handle,
+                        "org.freedesktop.portal.Request",
+                        "Response",
+                        &(status, HashMap::<String, OwnedValue>::new()),
+                    )
+                    .unwrap();
+            }
+        });
+        // The credential thread runs inside the backend's runtime.
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let _entered = runtime.enter();
+        let secret = Portal::retrieve().unwrap();
+        assert_eq!(secret, b"dummy-portal-secret");
+        let key = Portal::derive(&secret);
+        let sealed = Portal { key: key.into() }
+            .seal(b"grant", b"context")
+            .unwrap();
+        let fresh = Portal {
+            key: Portal::derive(b"dummy-portal-secret").into(),
+        };
+        assert_eq!(fresh.open(&sealed, b"context").unwrap(), b"grant");
+        assert_eq!(Portal::retrieve(), Err(Error::Locked));
     }
 
     /// Credential Manager refuses every write on some machines (#748).
