@@ -3377,6 +3377,44 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// Choosing on the page ends Repeat One at the click, as any play does
+    /// (#1022): a release's play button as well as a song row. The button
+    /// of the release playing pauses instead, which keeps it.
+    #[test]
+    fn choosing_on_the_discography_page_ends_repeat_one() {
+        let ctx = egui::Context::default();
+        let repeating = |name: &str| {
+            let mut app = app(name);
+            app.local.track = Some(crate::player::LocalTrack {
+                uri: "spotify:track:old".into(),
+                duration_ms: 200_000,
+                ..Default::default()
+            });
+            app.local.playback = Playback::Playing;
+            app.local.repeat = RepeatMode::Track;
+            app
+        };
+        let mut release = repeating("repeat-one-release");
+        open(&mut release, &ctx, three_releases());
+        release.apply(
+            Action::PlayDiscography {
+                artist_id: ARTIST.into(),
+                album_id: "a".into(),
+                start: None,
+            },
+            &ctx,
+        );
+        assert_eq!(release.local.repeat, RepeatMode::Context, "a release");
+        assert_eq!(release.repeat_wanted, RepeatMode::Context);
+        release.backend.shutdown();
+
+        let mut row = repeating("repeat-one-row");
+        waiting_play(&mut row, &ctx);
+        assert_eq!(row.local.repeat, RepeatMode::Context, "a song");
+        assert_eq!(row.repeat_wanted, RepeatMode::Context);
+        row.backend.shutdown();
+    }
+
     /// Until the clicked release's songs arrive the play has no song to show,
     /// so the player bar still shows the paused song with its Play button:
     /// Play cancels the wait and resumes that song, as the button promises.
