@@ -187,6 +187,24 @@ impl Client {
                     result,
                 })
             }
+            ApiRequest::ShufflePlay { device_id, play }
+                if device_id.is_some() && device_id == &device.id =>
+            {
+                let commands = soloist_shuffle_play_commands(play)?;
+                let result = async {
+                    let _guard = self.serial.lock().await;
+                    for command in commands {
+                        self.rpc_unlocked(port, command, None).await?;
+                    }
+                    Ok(())
+                }
+                .await
+                .map_err(failure);
+                Some(ApiResponse::Remote {
+                    action: RemoteAction::Play,
+                    result,
+                })
+            }
             // Adding remains on the existing serialized queue writer, so an
             // album and a single addition cannot overtake one another.
             _ => None,
@@ -231,6 +249,27 @@ fn failure(error: anyhow::Error) -> ApiError {
     ApiError::Network(error.to_string())
 }
 
+fn soloist_single_track_uri(play: &crate::api::PlayRequest) -> Option<&str> {
+    let [uri] = play.uris.as_slice() else {
+        return None;
+    };
+    let id = uri.strip_prefix("spotify:track:")?;
+    (play.context_uri.is_none()
+        && !id.is_empty()
+        && !id.contains(':')
+        && play.position_ms == 0
+        && play.offset_uri.as_ref().is_none_or(|offset| offset == uri)
+        && play.offset_position.is_none_or(|position| position == 0))
+    .then_some(uri)
+}
+
+fn soloist_shuffle_play_commands(play: &crate::api::PlayRequest) -> Option<Vec<Value>> {
+    Some(vec![
+        json!({"command":"set_shuffle", "enabled":true}),
+        json!({"command":"play", "uri":soloist_single_track_uri(play)?}),
+    ])
+}
+
 fn commands(request: &ApiRequest) -> Option<Vec<Value>> {
     let ApiRequest::Remote {
         action,
@@ -246,6 +285,9 @@ fn commands(request: &ApiRequest) -> Option<Vec<Value>> {
     };
     let command = match action {
         RemoteAction::Play if play.is_none() => json!({"command":"play"}),
+        RemoteAction::Play if let Some(uri) = play.as_ref().and_then(soloist_single_track_uri) => {
+            json!({"command":"play", "uri":uri})
+        }
         RemoteAction::Play => return None, // Preserve context, ordering and selected occurrence.
         RemoteAction::Pause => json!({"command":"pause"}),
         RemoteAction::Next => json!({"command":"skip_next"}),
@@ -471,6 +513,63 @@ mod tests {
             repeat: "off".into(),
         }
     }
+    #[test]
+    fn context_free_single_track_uses_soloist_play_command() {
+        let mut request = remote(RemoteAction::Play);
+        if let ApiRequest::Remote { play, .. } = &mut request {
+            *play = Some(
+                crate::api::PlayRequest::tracks(vec!["spotify:track:one".into()])
+                    .starting_at_index(0),
+            );
+        }
+        assert_eq!(
+            commands(&request).unwrap(),
+            vec![json!({"command":"play", "uri":"spotify:track:one"})]
+        );
+    }
+
+    #[test]
+    fn shuffle_play_sets_shuffle_before_starting_the_single_track() {
+        let play =
+            crate::api::PlayRequest::tracks(vec!["spotify:track:one".into()]).starting_at_index(0);
+        assert_eq!(
+            soloist_shuffle_play_commands(&play).unwrap(),
+            vec![
+                json!({"command":"set_shuffle", "enabled":true}),
+                json!({"command":"play", "uri":"spotify:track:one"}),
+            ]
+        );
+        assert!(
+            soloist_shuffle_play_commands(&crate::api::PlayRequest::context("spotify:album:album"))
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn context_and_multi_track_plays_stay_on_the_web_api_route() {
+        for play in [
+            crate::api::PlayRequest::context("spotify:album:album"),
+            crate::api::PlayRequest::tracks(vec![
+                "spotify:track:one".into(),
+                "spotify:track:two".into(),
+            ]),
+            crate::api::PlayRequest::tracks(vec!["spotify:episode:episode".into()]),
+            crate::api::PlayRequest {
+                position_ms: 10_000,
+                ..crate::api::PlayRequest::tracks(vec!["spotify:track:one".into()])
+            },
+            crate::api::PlayRequest::tracks(vec!["spotify:track:one".into()])
+                .starting_at_uri("spotify:track:other"),
+            crate::api::PlayRequest::tracks(vec!["spotify:track:one".into()]).starting_at_index(1),
+        ] {
+            let mut request = remote(RemoteAction::Play);
+            if let ApiRequest::Remote { play: slot, .. } = &mut request {
+                *slot = Some(play);
+            }
+            assert!(commands(&request).is_none());
+        }
+    }
+
     #[tokio::test]
     async fn acknowledgements_are_correlated_and_remote_errors_are_redacted() {
         for reject in [false, true] {
