@@ -260,6 +260,61 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
             }
             ui.add_space(20.0);
 
+            if let Some(playlist) = app.artist_this_is.get(&artist.uri).cloned() {
+                widgets::shelf(
+                    ui,
+                    &palette,
+                    "artist-this-is",
+                    &gettext(locale, "Playlists"),
+                    |ui| {
+                        let context_here =
+                            app.playing_context_uri().as_deref() == Some(playlist.uri.as_str());
+                        let playing_here = context_here && app.believed_playing();
+                        let card_art = app.art_px(widgets::CARD_ART);
+                        let card = widgets::card(
+                            ui,
+                            app,
+                            pick_image(&playlist.images, card_art),
+                            &playlist.name,
+                            &gettext(locale, "By {owner}").replace("{owner}", "Spotify"),
+                            widgets::CardCover::square(playing_here),
+                        );
+                        if card.play {
+                            if context_here {
+                                app.actions.push(Action::TogglePlay);
+                            } else {
+                                app.actions.push(Action::PlayContext {
+                                    uri: playlist.uri.clone(),
+                                    offset_uri: None,
+                                    offset_index: None,
+                                });
+                            }
+                        }
+                        if card.clicked {
+                            app.actions
+                                .push(Action::Open(Page::Playlist(playlist.id.clone())));
+                        }
+                        egui::Popup::context_menu(&card.response)
+                            .id(ui.make_persistent_id((
+                                "artist-this-is-menu",
+                                &artist.uri,
+                                &playlist.uri,
+                            )))
+                            .frame(widgets::menu_frame(&palette))
+                            .show(|ui| {
+                                widgets::context_menu_items(
+                                    ui,
+                                    app,
+                                    &playlist.uri,
+                                    &playlist.name,
+                                    None,
+                                )
+                            });
+                    },
+                );
+                ui.add_space(20.0);
+            }
+
             // Related.
             if let Loadable::Loaded(related) = &page.related
                 && !related.is_empty()

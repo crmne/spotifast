@@ -388,6 +388,18 @@ pub struct PageMetadata {
     /// under the artist's own URI.
     pub play_counts: HashMap<String, u64>,
     pub upcoming: Option<crate::prerelease::UpcomingRelease>,
+    pub this_is: ThisIsCandidate,
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+pub enum ThisIsCandidate {
+    #[default]
+    Unknown,
+    Absent,
+    Playlist {
+        id: String,
+        artist_name: String,
+    },
 }
 
 /// Read song play counts and, for artists, monthly listeners and the
@@ -402,6 +414,7 @@ pub async fn page_metadata(
     let client_token = session.spclient().client_token().await?;
     let mut counts = HashMap::new();
     let mut upcoming = None;
+    let mut this_is = ThisIsCandidate::Unknown;
     match crate::util::uri_kind(uri) {
         Some("album") => {
             let mut offset = 0;
@@ -449,6 +462,7 @@ pub async fn page_metadata(
                 ),
                 "Spotify could not return this artist overview"
             );
+            this_is = featuring_this_is_candidate(&body, uri);
             upcoming = upcoming_release(
                 body.pointer("/data/artistUnion")
                     .ok_or_else(|| anyhow::anyhow!("missing artist overview"))?,
@@ -466,7 +480,121 @@ pub async fn page_metadata(
     Ok(PageMetadata {
         play_counts: counts,
         upcoming,
+        this_is,
     })
+}
+
+fn featuring_this_is_candidate(body: &serde_json::Value, uri: &str) -> ThisIsCandidate {
+    let Some(artist) = body.pointer("/data/artistUnion") else {
+        return ThisIsCandidate::Unknown;
+    };
+    if artist.get("uri").and_then(serde_json::Value::as_str) != Some(uri) {
+        return ThisIsCandidate::Unknown;
+    }
+    let Some(artist_name) = artist
+        .pointer("/profile/name")
+        .and_then(serde_json::Value::as_str)
+        .filter(|name| !name.trim().is_empty())
+    else {
+        return ThisIsCandidate::Unknown;
+    };
+    let expected_name = format!("This Is {artist_name}");
+    let mut candidates = BTreeSet::new();
+    let mut found_collection = false;
+    for collection in ["featuringV2", "featuring"] {
+        let Some(collection) = artist
+            .get("relatedContent")
+            .and_then(|related| related.get(collection))
+        else {
+            continue;
+        };
+        let Some(items) = collection
+            .get("items")
+            .and_then(serde_json::Value::as_array)
+        else {
+            return ThisIsCandidate::Unknown;
+        };
+        found_collection = true;
+        for item in items {
+            let Some(data) = item.get("data") else {
+                return ThisIsCandidate::Unknown;
+            };
+            match data.get("__typename").and_then(serde_json::Value::as_str) {
+                Some("Playlist") => {}
+                Some(kind) if !kind.trim().is_empty() => continue,
+                _ => return ThisIsCandidate::Unknown,
+            }
+            let Some(name) = data
+                .get("name")
+                .and_then(serde_json::Value::as_str)
+                .filter(|name| !name.trim().is_empty())
+            else {
+                return ThisIsCandidate::Unknown;
+            };
+            let Some(id) = data
+                .get("uri")
+                .and_then(serde_json::Value::as_str)
+                .and_then(|uri| uri.strip_prefix("spotify:playlist:"))
+                .filter(|id| id.len() == 22 && id.bytes().all(|byte| byte.is_ascii_alphanumeric()))
+                .filter(|id| SpotifyId::from_base62(id).is_ok())
+            else {
+                return ThisIsCandidate::Unknown;
+            };
+            if name == expected_name {
+                candidates.insert(id);
+            }
+        }
+    }
+    if !found_collection {
+        ThisIsCandidate::Unknown
+    } else if candidates.len() == 1 {
+        ThisIsCandidate::Playlist {
+            id: candidates.into_iter().next().unwrap().to_string(),
+            artist_name: artist_name.to_string(),
+        }
+    } else {
+        ThisIsCandidate::Absent
+    }
+}
+
+pub async fn this_is_playlist(
+    session: &Session,
+    candidate: ThisIsCandidate,
+) -> Result<Option<Playlist>, &'static str> {
+    match candidate {
+        ThisIsCandidate::Unknown => Err("Featuring is unavailable"),
+        ThisIsCandidate::Absent => Ok(None),
+        ThisIsCandidate::Playlist { id, artist_name } => {
+            let list = tokio::time::timeout(
+                std::time::Duration::from_secs(3),
+                window(session, &id, 0, 0),
+            )
+            .await
+            .map_err(|_| "Featuring verification timed out")?
+            .map_err(|_| "Featuring header is unavailable")?;
+            validated_this_is_header(&id, &artist_name, &list)
+        }
+    }
+}
+
+fn validated_this_is_header(
+    id: &str,
+    artist_name: &str,
+    list: &SessionPlaylist,
+) -> Result<Option<Playlist>, &'static str> {
+    let owner = owner_of(list);
+    if owner.is_empty() || list.attributes.name.is_empty() {
+        return Err("Featuring header is incomplete");
+    }
+    if !matches!(&list.id, SpotifyUri::Playlist { id: actual, .. } if actual.to_base62() == id) {
+        return Err("Featuring header does not match the requested playlist");
+    }
+    if owner != "spotify" || list.attributes.name != format!("This Is {artist_name}") {
+        return Ok(None);
+    }
+    let mut playlist = header(id, list);
+    playlist.owner.display_name = Some("Spotify".into());
+    Ok(Some(playlist))
 }
 
 /// An artist's upcoming release. One this app cannot read is logged and left
@@ -1996,6 +2124,197 @@ fn iso8601(timestamp_ms: i64) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+
+    fn featuring_body(items: serde_json::Value) -> serde_json::Value {
+        serde_json::json!({"data": {"artistUnion": {
+            "uri": "spotify:artist:test", "profile": {"name": "Test Artist"},
+            "relatedContent": {"featuringV2": {"items": items}}
+        }}})
+    }
+
+    fn featuring_item(id: &str) -> serde_json::Value {
+        serde_json::json!({"data": {
+            "__typename": "Playlist", "name": "This Is Test Artist",
+            "uri": format!("spotify:playlist:{id}")
+        }})
+    }
+
+    #[test]
+    fn this_is_candidate_is_exact_artist_scoped_and_deduplicated() {
+        let item = featuring_item("0123456789ABCDEFGHIJKL");
+        let mut body = featuring_body(serde_json::json!([item.clone(), item.clone()]));
+        let expected = ThisIsCandidate::Playlist {
+            id: "0123456789ABCDEFGHIJKL".into(),
+            artist_name: "Test Artist".into(),
+        };
+        assert_eq!(
+            featuring_this_is_candidate(&body, "spotify:artist:test"),
+            expected
+        );
+        body["data"]["artistUnion"]["relatedContent"]["featuring"] =
+            serde_json::json!({"items": [item.clone()]});
+        assert_eq!(
+            featuring_this_is_candidate(&body, "spotify:artist:test"),
+            expected
+        );
+        body["data"]["artistUnion"]["relatedContent"]
+            .as_object_mut()
+            .unwrap()
+            .remove("featuringV2");
+        assert_eq!(
+            featuring_this_is_candidate(&body, "spotify:artist:test"),
+            expected
+        );
+        assert_eq!(
+            featuring_this_is_candidate(&body, "spotify:artist:other"),
+            ThisIsCandidate::Unknown
+        );
+        for (field, value) in [
+            ("name", "This Is Other"),
+            ("name", "this is Test Artist"),
+            ("__typename", "Artist"),
+        ] {
+            let mut item = item.clone();
+            item["data"][field] = value.into();
+            assert_eq!(
+                featuring_this_is_candidate(
+                    &featuring_body(serde_json::json!([item])),
+                    "spotify:artist:test"
+                ),
+                ThisIsCandidate::Absent
+            );
+        }
+    }
+
+    #[test]
+    fn this_is_candidate_rejects_ambiguity_and_never_uses_other_sections() {
+        let mut body = featuring_body(serde_json::json!([
+            featuring_item("0123456789ABCDEFGHIJKL"),
+            featuring_item("1123456789ABCDEFGHIJKL")
+        ]));
+        assert_eq!(
+            featuring_this_is_candidate(&body, "spotify:artist:test"),
+            ThisIsCandidate::Absent
+        );
+        body["data"]["artistUnion"]["relatedContent"]["discoveredOn"] =
+            body["data"]["artistUnion"]["relatedContent"]["featuringV2"].clone();
+        body["data"]["artistUnion"]["relatedContent"]["featuringV2"]["items"] =
+            serde_json::json!([]);
+        assert_eq!(
+            featuring_this_is_candidate(&body, "spotify:artist:test"),
+            ThisIsCandidate::Absent
+        );
+        body["data"]["artistUnion"]["relatedContent"]
+            .as_object_mut()
+            .unwrap()
+            .remove("featuringV2");
+        assert_eq!(
+            featuring_this_is_candidate(&body, "spotify:artist:test"),
+            ThisIsCandidate::Unknown
+        );
+    }
+
+    #[test]
+    fn this_is_candidate_distinguishes_unknown_schema_from_empty() {
+        for items in [
+            serde_json::Value::Null,
+            serde_json::json!({}),
+            serde_json::json!("invalid"),
+            serde_json::json!([{}]),
+            serde_json::json!([{"data": {}}]),
+            serde_json::json!([{"data": {"__typename": ""}}]),
+            serde_json::json!([{"data": {"__typename": "Playlist"}}]),
+            serde_json::json!([{"data": {"__typename": "Playlist", "name": "Other"}}]),
+            serde_json::json!([{"data": {"__typename": "Playlist", "name": ""}}]),
+        ] {
+            assert_eq!(
+                featuring_this_is_candidate(&featuring_body(items), "spotify:artist:test"),
+                ThisIsCandidate::Unknown
+            );
+        }
+        for uri in [
+            "spotify:playlist:invalid",
+            "spotify:track:0123456789ABCDEFGHIJKL",
+            "spotify:playlist:!!!!!!!!!!!!!!!!!!!!!!",
+            "spotify:playlist:zzzzzzzzzzzzzzzzzzzzzz",
+        ] {
+            let mut item = featuring_item("0123456789ABCDEFGHIJKL");
+            item["data"]["uri"] = uri.into();
+            assert_eq!(
+                featuring_this_is_candidate(
+                    &featuring_body(serde_json::json!([item])),
+                    "spotify:artist:test"
+                ),
+                ThisIsCandidate::Unknown
+            );
+        }
+        let mut body = featuring_body(serde_json::json!([]));
+        assert_eq!(
+            featuring_this_is_candidate(&body, "spotify:artist:test"),
+            ThisIsCandidate::Absent
+        );
+        body["data"]["artistUnion"]["relatedContent"]["featuring"] = serde_json::Value::Null;
+        assert_eq!(
+            featuring_this_is_candidate(&body, "spotify:artist:test"),
+            ThisIsCandidate::Unknown
+        );
+        body["data"]["artistUnion"]["relatedContent"]
+            .as_object_mut()
+            .unwrap()
+            .remove("featuring");
+        body["data"]["artistUnion"]["profile"]["name"] = serde_json::Value::Null;
+        assert_eq!(
+            featuring_this_is_candidate(&body, "spotify:artist:test"),
+            ThisIsCandidate::Unknown
+        );
+        assert_eq!(
+            featuring_this_is_candidate(&serde_json::json!({}), "spotify:artist:test"),
+            ThisIsCandidate::Unknown
+        );
+    }
+
+    #[test]
+    fn this_is_header_requires_canonical_owner_title_and_identity() {
+        let id = "0123456789ABCDEFGHIJKL";
+        let uri = SpotifyUri::from_uri(&format!("spotify:playlist:{id}")).unwrap();
+        for (owner, name, accepted) in [
+            ("spotify", "This Is Test Artist", true),
+            ("Spotify", "This Is Test Artist", false),
+            ("impostor", "This Is Test Artist", false),
+            ("spotify", "This Is Other", false),
+        ] {
+            let mut message = SelectedListContent::new();
+            message.set_length(0);
+            message.set_owner_username(owner.into());
+            let attributes = message.attributes.mut_or_insert_default();
+            attributes.set_name(name.into());
+            attributes.set_picture(vec![0xab, 0xcd]);
+            let list = SessionPlaylist::parse(&message, &uri).unwrap();
+            let verified = validated_this_is_header(id, "Test Artist", &list).unwrap();
+            assert_eq!(verified.is_some(), accepted);
+            if let Some(playlist) = verified {
+                assert_eq!(playlist.owner.id.as_deref(), Some("spotify"));
+                assert_eq!(playlist.owner_name(), "Spotify");
+                assert_eq!(playlist.images.len(), 1);
+                assert_eq!(playlist.id, id);
+            }
+            assert!(
+                validated_this_is_header("1123456789ABCDEFGHIJKL", "Test Artist", &list).is_err()
+            );
+        }
+        let mut message = SelectedListContent::new();
+        message.set_length(0);
+        message
+            .attributes
+            .mut_or_insert_default()
+            .set_name("This Is Test Artist".into());
+        let list = SessionPlaylist::parse(&message, &uri).unwrap();
+        assert!(validated_this_is_header(id, "Test Artist", &list).is_err());
+        message.set_owner_username("spotify".into());
+        message.attributes.mut_or_insert_default().clear_name();
+        let list = SessionPlaylist::parse(&message, &uri).unwrap();
+        assert!(validated_this_is_header(id, "Test Artist", &list).is_err());
+    }
 
     /// Pathfinder's counts arrive as strings of digits; rows without a
     /// track URI or a count are left out, and every row counts toward the
