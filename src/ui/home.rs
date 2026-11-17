@@ -888,6 +888,7 @@ fn track_list(
                 picked_songs: &[],
                 picked_positions: &[],
                 position: None,
+                show_saved_heart: false,
             },
         );
     }
@@ -967,6 +968,7 @@ fn top_tracks(app: &mut App, ui: &mut egui::Ui) {
                 picked_songs: &[],
                 picked_positions: &[],
                 position: None,
+                show_saved_heart: false,
             },
         );
     }

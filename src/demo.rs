@@ -2366,6 +2366,26 @@ mod tests {
             .0
     }
 
+    /// The lowest node with `label` and `role`. Every heart reads Add to
+    /// playlist, so this finds the player bar's below any row's.
+    fn lowest_node(
+        tree: &egui::accesskit::TreeUpdate,
+        label: &str,
+        role: egui::accesskit::Role,
+    ) -> egui::accesskit::NodeId {
+        let top = |node: &egui::accesskit::Node| node.bounds().map_or(0.0, |rect| rect.y0);
+        tree.nodes
+            .iter()
+            .filter(|(_, node)| node.label() == Some(label) && node.role() == role)
+            .max_by(|(_, a), (_, b)| top(a).total_cmp(&top(b)))
+            .unwrap_or_else(|| panic!("missing {label:?} with role {role:?}"))
+            .0
+    }
+
+    fn has_label(tree: &egui::accesskit::TreeUpdate, text: &str) -> bool {
+        tree.nodes.iter().any(|(_, n)| n.label() == Some(text))
+    }
+
     fn accessible_action(
         target: egui::accesskit::NodeId,
         action: egui::accesskit::Action,
@@ -2864,12 +2884,12 @@ mod tests {
                 let tree = accessible_frame(&ctx, &mut app, vec![]);
                 accessible_node(&tree, &gettext(locale, next), Role::Button);
             }
-            // A liked song's heart opens a checklist where unchecking Liked
-            // Songs and choosing Done unlikes it; the heart then likes it at
-            // once (#792).
+            // The heart opens a checklist where unchecking Liked Songs and
+            // choosing Done unlikes the song. The heart of a song saved
+            // nowhere opens the same checklist rather than liking it at once.
             let click = |ctx: &egui::Context, app: &mut App, label: &'static str| {
                 let tree = accessible_frame(ctx, app, vec![]);
-                let button = accessible_node(&tree, &gettext(locale, label), Role::Button);
+                let button = lowest_node(&tree, &gettext(locale, label), Role::Button);
                 accessible_frame(
                     ctx,
                     app,
@@ -2893,14 +2913,23 @@ mod tests {
             assert_eq!(app.is_saved(&now), Some(true), "a check waits for Done");
             click(&ctx, &mut app, "Done");
             assert_eq!(app.is_saved(&now), Some(false));
-            click(&ctx, &mut app, "Save to Liked Songs");
+            click(&ctx, &mut app, "Add to playlist");
+            assert_eq!(app.is_saved(&now), Some(false), "no like at once");
+            let tree = accessible_frame(&ctx, &mut app, vec![]);
+            let liked = accessible_node(&tree, &gettext(locale, "Liked Songs"), Role::CheckBox);
+            accessible_frame(
+                &ctx,
+                &mut app,
+                vec![accessible_action(liked, AccessibleAction::Click, None)],
+            );
+            click(&ctx, &mut app, "Done");
             assert_eq!(app.is_saved(&now), Some(true));
             let tree = accessible_frame(&ctx, &mut app, vec![]);
             assert!(
                 !tree.nodes.iter().any(|(_, node)| {
                     node.label() == Some(gettext(locale, "Filter playlists").as_ref())
                 }),
-                "liking a song does not open the menu"
+                "Done closes the menu"
             );
 
             app.remote = None;
@@ -4766,6 +4795,7 @@ mod tests {
                                 picked_songs: &[],
                                 picked_positions: &[],
                                 position: None,
+                                show_saved_heart: false,
                             },
                         );
                     }
@@ -4874,6 +4904,7 @@ mod tests {
                                     picked_songs: &[],
                                     picked_positions: &[],
                                     position: None,
+                                    show_saved_heart: false,
                                 },
                             );
                         });
@@ -4997,6 +5028,7 @@ mod tests {
                                 picked_songs: &[],
                                 picked_positions: &[],
                                 position: None,
+                                show_saved_heart: false,
                             },
                         );
                     }
@@ -5898,6 +5930,81 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// In a heart's checklist the keyboard reaches Liked Songs like any
+    /// playlist: Down chooses it, a filter finds it, Enter toggles it.
+    #[test]
+    fn the_keyboard_checks_liked_songs_in_a_hearts_checklist() {
+        use crate::ui::widgets::{Mark, PlaylistChecks};
+
+        let (ctx, mut app) = accessible_app("heart-checklist-keys");
+        app.backend.set_offline(true);
+        let owner = app.user_id().unwrap().to_string();
+        app.library.playlists = Loadable::Loaded(vec![Playlist {
+            id: "drive".into(),
+            uri: "spotify:playlist:drive".into(),
+            name: "Night drive".into(),
+            owner: crate::api::models::Owner {
+                id: Some(owner),
+                ..Default::default()
+            },
+            ..Default::default()
+        }]);
+        let item = PlayableItem::Track(track(0));
+        let items = vec![item.clone()];
+        let mut checks = PlaylistChecks::new(&app, &item, None);
+        assert!(checks.liked, "the demo likes this song");
+        let mut query = String::new();
+        let mut draw = |app: &mut App, checks: &mut PlaylistChecks, focus: bool, events| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(760.0, 620.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    let field = crate::ui::widgets::playlist_picker(
+                        ui,
+                        app,
+                        &items,
+                        &mut query,
+                        Some(checks),
+                    );
+                    if focus {
+                        field.request_focus();
+                    }
+                },
+            );
+            output.textures_delta.clear();
+        };
+        let key = |key| vec![keyboard(key, egui::Modifiers::NONE)];
+
+        // #when Down chooses the first row and Enter is pressed
+        draw(&mut app, &mut checks, true, vec![]);
+        // The focused field claims the arrow keys as it is drawn.
+        draw(&mut app, &mut checks, false, vec![]);
+        draw(&mut app, &mut checks, false, key(egui::Key::ArrowDown));
+        draw(&mut app, &mut checks, false, key(egui::Key::Enter));
+        // #then Liked Songs, which leads a liked song's list, is unchecked
+        assert!(!checks.liked);
+
+        // #when a filter finds it and Enter is pressed
+        draw(
+            &mut app,
+            &mut checks,
+            false,
+            vec![egui::Event::Text("liked".into())],
+        );
+        draw(&mut app, &mut checks, false, key(egui::Key::Enter));
+        // #then it is checked again, and nothing else changed
+        assert!(checks.liked);
+        assert_ne!(checks.mark("drive"), Mark::Checked);
+        assert!(app.actions.is_empty(), "nothing changes before Done");
+        app.backend.shutdown();
+    }
+
     /// In the heart's checklist a click checks a playlist instead of adding
     /// to it, a playlist holding the song starts checked, one not read in
     /// full is marked as unknown rather than lacking it, and Done adds to
@@ -5931,7 +6038,7 @@ mod tests {
             },
         );
         let items = vec![item.clone()];
-        let mut checks = crate::ui::widgets::PlaylistChecks::new(&app, &item);
+        let mut checks = crate::ui::widgets::PlaylistChecks::new(&app, &item, None);
         assert_eq!(checks.mark("drive"), Mark::Unknown, "never read");
         let mut query = String::new();
         let mut draw = |app: &mut App, events| {
@@ -5999,7 +6106,7 @@ mod tests {
                 ..PlaylistPage::default()
             },
         );
-        let checks = crate::ui::widgets::PlaylistChecks::new(&app, &item);
+        let checks = crate::ui::widgets::PlaylistChecks::new(&app, &item, None);
         assert_eq!(checks.mark("drive"), Mark::Unchecked, "all rows read");
         app.backend.shutdown();
     }
@@ -6028,7 +6135,7 @@ mod tests {
             Loadable::Loaded(vec![make("drive", "Night drive"), make("day", "Daylight")]);
         let click = |app: &mut App, label: &str, role: Role| {
             let tree = accessible_frame(&ctx, app, vec![]);
-            let node = accessible_node(&tree, label, role);
+            let node = lowest_node(&tree, label, role);
             accessible_frame(
                 &ctx,
                 app,
@@ -6057,6 +6164,16 @@ mod tests {
         let now = app.now_playing().unwrap().uri;
         assert_eq!(app.is_saved(&now), Some(true));
 
+        // Until a check changes, the button cancels and changes nothing.
+        click(&mut app, "Add to playlist", Role::Button);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        assert!(!has_label(&tree, "Done"), "nothing to apply yet");
+        click(&mut app, "Cancel", Role::Button);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        assert!(!has_label(&tree, "Filter playlists"), "Cancel closes it");
+        assert!(asked(&app).is_empty(), "Cancel changes nothing");
+        assert_eq!(app.is_saved(&now), Some(true), "Cancel keeps the like");
+
         check_both(&mut app);
         // The margin at the bar's left edge, beside the cover.
         let outside = egui::pos2(6.0, 796.0);
@@ -6073,6 +6190,87 @@ mod tests {
         click(&mut app, "Done", Role::Button);
         assert_eq!(asked(&app), ["drive", "day"]);
         assert_eq!(app.is_saved(&now), Some(true), "it stays liked");
+        app.backend.shutdown();
+    }
+
+    /// The checklist lists the song's own playlists first. Liked Songs
+    /// leads them while the song is liked and follows them when it is not.
+    #[test]
+    fn the_hearts_checklist_lists_the_songs_own_playlists_first() {
+        use egui::accesskit::{Action as AccessibleAction, Role};
+
+        let (ctx, mut app) = accessible_app("heart-checklist-order");
+        app.backend.set_offline(true);
+        let owner = app.user_id().unwrap().to_string();
+        let make = |id: &str, name: &str| Playlist {
+            id: id.into(),
+            uri: format!("spotify:playlist:{id}"),
+            name: name.into(),
+            owner: crate::api::models::Owner {
+                id: Some(owner.clone()),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        app.library.playlists = Loadable::Loaded(vec![
+            make("a", "Alpha"),
+            make("b", "Beta"),
+            make("c", "Gamma"),
+        ]);
+        let now = app.now_playing().unwrap().uri;
+        let all = ["a", "b", "c"].map(|id| (id.to_string(), None::<String>));
+        let read = |app: &mut App, id: &str, uris: Vec<String>, at: i64| {
+            app.membership.start_reads(&all);
+            app.membership.receive(id, Ok((uris, Some(at))));
+        };
+        read(&mut app, "a", Vec::new(), 1_000);
+        read(&mut app, "b", Vec::new(), 2_000);
+        read(&mut app, "c", vec![now.clone()], 500);
+        let names = ["Liked Songs", "Alpha", "Beta", "Gamma"];
+        let open = |app: &mut App| {
+            let tree = accessible_frame(&ctx, app, vec![]);
+            let heart = lowest_node(&tree, "Add to playlist", Role::Button);
+            let open = accessible_action(heart, AccessibleAction::Click, None);
+            accessible_frame(&ctx, app, vec![open]);
+            // A menu's first frame only measures it.
+            accessible_frame(&ctx, app, vec![]);
+        };
+        let rows = |app: &mut App| -> Vec<String> {
+            let tree = accessible_frame(&ctx, app, vec![]);
+            let mut rows: Vec<(f64, String)> = tree
+                .nodes
+                .iter()
+                .filter(|(_, node)| node.role() == Role::CheckBox)
+                .filter_map(|(_, node)| Some((node.bounds()?.y0, node.label()?.to_string())))
+                .collect();
+            rows.retain(|(_, label)| names.contains(&label.as_str()));
+            rows.sort_by(|a, b| a.0.total_cmp(&b.0));
+            rows.into_iter().map(|(_, label)| label).collect()
+        };
+        let close = |app: &mut App| {
+            let tree = accessible_frame(&ctx, app, vec![]);
+            let cancel = lowest_node(&tree, "Cancel", Role::Button);
+            let close = accessible_action(cancel, AccessibleAction::Click, None);
+            accessible_frame(&ctx, app, vec![close]);
+        };
+        // The song's own playlist leads; the rest follow, the one a song was
+        // last added to first.
+        app.saved.insert(now.clone(), true);
+        open(&mut app);
+        assert_eq!(rows(&mut app), ["Liked Songs", "Gamma", "Beta", "Alpha"]);
+        close(&mut app);
+        app.saved.insert(now, false);
+        open(&mut app);
+        assert_eq!(rows(&mut app), ["Gamma", "Liked Songs", "Beta", "Alpha"]);
+        // A read landing while the list is open moves no row; the next
+        // opening takes it.
+        app.membership.seen("a", Some("newer"));
+        read(&mut app, "a", Vec::new(), 3_000);
+        assert_eq!(rows(&mut app), ["Gamma", "Liked Songs", "Beta", "Alpha"]);
+        close(&mut app);
+        open(&mut app);
+        assert_eq!(rows(&mut app), ["Gamma", "Liked Songs", "Alpha", "Beta"]);
+        close(&mut app);
         app.backend.shutdown();
     }
 
@@ -6497,6 +6695,7 @@ mod tests {
                         picked_songs: &[],
                         picked_positions: &[],
                         position: None,
+                        show_saved_heart: false,
                     },
                 );
             }
@@ -13351,10 +13550,11 @@ mod tests {
     fn saved_toggles_stay_green_while_hovered() {
         // alb0 is saved, its first song is liked, and so is the song in
         // the player bar, so all three save toggles show their on state.
+        // Every song's heart has the same name, so the topmost row's wins.
         type Pick = fn(&egui::accesskit::Rect) -> bool;
         let targets: [(&str, &str, Pick); 3] = [
             ("album header", "Remove from Your Library", |_| true),
-            ("song row", "Remove from Liked Songs", |b| b.y1 < 700.0),
+            ("song row", "Add to playlist", |b| b.y1 < 700.0),
             ("player bar", "Add to playlist", |b| b.y0 > 700.0),
         ];
         for theme in ["dark", "light"] {
@@ -13394,7 +13594,8 @@ mod tests {
                         node.label() == Some(label) && node.role() == egui::accesskit::Role::Button
                     })
                     .filter_map(|(_, node)| node.bounds())
-                    .find(pick)
+                    .filter(pick)
+                    .min_by(|a, b| a.y0.total_cmp(&b.y0))
                     .unwrap_or_else(|| panic!("missing {place} {label:?}"));
                 let centre = egui::pos2(
                     (bounds.x0 + bounds.x1) as f32 / 2.0,

@@ -1054,6 +1054,7 @@ fn table_contents(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
                 picked_songs: &picked_songs,
                 picked_positions: &picked_positions,
                 position: playlist_position(&table, index),
+                show_saved_heart: false,
             },
         );
         row_responses.push((row, response));

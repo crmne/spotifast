@@ -392,6 +392,18 @@ successful write advances the cached playlist to Spotify's returned snapshot
 instead of downloading the playlist again. If Spotify cannot answer the scan,
 Spotifast preserves the requested edit and lets the write report its result.
 
+A heart is green when its song is in Liked Songs or in any playlist the account
+can edit, and its checklist ticks each playlist that holds the song. To know
+this, Spotifast reads the song list of each editable playlist in the background
+over the playback session, the same read that removes one copy of a repeated
+song: one request per thousand rows, at most two playlists at a time, so the
+index takes no more than half of the session's four background read slots. A
+playlist is read again only when the library reports a new snapshot for it, and
+a failed read waits a minute before it is retried. Edits made in Spotifast
+update the index at once and hold back reads of that playlist until Spotify
+confirms them. Without a playback session the index waits; it never pages
+through the Web API, so it spends none of the Web API quota.
+
 Since 0.8.0, manually reloading an edited playlist waits for all
 pending writes and confirmation of the returned Spotify revision before
 requesting replacement rows. Current rows, filtering, sorting, and selection
