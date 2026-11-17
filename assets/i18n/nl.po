@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-11-17 10:47+0100\n"
+"POT-Creation-Date: 2026-11-17 11:20+0100\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Dutch\n"
@@ -28,13 +28,13 @@ msgstr "{name} pauzeren"
 msgid "Play {name}"
 msgstr "{name} afspelen"
 
-#: src/ui/sidebar.rs:302 src/app.rs:4255 src/app.rs:26653
+#: src/ui/sidebar.rs:302 src/app.rs:4255 src/app.rs:26654
 #: src/ui/collection.rs:2328 src/ui/collection.rs:2557
 msgid "Playlist"
 msgstr "Playlist"
 
 #: src/ui/sidebar.rs:312 src/ui/friends.rs:304 src/ui/widgets.rs:1006
-#: src/app.rs:4229 src/app.rs:26658 src/ui/collection.rs:2550 src/ui/home.rs:93
+#: src/app.rs:4229 src/app.rs:26659 src/ui/collection.rs:2550 src/ui/home.rs:93
 #: src/ui/keys.rs:376 src/ui/winamp/playlist.rs:659
 msgid "Liked Songs"
 msgstr "Gelikete nummers"
@@ -257,7 +257,7 @@ msgid "Previous"
 msgstr "Vorige"
 
 #: src/ui/player_bar.rs:801 src/ui/lyrics.rs:475 src/ui/widgets.rs:3090
-#: src/ui/widgets.rs:3164 src/ui/widgets.rs:3192 src/app.rs:15676
+#: src/ui/widgets.rs:3164 src/ui/widgets.rs:3192 src/app.rs:15677
 #: src/ui/collection.rs:997
 msgid "Loading…"
 msgstr "Laden…"
@@ -665,7 +665,7 @@ msgstr "KEER AFGESPEELD"
 msgid "Sort by duration"
 msgstr "Sorteren op duur"
 
-#: src/ui/widgets.rs:3203 src/app.rs:15885 src/app.rs:15899
+#: src/ui/widgets.rs:3203 src/app.rs:15886 src/app.rs:15900
 msgid "Network connection error. Check your connection."
 msgstr "Netwerkverbindingsfout. Controleer je verbinding."
 
@@ -728,7 +728,7 @@ msgstr ""
 "verbinding."
 
 #. Translators: shown on the Copy button for a moment after it copied.
-#: src/ui/widgets.rs:4015 src/app.rs:13653
+#: src/ui/widgets.rs:4015 src/app.rs:13654
 msgid "Copied"
 msgstr "Gekopieerd"
 
@@ -930,7 +930,7 @@ msgid "Queue cleared"
 msgstr "Wachtrij gewist"
 
 #. Translators: Keep {date} unchanged. It is a date in YYYY-MM-DD form.
-#: src/app.rs:7825 src/app.rs:26643
+#: src/app.rs:7825 src/app.rs:26644
 #, rust-format
 msgid "Queue {date}"
 msgstr "Wachtrij {date}"
@@ -1134,36 +1134,36 @@ msgstr[1] "{count} nummers toegevoegd aan wachtrij"
 msgid "{name} added to queue"
 msgstr "{name} toegevoegd aan wachtrij"
 
-#: src/app.rs:12691
+#: src/app.rs:12692
 msgid "The clipboard has no Spotify song links"
 msgstr "Het klembord bevat geen links naar Spotify-nummers"
 
 #. Translators: {count} is the number of pasted links that failed.
-#: src/app.rs:12772
+#: src/app.rs:12773
 #, rust-format
 msgid "{count} pasted link could not be added"
 msgid_plural "{count} pasted links could not be added"
 msgstr[0] "{count} geplakte link kan niet worden toegevoegd"
 msgstr[1] "{count} geplakte links kunnen niet worden toegevoegd"
 
-#: src/app.rs:13582
+#: src/app.rs:13583
 msgid "Spotify doesn't let apps remove a playlist description, so it was kept"
 msgstr ""
 "Spotify laat apps geen playlistbeschrijving verwijderen, dus die is behouden"
 
-#: src/app.rs:13647 src/app.rs:13666
+#: src/app.rs:13648 src/app.rs:13667
 msgid "Link copied"
 msgstr "Link gekopieerd"
 
 #. Translators: {count} is a number of song links, always more than one.
-#: src/app.rs:13670
+#: src/app.rs:13671
 #, rust-format
 msgid "{count} link copied"
 msgid_plural "{count} links copied"
 msgstr[0] "{count} link gekopieerd"
 msgstr[1] "{count} links gekopieerd"
 
-#: src/app.rs:13998
+#: src/app.rs:13999
 msgid ""
 "Spotify doesn't let apps reorder your playlists, so this order is saved on "
 "this computer"
@@ -1171,73 +1171,73 @@ msgstr ""
 "Spotify laat apps je playlists niet herschikken, dus deze volgorde wordt op "
 "deze computer opgeslagen"
 
-#: src/app.rs:14169
+#: src/app.rs:14170
 msgid "Restarting local playback"
 msgstr "Lokaal afspelen wordt opnieuw gestart"
 
-#: src/app.rs:14205
+#: src/app.rs:14206
 msgid "Local playback needs Spotify Premium"
 msgstr "Lokaal afspelen vereist Spotify Premium"
 
-#: src/app.rs:14257
+#: src/app.rs:14258
 msgid "Play history cleared"
 msgstr "Afspeelgeschiedenis gewist"
 
 #. Translators: {size} is a size in megabytes, such as 12.5.
-#: src/app.rs:14276
+#: src/app.rs:14277
 #, rust-format
 msgid "Cleared {size} MB of artwork"
 msgstr "{size} MB aan covers gewist"
 
 #. Translators: {error} is an error message.
-#: src/app.rs:14282
+#: src/app.rs:14283
 #, rust-format
 msgid "Couldn't clear artwork: {error}"
 msgstr "Kan covers niet wissen: {error}"
 
 #. Translators: {name} is the name of a visualizer preset pack.
-#: src/app.rs:14595
+#: src/app.rs:14596
 #, rust-format
 msgid "Downloading {name} presets"
 msgstr "Presets van {name} worden gedownload"
 
-#: src/app.rs:15819
+#: src/app.rs:15820
 msgid "Couldn't start playback"
 msgstr "Kan afspelen niet starten"
 
-#: src/app.rs:15820
+#: src/app.rs:15821
 msgid "Couldn't pause"
 msgstr "Kan niet pauzeren"
 
-#: src/app.rs:15821
+#: src/app.rs:15822
 msgid "Couldn't skip"
 msgstr "Kan niet overslaan"
 
-#: src/app.rs:15822
+#: src/app.rs:15823
 msgid "Couldn't go back"
 msgstr "Kan niet teruggaan"
 
-#: src/app.rs:15823
+#: src/app.rs:15824
 msgid "Couldn't seek"
 msgstr "Kan niet spoelen"
 
-#: src/app.rs:15824
+#: src/app.rs:15825
 msgid "Couldn't change the volume"
 msgstr "Kan het volume niet wijzigen"
 
-#: src/app.rs:15825
+#: src/app.rs:15826
 msgid "Couldn't change shuffle"
 msgstr "Kan willekeurige volgorde niet wijzigen"
 
-#: src/app.rs:15826
+#: src/app.rs:15827
 msgid "Couldn't change repeat"
 msgstr "Kan herhalen niet wijzigen"
 
-#: src/app.rs:15869 src/ui/mod.rs:467
+#: src/app.rs:15870 src/ui/mod.rs:467
 msgid "Spotify won't let this computer play this song right now."
 msgstr "Spotify laat deze computer dit nummer nu niet afspelen."
 
-#: src/app.rs:15876
+#: src/app.rs:15877
 msgid ""
 "No audio output device was found. Connect or enable one, then press play "
 "again."
@@ -1245,20 +1245,20 @@ msgstr ""
 "Er is geen audio-uitvoerapparaat gevonden. Sluit er een aan of schakel er "
 "een in en druk dan opnieuw op Afspelen."
 
-#: src/app.rs:15890
+#: src/app.rs:15891
 msgid ""
 "Spotify doesn't make this playlist's songs available to third-party apps."
 msgstr ""
 "Spotify stelt de nummers van deze playlist niet beschikbaar voor apps van "
 "derden."
 
-#: src/app.rs:16021
+#: src/app.rs:16022
 msgid "Spotify sign-in expired. Sign in again, then retry the cover upload."
 msgstr ""
 "Spotify-aanmelding verlopen. Log opnieuw in en probeer de cover dan opnieuw "
 "te uploaden."
 
-#: src/app.rs:16026
+#: src/app.rs:16027
 msgid ""
 "Spotify refused this cover. Check that you own the playlist, then sign in "
 "again to grant image upload permission. If you use your own Client ID, "
@@ -1269,20 +1269,20 @@ msgstr ""
 "Gebruik je je eigen Client ID, autoriseer die dan ook opnieuw in "
 "Instellingen."
 
-#: src/app.rs:16030
+#: src/app.rs:16031
 msgid "Spotify rejected the image size. Choose a smaller image."
 msgstr ""
 "Spotify heeft de afbeeldingsgrootte geweigerd. Kies een kleinere afbeelding."
 
 #. Translators: {error} is an error message.
-#: src/app.rs:16033
+#: src/app.rs:16034
 #, rust-format
 msgid "Couldn't upload the cover: {error}. Try again."
 msgstr "Kan de cover niet uploaden: {error}. Probeer het opnieuw."
 
 #. Translators: Keep {track} unchanged. It is the name of the song,
 #. playlist, album, or artist the radio is based on, not translated.
-#: src/app.rs:26663 src/app/radio.rs:38
+#: src/app.rs:26664 src/app/radio.rs:38
 #, rust-format
 msgid "{track} Radio"
 msgstr "Radio op basis van {track}"

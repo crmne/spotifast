@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-11-17 10:47+0100\n"
+"POT-Creation-Date: 2026-11-17 11:20+0100\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Japanese\n"
@@ -28,13 +28,13 @@ msgstr "{name}を一時停止"
 msgid "Play {name}"
 msgstr "{name}を再生"
 
-#: src/ui/sidebar.rs:302 src/app.rs:4255 src/app.rs:26653
+#: src/ui/sidebar.rs:302 src/app.rs:4255 src/app.rs:26654
 #: src/ui/collection.rs:2328 src/ui/collection.rs:2557
 msgid "Playlist"
 msgstr "プレイリスト"
 
 #: src/ui/sidebar.rs:312 src/ui/friends.rs:304 src/ui/widgets.rs:1006
-#: src/app.rs:4229 src/app.rs:26658 src/ui/collection.rs:2550 src/ui/home.rs:93
+#: src/app.rs:4229 src/app.rs:26659 src/ui/collection.rs:2550 src/ui/home.rs:93
 #: src/ui/keys.rs:376 src/ui/winamp/playlist.rs:659
 msgid "Liked Songs"
 msgstr "お気に入りの曲"
@@ -253,7 +253,7 @@ msgid "Previous"
 msgstr "前へ"
 
 #: src/ui/player_bar.rs:801 src/ui/lyrics.rs:475 src/ui/widgets.rs:3090
-#: src/ui/widgets.rs:3164 src/ui/widgets.rs:3192 src/app.rs:15676
+#: src/ui/widgets.rs:3164 src/ui/widgets.rs:3192 src/app.rs:15677
 #: src/ui/collection.rs:997
 msgid "Loading…"
 msgstr "読み込み中…"
@@ -658,7 +658,7 @@ msgstr "再生回数"
 msgid "Sort by duration"
 msgstr "再生時間で並べ替え"
 
-#: src/ui/widgets.rs:3203 src/app.rs:15885 src/app.rs:15899
+#: src/ui/widgets.rs:3203 src/app.rs:15886 src/app.rs:15900
 msgid "Network connection error. Check your connection."
 msgstr "ネットワーク接続エラーです。接続を確認してください。"
 
@@ -720,7 +720,7 @@ msgstr ""
 "Spotifyのホスト名はプロキシで解決されます。ローカル再生は直接接続します。"
 
 #. Translators: shown on the Copy button for a moment after it copied.
-#: src/ui/widgets.rs:4015 src/app.rs:13653
+#: src/ui/widgets.rs:4015 src/app.rs:13654
 msgid "Copied"
 msgstr "コピーしました"
 
@@ -917,7 +917,7 @@ msgid "Queue cleared"
 msgstr "再生待ちリストをクリアしました"
 
 #. Translators: Keep {date} unchanged. It is a date in YYYY-MM-DD form.
-#: src/app.rs:7825 src/app.rs:26643
+#: src/app.rs:7825 src/app.rs:26644
 #, rust-format
 msgid "Queue {date}"
 msgstr "再生待ち {date}"
@@ -1121,35 +1121,35 @@ msgstr[0] "{count}曲を再生待ちリストに追加しました"
 msgid "{name} added to queue"
 msgstr "{name}を再生待ちリストに追加しました"
 
-#: src/app.rs:12691
+#: src/app.rs:12692
 msgid "The clipboard has no Spotify song links"
 msgstr "クリップボードにSpotifyの曲のリンクがありません"
 
 #. Translators: {count} is the number of pasted links that failed.
-#: src/app.rs:12772
+#: src/app.rs:12773
 #, rust-format
 msgid "{count} pasted link could not be added"
 msgid_plural "{count} pasted links could not be added"
 msgstr[0] "貼り付けたリンクのうち{count}件を追加できませんでした"
 
-#: src/app.rs:13582
+#: src/app.rs:13583
 msgid "Spotify doesn't let apps remove a playlist description, so it was kept"
 msgstr ""
 "Spotifyではアプリからプレイリストの説明を削除できないため、説明はそのまま残り"
 "ました"
 
-#: src/app.rs:13647 src/app.rs:13666
+#: src/app.rs:13648 src/app.rs:13667
 msgid "Link copied"
 msgstr "リンクをコピーしました"
 
 #. Translators: {count} is a number of song links, always more than one.
-#: src/app.rs:13670
+#: src/app.rs:13671
 #, rust-format
 msgid "{count} link copied"
 msgid_plural "{count} links copied"
 msgstr[0] "{count}件のリンクをコピーしました"
 
-#: src/app.rs:13998
+#: src/app.rs:13999
 msgid ""
 "Spotify doesn't let apps reorder your playlists, so this order is saved on "
 "this computer"
@@ -1157,73 +1157,73 @@ msgstr ""
 "Spotifyではアプリからプレイリストを並べ替えられないため、この順序はこのコン"
 "ピューターに保存されます"
 
-#: src/app.rs:14169
+#: src/app.rs:14170
 msgid "Restarting local playback"
 msgstr "ローカル再生を再起動しています"
 
-#: src/app.rs:14205
+#: src/app.rs:14206
 msgid "Local playback needs Spotify Premium"
 msgstr "ローカル再生にはSpotify Premiumが必要です"
 
-#: src/app.rs:14257
+#: src/app.rs:14258
 msgid "Play history cleared"
 msgstr "再生履歴を消去しました"
 
 #. Translators: {size} is a size in megabytes, such as 12.5.
-#: src/app.rs:14276
+#: src/app.rs:14277
 #, rust-format
 msgid "Cleared {size} MB of artwork"
 msgstr "アートワークを{size} MB削除しました"
 
 #. Translators: {error} is an error message.
-#: src/app.rs:14282
+#: src/app.rs:14283
 #, rust-format
 msgid "Couldn't clear artwork: {error}"
 msgstr "アートワークを削除できませんでした：{error}"
 
 #. Translators: {name} is the name of a visualizer preset pack.
-#: src/app.rs:14595
+#: src/app.rs:14596
 #, rust-format
 msgid "Downloading {name} presets"
 msgstr "{name}のプリセットをダウンロード中"
 
-#: src/app.rs:15819
+#: src/app.rs:15820
 msgid "Couldn't start playback"
 msgstr "再生を開始できませんでした"
 
-#: src/app.rs:15820
+#: src/app.rs:15821
 msgid "Couldn't pause"
 msgstr "一時停止できませんでした"
 
-#: src/app.rs:15821
+#: src/app.rs:15822
 msgid "Couldn't skip"
 msgstr "スキップできませんでした"
 
-#: src/app.rs:15822
+#: src/app.rs:15823
 msgid "Couldn't go back"
 msgstr "前に戻れませんでした"
 
-#: src/app.rs:15823
+#: src/app.rs:15824
 msgid "Couldn't seek"
 msgstr "再生位置を変更できませんでした"
 
-#: src/app.rs:15824
+#: src/app.rs:15825
 msgid "Couldn't change the volume"
 msgstr "音量を変更できませんでした"
 
-#: src/app.rs:15825
+#: src/app.rs:15826
 msgid "Couldn't change shuffle"
 msgstr "シャッフルを変更できませんでした"
 
-#: src/app.rs:15826
+#: src/app.rs:15827
 msgid "Couldn't change repeat"
 msgstr "リピートを変更できませんでした"
 
-#: src/app.rs:15869 src/ui/mod.rs:467
+#: src/app.rs:15870 src/ui/mod.rs:467
 msgid "Spotify won't let this computer play this song right now."
 msgstr "Spotifyが今このコンピューターでこの曲を再生させてくれません。"
 
-#: src/app.rs:15876
+#: src/app.rs:15877
 msgid ""
 "No audio output device was found. Connect or enable one, then press play "
 "again."
@@ -1231,19 +1231,19 @@ msgstr ""
 "音声出力デバイスが見つかりません。デバイスを接続するか有効にしてから、もう一"
 "度再生してください。"
 
-#: src/app.rs:15890
+#: src/app.rs:15891
 msgid ""
 "Spotify doesn't make this playlist's songs available to third-party apps."
 msgstr ""
 "Spotifyはこのプレイリストの曲をサードパーティ製アプリに提供していません。"
 
-#: src/app.rs:16021
+#: src/app.rs:16022
 msgid "Spotify sign-in expired. Sign in again, then retry the cover upload."
 msgstr ""
 "Spotifyのログインの有効期限が切れました。もう一度ログインしてから、カバーの"
 "アップロードをやり直してください。"
 
-#: src/app.rs:16026
+#: src/app.rs:16027
 msgid ""
 "Spotify refused this cover. Check that you own the playlist, then sign in "
 "again to grant image upload permission. If you use your own Client ID, "
@@ -1253,12 +1253,12 @@ msgstr ""
 "一度ログインして画像アップロードの権限を許可してください。自分のClient IDを"
 "使っている場合は、設定でも再度承認してください。"
 
-#: src/app.rs:16030
+#: src/app.rs:16031
 msgid "Spotify rejected the image size. Choose a smaller image."
 msgstr "Spotifyが画像サイズを拒否しました。もっと小さい画像を選んでください。"
 
 #. Translators: {error} is an error message.
-#: src/app.rs:16033
+#: src/app.rs:16034
 #, rust-format
 msgid "Couldn't upload the cover: {error}. Try again."
 msgstr ""
@@ -1266,7 +1266,7 @@ msgstr ""
 
 #. Translators: Keep {track} unchanged. It is the name of the song,
 #. playlist, album, or artist the radio is based on, not translated.
-#: src/app.rs:26663 src/app/radio.rs:38
+#: src/app.rs:26664 src/app/radio.rs:38
 #, rust-format
 msgid "{track} Radio"
 msgstr "{track} のラジオ"

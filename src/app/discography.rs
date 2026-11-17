@@ -3329,6 +3329,54 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// A song queued here and then chosen on the page shows as starting
+    /// while the play waits, but nothing has played it yet: a queue answer
+    /// from before the addition still gets the queued row back.
+    #[test]
+    fn a_waiting_play_keeps_a_queued_copy_spotify_has_not_listed_yet() {
+        let ctx = egui::Context::default();
+        let mut app = app("pending-queued-copy");
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:x".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        app.manual_queue = vec!["spotify:track:c1".into()];
+        app.pending_queue_adds = vec![PendingQueueAdd {
+            item: PlayableItem::Track(song("c1")),
+            at: Instant::now(),
+            manual_index: 0,
+            write: None,
+        }];
+        waiting_play(&mut app, &ctx);
+        assert_eq!(app.current_track_uri().as_deref(), Some("spotify:track:c1"));
+        // An answer from before the addition.
+        app.queue = Loadable::Loaded(Queue {
+            currently_playing: Some(PlayableItem::Track(song("x"))),
+            queue: vec![PlayableItem::Track(song("y"))],
+        });
+        app.reconcile_pending_queue();
+        let next: Vec<&str> = app
+            .queue
+            .get()
+            .unwrap()
+            .queue
+            .iter()
+            .map(PlayableItem::uri)
+            .collect();
+        assert_eq!(
+            next,
+            vec!["spotify:track:c1", "spotify:track:y"],
+            "the queued row comes back"
+        );
+        assert_eq!(
+            app.pending_queue_adds.len(),
+            1,
+            "the addition still waits for Spotify to list it"
+        );
+        app.backend.shutdown();
+    }
+
     /// Until the clicked release's songs arrive the play has no song to show,
     /// so the player bar still shows the paused song with its Play button:
     /// Play cancels the wait and resumes that song, as the button promises.
