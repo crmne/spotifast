@@ -11739,6 +11739,7 @@ impl App {
             | Action::PlayUris { .. }
             | Action::PlayEpisode { .. }
             | Action::PlayFromRow { .. }
+            | Action::PlayDiscography { .. }
             | Action::ShufflePlay(_) => true,
             Action::PlaySearchMatch { serial, .. } => *serial == self.play_search_serial,
             Action::Previous => {
