@@ -91,8 +91,11 @@ not protect a usable session from arbitrary code running as the same user;
 Linux protection also depends on the desktop keyring's configuration.
 
 On Linux, enable and unlock a Secret Service provider such as GNOME Keyring or
-KWallet to remember a new sign-in. Flatpak is allowed to talk to
-`org.freedesktop.secrets` for this purpose. An unavailable or locked store
+KWallet to remember a new sign-in. The Flatpak cannot reach that shared
+keyring. It asks the Secret portal for a key kept for Spotifast alone, and
+seals each grant with it in `credential-storage` in the state folder. A
+Flatpak that remembered a sign-in in the keyring asks for it once more. An
+unavailable or locked store
 produces an error without blocking the interface. A new sign-in can still be
 used for this session, with no new plaintext fallback file.
 
