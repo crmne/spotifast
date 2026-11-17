@@ -530,31 +530,66 @@ fn restarts_for_output(moved: bool, playing: bool, idle: bool) -> bool {
 }
 
 /// Pauses the player and waits, at most `PAUSE_WAIT` in all, until it says
-/// it has paused. Anything going wrong only means the restart comes sooner.
-async fn pause_before_restart(socket: &mut protocol::Socket, port: u16) {
-    let _ = tokio::time::timeout(PAUSE_WAIT, async {
+/// it has paused. Returns whether its song carries on after the restart:
+/// not when the player went idle meanwhile, as the song ended. Anything
+/// else going wrong only means the restart comes sooner.
+async fn pause_before_restart(socket: &mut protocol::Socket, port: u16) -> bool {
+    tokio::time::timeout(PAUSE_WAIT, async {
         if protocol::send_reconnecting(socket, port, json!({"command":"pause"}))
             .await
             .is_err()
         {
-            return;
+            return true;
         }
         while let Ok((message, _)) = protocol::receive_reconnecting(socket, port).await {
-            if message.as_ref().is_some_and(is_paused) {
-                // Give the player a moment to tell Spotify the position.
-                tokio::time::sleep(PAUSE_SETTLE).await;
+            match message.as_ref().and_then(carries_on_after_pause) {
+                Some(true) => {
+                    // Give the player a moment to tell Spotify the position.
+                    tokio::time::sleep(PAUSE_SETTLE).await;
+                    return true;
+                }
+                Some(false) => return false,
+                None => {}
+            }
+        }
+        true
+    })
+    .await
+    .unwrap_or(true)
+}
+
+/// Whether a playback event ends the wait before a restart, and if so
+/// whether the song carries on: yes once paused, no once idle.
+fn carries_on_after_pause(message: &serde_json::Value) -> Option<bool> {
+    if !matches!(
+        message["type"].as_str(),
+        Some("playback_state" | "playback_changed")
+    ) {
+        return None;
+    }
+    match message["status"].as_str() {
+        Some("paused") => Some(true),
+        Some("idle") => Some(false),
+        _ => None,
+    }
+}
+
+/// Reads the default output every `OUTPUT_CHECK` beside the player loop,
+/// which keeps reading the player's events meanwhile: each reading meets
+/// the player's state as it is then. Ends with the loop.
+fn watch_default_output() -> tokio::sync::mpsc::Receiver<Option<fastframe_audio::DeviceId>> {
+    let (sender, receiver) = tokio::sync::mpsc::channel(1);
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(OUTPUT_CHECK);
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            tick.tick().await;
+            if sender.send(read_default_output().await).await.is_err() {
                 break;
             }
         }
-    })
-    .await;
-}
-
-fn is_paused(message: &serde_json::Value) -> bool {
-    matches!(
-        message["type"].as_str(),
-        Some("playback_state" | "playback_changed")
-    ) && message["status"] == "paused"
+    });
+    receiver
 }
 
 async fn read_default_output() -> Option<fastframe_audio::DeviceId> {
@@ -697,8 +732,7 @@ async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Resu
             name: name.into(),
             version: build.version.clone(),
         }));
-        let mut output_tick = tokio::time::interval(OUTPUT_CHECK);
-        output_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut outputs = follows_default.then(watch_default_output);
         let mut audio_tick = tokio::time::interval(Duration::from_millis(250));
         let mut audio_routed = false;
         let mut repairs = audio::Repairs::default();
@@ -725,19 +759,18 @@ async fn process(player: Player<'_>, mut stopped: watch::Receiver<bool>) -> Resu
             let mut reconnected = false;
             tokio::select! {
                 _ = stopped.changed() => return Ok(Outcome::Stopped),
-                _ = output_tick.tick(), if follows_default => {
-                    if restarts_for_output(output.moved(read_default_output().await), playing, idle) {
+                Some(now) = async { outputs.as_mut()?.recv().await }, if follows_default => {
+                    if restarts_for_output(output.moved(now), playing, idle) {
                         log::info!("The default audio output changed; starting Soloist again on it");
-                        // Said while the player still plays, so a playing
-                        // song is remembered and carries on once it is back.
-                        notify(Update::OutputMoved { playing });
-                        notify(Update::Status(Status::Starting));
                         // A player stopped mid-song leaves Spotify an older
                         // position, or none: the song came back seconds
-                        // early or from its start. A pause reports where it is.
-                        if playing {
-                            pause_before_restart(&mut socket, port).await;
-                        }
+                        // early or from its start. A pause reports where it
+                        // is, and whether the song ended meanwhile.
+                        let carries_on = playing && pause_before_restart(&mut socket, port).await;
+                        // Said in the player's own words, before the app
+                        // sees it go, so only a song still playing carries on.
+                        notify(Update::OutputMoved { playing: carries_on });
+                        notify(Update::Status(Status::Starting));
                         // A renewal waiting for an idle moment starts now.
                         return Ok(pending.take().map_or(Outcome::OutputChanged, Outcome::Update));
                     }
@@ -1119,20 +1152,30 @@ mod tests {
     }
 
     #[test]
-    fn only_a_paused_playback_event_ends_the_wait_before_a_restart() {
-        assert!(is_paused(
-            &json!({"type":"playback_changed", "status":"paused"})
-        ));
-        assert!(is_paused(
-            &json!({"type":"playback_state", "status":"paused"})
-        ));
-        assert!(!is_paused(
-            &json!({"type":"playback_changed", "status":"playing"})
-        ));
+    fn a_paused_or_idle_playback_event_ends_the_wait_before_a_restart() {
+        let ends = |message| carries_on_after_pause(&message);
+        assert_eq!(
+            ends(json!({"type":"playback_changed", "status":"paused"})),
+            Some(true)
+        );
+        assert_eq!(
+            ends(json!({"type":"playback_state", "status":"paused"})),
+            Some(true)
+        );
+        // The last song ended during the wait: nothing carries on.
+        assert_eq!(
+            ends(json!({"type":"playback_changed", "status":"idle"})),
+            Some(false)
+        );
+        assert_eq!(
+            ends(json!({"type":"playback_changed", "status":"playing"})),
+            None
+        );
         // The acknowledgement comes before the player has actually paused.
-        assert!(!is_paused(
-            &json!({"type":"command_result", "command":"pause"})
-        ));
+        assert_eq!(
+            ends(json!({"type":"command_result", "command":"pause"})),
+            None
+        );
     }
 
     #[test]
