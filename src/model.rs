@@ -720,6 +720,9 @@ pub struct HomeData {
     pub podcasts: Vec<(Show, Vec<Episode>)>,
     /// The Home generation whose podcast episodes were last asked for.
     pub podcasts_generation: u64,
+    /// When the podcast episodes were last asked for, and for which shows:
+    /// an automatic refresh within the hour leaves them as they are.
+    pub podcasts_asked: Option<(Instant, Vec<String>)>,
     pub generation: u64,
     pub top_songs_generation: u64,
     pub top_songs_generations: [u64; 3],
