@@ -23,6 +23,10 @@ Click a card to wear that skin. The first time you scroll to them, the pictures
 are drawn in the background, one skin at a time, and kept for next time. A skin
 that cannot be drawn shows its name instead. It can still be worn.
 
+When the file of the skin you are wearing changes in the skins folder, the mini
+player reads it again, so a skin made from your desktop's colours follows them
+without a restart.
+
 Choose **Random**, first in that list, to get a different skin each time you
 switch to the mini player, never the same one twice in a row. Settings says
 which skin it picked, and choosing a skin yourself turns Random off.

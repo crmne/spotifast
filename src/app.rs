@@ -4763,6 +4763,15 @@ impl App {
                 Some(name) => self.winamp.load(name, &self.dirs.skins_dir(), ctx),
             }
         }
+        // The skin on screen was rewritten on disk: read it again.
+        if self.settings.winamp_window && !self.winamp.is_loading() {
+            let folder = self.dirs.skins_dir();
+            if self.winamp.worn_rewritten(&folder, ctx)
+                && let Some(name) = self.winamp.worn.clone()
+            {
+                self.winamp.load(name, &folder, ctx);
+            }
+        }
         if let Some(loaded) = self.winamp.poll() {
             self.skin_loaded(loaded, ctx);
         }

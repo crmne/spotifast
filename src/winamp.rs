@@ -6,8 +6,8 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::settings::Settings;
@@ -25,6 +25,9 @@ const MARQUEE_FITS: usize = 30;
 const MARQUEE_STEP: Duration = Duration::from_millis(220);
 /// What separates the end of a scrolling title from its start again.
 const MARQUEE_GAP: &str = "  ***  ";
+/// How long a skin file must stay unchanged after a write before it is read
+/// again, so a file still being written is not read half done.
+const SKIN_SETTLE: Duration = Duration::from_millis(300);
 
 /// The text with the gap it scrolls through, for drawing it as pixels.
 pub fn marquee_strip(text: &str) -> String {
@@ -171,6 +174,74 @@ pub struct WinampState {
     pub playlist_text: crate::ui::winamp::PixelText,
     /// MilkDrop presets listed and downloaded from Settings.
     pub presets: crate::milkdrop::Presets,
+    /// Notices skins rewritten in the skins folder.
+    skin_watch: Option<SkinWatch>,
+}
+
+/// Watches the skins folder, so that the skin on screen is read again when
+/// its file is rewritten, for example by a tool that makes a skin in the
+/// desktop's colours.
+struct SkinWatch {
+    folder: PathBuf,
+    /// When each file in the folder was last written. Empty while the
+    /// folder could not be watched.
+    written: Arc<Mutex<HashMap<String, Instant>>>,
+    _watcher: Option<notify::RecommendedWatcher>,
+}
+
+impl SkinWatch {
+    fn new(folder: &Path, ctx: &egui::Context) -> Self {
+        use notify::Watcher as _;
+        let written = Arc::new(Mutex::new(HashMap::new()));
+        let seen = Arc::clone(&written);
+        let ctx = ctx.clone();
+        let watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+            let Ok(event) = event else { return };
+            if event.kind.is_access() || event.kind.is_remove() {
+                return;
+            }
+            let now = Instant::now();
+            if let Ok(mut seen) = seen.lock() {
+                for path in &event.paths {
+                    if let Some(name) = path.file_name() {
+                        seen.insert(name.to_string_lossy().into_owned(), now);
+                    }
+                }
+            }
+            ctx.request_repaint_after(SKIN_SETTLE);
+        })
+        .and_then(|mut watcher| {
+            watcher.watch(folder, notify::RecursiveMode::NonRecursive)?;
+            Ok(watcher)
+        })
+        .inspect_err(|error| log::debug!("skins folder is not watched: {error}"))
+        .ok();
+        Self {
+            folder: folder.to_path_buf(),
+            written,
+            _watcher: watcher,
+        }
+    }
+
+    /// Whether `name` was rewritten and has since been left alone long enough
+    /// to read. Asks for a frame when it is still settling.
+    fn rewritten(&self, name: &str, ctx: &egui::Context) -> bool {
+        let Ok(mut written) = self.written.lock() else {
+            return false;
+        };
+        // Other files' writes (temporary files, other skins) are not needed.
+        written.retain(|file, at| file == name || at.elapsed() < SKIN_SETTLE * 10);
+        let Some(at) = written.get(name).copied() else {
+            return false;
+        };
+        let quiet = at.elapsed();
+        if quiet < SKIN_SETTLE {
+            ctx.request_repaint_after(SKIN_SETTLE - quiet);
+            return false;
+        }
+        written.remove(name);
+        true
+    }
 }
 
 impl WinampState {
@@ -217,6 +288,7 @@ impl WinampState {
             milkdrop_resize: 0.0,
             playlist_text: crate::ui::winamp::PixelText::default(),
             presets: crate::milkdrop::Presets::new(),
+            skin_watch: None,
         }
     }
 
@@ -355,6 +427,27 @@ impl WinampState {
             name,
             installed: false,
         });
+    }
+
+    /// Whether the skin on screen was rewritten in `folder` since it was read.
+    /// Starts watching the folder the first time it is asked, if it exists.
+    pub fn worn_rewritten(&mut self, folder: &Path, ctx: &egui::Context) -> bool {
+        let Some(name) = self.worn.as_deref() else {
+            return false;
+        };
+        if self
+            .skin_watch
+            .as_ref()
+            .is_none_or(|watch| watch.folder != folder)
+        {
+            if !folder.is_dir() {
+                return false;
+            }
+            self.skin_watch = Some(SkinWatch::new(folder, ctx));
+        }
+        self.skin_watch
+            .as_ref()
+            .is_some_and(|watch| watch.rewritten(name, ctx))
     }
 
     /// Reads a skin from anywhere and, if it is one, copies it into the
@@ -766,5 +859,39 @@ mod tests {
             pick_another(&[], &Some("gone".into()), &mut rng),
             Some("gone".into())
         );
+    }
+
+    fn watch_with(writes: &[(&str, Duration)]) -> SkinWatch {
+        let now = Instant::now();
+        let written = writes
+            .iter()
+            .map(|(name, ago)| ((*name).to_owned(), now - *ago))
+            .collect();
+        SkinWatch {
+            folder: PathBuf::from("skins"),
+            written: Arc::new(Mutex::new(written)),
+            _watcher: None,
+        }
+    }
+
+    #[test]
+    fn a_rewritten_skin_is_read_again_once_it_settles() {
+        let ctx = egui::Context::default();
+        let watch = watch_with(&[("Skin.wsz", Duration::ZERO)]);
+        assert!(!watch.rewritten("Skin.wsz", &ctx), "still being written");
+
+        let watch = watch_with(&[("Skin.wsz", SKIN_SETTLE * 2)]);
+        assert!(watch.rewritten("Skin.wsz", &ctx));
+        assert!(!watch.rewritten("Skin.wsz", &ctx), "read once per write");
+    }
+
+    #[test]
+    fn writes_to_other_files_leave_the_worn_skin_alone() {
+        let ctx = egui::Context::default();
+        let watch = watch_with(&[
+            ("Other.wsz", SKIN_SETTLE * 2),
+            (".tmp.zip", SKIN_SETTLE * 2),
+        ]);
+        assert!(!watch.rewritten("Skin.wsz", &ctx));
     }
 }
