@@ -1096,6 +1096,12 @@ pub enum Dialog {
         name: String,
         owned: bool,
     },
+    FolderSettings {
+        id: String,
+        name: String,
+        shuffle: Option<bool>,
+        subfolders: bool,
+    },
     ConfirmPlaylistDuplicates {
         playlist_id: String,
         playlist_name: String,
@@ -1189,6 +1195,11 @@ pub enum Action {
     ToggleShuffle,
     CycleRepeat,
     SetShuffle(bool),
+    /// Shuffle chosen on a page other than the playing context's.
+    SetShuffleForNextPlay {
+        shuffle: bool,
+        context: String,
+    },
     SetRepeat(crate::player::RepeatMode),
     AddToQueue {
         uri: String,
@@ -1397,6 +1408,12 @@ pub enum Action {
     },
     SetLibraryGrid(bool),
     ToggleLibraryFolder(String),
+    /// Shuffle for the playlists in a folder; `None` is the default.
+    SetFolderShuffle {
+        id: String,
+        shuffle: Option<bool>,
+        subfolders: bool,
+    },
     ArrangeLibrary {
         pinned: Vec<String>,
         /// A drag outside the pin block selects this local playlist order.

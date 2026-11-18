@@ -166,6 +166,28 @@ songs after those already queued. See [The Queue's Rules](/queue/).
 The **Shuffle** button beside **Play** selects the playback order without
 starting the playlist. Select Shuffle first, then press **Play**.
 
+Spotifast remembers the Shuffle and Repeat you last used while a playlist
+played, and separately while an album played. Starting any playlist applies
+the playlist choice, and starting any album applies the album choice. A kind
+you have not chosen for yet keeps the current mode.
+
+Choosing Shuffle or Repeat while nothing is playing applies to the next
+playlist or album you start, and becomes the remembered choice for its kind.
+Pressing Shuffle on a page other than the one playing works the same way: it
+is a choice for that page's Play and does not change what is saved for the
+playing kind.
+A page's Shuffle choice is used up by the next play of any context, and
+only that page's own Play keeps it. Repeat One is not carried to a new
+playlist or album: choosing another song ends it.
+
+To choose Shuffle for a whole folder in the sidebar, right-click it and
+choose **Settings**. **Default** keeps the playlist's own behaviour, **Shuffle**
+and **No shuffle** apply to every playlist in the folder, and **Apply to all
+subfolders** gives the folders inside it the same choice. A folder inside
+another can choose differently, and the nearest folder's choice wins. A
+folder's choice takes over from the playlist's remembered Shuffle, while
+pressing Shuffle on a playlist's page still applies to that Play.
+
 When you start a song from a sorted playlist or Liked Songs, it appears in
 the player bar straight away while playback connects. Sorting changes the
 order you hear without rearranging the playlist saved on Spotify.

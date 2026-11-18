@@ -187,10 +187,72 @@ impl Client {
                     result,
                 })
             }
+            // An explicit Shuffle or Repeat applies once the context plays, so
+            // Soloist's own memory for it cannot overwrite the choice.
+            ApiRequest::ShufflePlay {
+                device_id,
+                play,
+                shuffle,
+                repeat,
+            } if device_id.is_some() && device_id == &device.id => {
+                let start = context_play(play)?;
+                let mut after = vec![];
+                if let Some(shuffle) = shuffle {
+                    after.push(json!({"command":"set_shuffle", "enabled":shuffle}));
+                }
+                if let Some(repeat) = repeat {
+                    after.push(json!({"command":"set_repeat_track", "enabled":repeat == "track"}));
+                    after.push(
+                        json!({"command":"set_repeat_context", "enabled":repeat == "context"}),
+                    );
+                }
+                let result = async {
+                    let _guard = self.serial.lock().await;
+                    self.rpc_unlocked(port, start.clone(), None).await?;
+                    let Some(wanted) = *shuffle else {
+                        for command in after {
+                            self.rpc_unlocked(port, command, None).await?;
+                        }
+                        return Ok(());
+                    };
+                    // Soloist starts a context with the shuffle it kept for it,
+                    // so a play that began with the other one would open on the
+                    // wrong song. Say what is wanted, then start it again.
+                    let began = self.shuffle_after_start(port, &start).await;
+                    for command in after {
+                        self.rpc_unlocked(port, command, None).await?;
+                    }
+                    if began.is_some_and(|began| began != wanted) {
+                        self.rpc_unlocked(port, start, None).await?;
+                    }
+                    Ok(())
+                }
+                .await
+                .map_err(failure);
+                Some(ApiResponse::Remote {
+                    action: RemoteAction::Play,
+                    result,
+                })
+            }
             // Adding remains on the existing serialized queue writer, so an
             // album and a single addition cannot overtake one another.
             _ => None,
         }
+    }
+    /// The shuffle Soloist started a context with, once it reports that
+    /// context as playing.
+    async fn shuffle_after_start(&self, port: u16, start: &Value) -> Option<bool> {
+        for _ in 0..8 {
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            let state = self
+                .rpc_unlocked(port, json!({"command":"get_state"}), Some("playback_state"))
+                .await
+                .ok()?;
+            if state["context"]["uri"] == start["uri"] {
+                return state["options"]["shuffle"].as_bool();
+            }
+        }
+        None
     }
     async fn rpc(&self, port: u16, body: Value, response_type: Option<&str>) -> Result<Value> {
         let _guard = self.serial.lock().await;
@@ -246,7 +308,10 @@ fn commands(request: &ApiRequest) -> Option<Vec<Value>> {
     };
     let command = match action {
         RemoteAction::Play if play.is_none() => json!({"command":"play"}),
-        RemoteAction::Play => return None, // Preserve context, ordering and selected occurrence.
+        // Soloist starts a whole playlist or album as Spotify's own app does,
+        // with the shuffle and repeat it keeps for that context. Anything
+        // else preserves context, ordering and selected occurrence.
+        RemoteAction::Play => context_play(play.as_ref()?)?,
         RemoteAction::Pause => json!({"command":"pause"}),
         RemoteAction::Next => json!({"command":"skip_next"}),
         RemoteAction::Previous => json!({"command":"skip_prev"}),
@@ -267,6 +332,17 @@ fn commands(request: &ApiRequest) -> Option<Vec<Value>> {
         }
     };
     Some(vec![command])
+}
+/// The play command for a whole playlist or album, which Soloist starts as
+/// Spotify's own app does. Anything else must keep its context, ordering and
+/// selected occurrence, so it goes the Web API way.
+fn context_play(play: &crate::api::client::PlayRequest) -> Option<Value> {
+    let whole = play.uris.is_empty()
+        && play.offset_uri.is_none()
+        && play.offset_position.is_none()
+        && play.position_ms == 0;
+    let uri = play.context_uri.as_deref().filter(|_| whole)?;
+    Some(json!({"command":"play", "uri":uri}))
 }
 fn name(entity: &Value) -> String {
     entity["decorations"]["identity"]["name"]
