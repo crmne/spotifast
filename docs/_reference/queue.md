@@ -130,7 +130,16 @@ not consume a queue row or restore an older queue saved on this computer.
    chosen song loads and no song in between is heard or named. Previous
    then returns to the song that was playing, not to a skipped row. Another
    device, Soloist included, cannot have a song taken out of its queue, so
-   it steps down to the row with one skip per row.
+   it skips down to the row: one skip naming the row where Spotify Connect
+   takes one, as on a Sonos speaker, and otherwise one skip per row, each
+   sent once the one before it is answered. Until that device reaches the
+   song, the chosen row stays the playing one and the songs passed on the
+   way show nowhere: not as the song playing, not in the player bar, and
+   not as a queue in which the chosen song is still waiting. A second row
+   clicked meanwhile is counted on the rows as shown. A skip that has not
+   landed after twelve seconds gives way to what Spotify reports, and so
+   does one whose device is no longer the one playing: another device
+   chosen or reported playing, or this computer's player taking over.
 
 6. **Starting a playlist or album keeps your songs.** The rows underneath
    change to the new collection; your songs stay under **Playing next**

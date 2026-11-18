@@ -38,6 +38,7 @@ use librespot_playback::{
     player::{Player, PlayerEvent},
 };
 use librespot_protocol::connect::{Cluster, ClusterUpdate};
+use librespot_protocol::player::{PlayerState, ProvidedTrack};
 use sha1::{Digest, Sha1};
 
 use crate::api::models::ArtistRef;
@@ -389,15 +390,130 @@ impl ClusterView {
     }
 }
 
+/// What the device that plays has coming up, as the latest cluster push
+/// told it, and the row the last skip sent to another device goes to.
+#[derive(Default)]
+struct RemoteQueue {
+    device: String,
+    state: Option<PlayerState>,
+    target: Option<SkipTarget>,
+    /// The row before the last command moved it, for one that fails.
+    before: Option<SkipTarget>,
+    /// The list the last skip was counted on, and the row it counted
+    /// from, for one stopped partway.
+    planned: Option<PlayerState>,
+    planned_from: Option<SkipTarget>,
+}
+
+impl RemoteQueue {
+    /// Takes what a cluster push tells of the device that plays.
+    fn show(&mut self, cluster: Cluster) {
+        self.device = cluster.active_device_id;
+        self.state = cluster.player_state.into_option();
+        let playing = self.state.as_ref().and_then(playing_key);
+        retire_landed(&mut self.target, playing.as_deref());
+        retire_landed(&mut self.before, playing.as_deref());
+    }
+
+    /// The uid of the Next up row of `device` holding the `occurrence`th
+    /// copy of `uri`, counted after the row a skip still on its way there
+    /// goes to. `None` when no push has told what `device` has coming up,
+    /// the song is not in it, or its row has no uid: that skip names the
+    /// song alone.
+    fn row(&mut self, device: &str, uri: &str, occurrence: usize) -> Option<String> {
+        let earlier = self.pending();
+        let pending = earlier.as_ref().map(|target| target.key.as_str());
+        // A copy above the row that skip goes to is behind the device by
+        // now, so it is not the one meant.
+        let key = self
+            .state
+            .as_ref()
+            .filter(|_| self.device == device)
+            .and_then(|state| queue_skip(state, pending, uri, occurrence))
+            .filter(|skip| skip.skips > 0)
+            .map(|skip| skip.key);
+        self.planned = self.state.clone();
+        self.planned_from = earlier.clone();
+        self.before = earlier;
+        self.target = key.clone().map(|key| SkipTarget {
+            key,
+            at: Instant::now(),
+        });
+        key.filter(|key| is_uid(key, uri))
+    }
+
+    /// Moves the row a later skip counts from on to where a Next about to
+    /// be sent to `device` lands. The cluster push that shows it comes
+    /// after the command's answer, and a click before it would otherwise
+    /// name a copy the device has already passed.
+    fn note_next(&mut self, device: &str) {
+        let earlier = self.pending();
+        let pending = earlier.as_ref().map(|target| target.key.as_str());
+        let lands = self
+            .state
+            .as_ref()
+            .filter(|_| self.device == device)
+            .and_then(|state| next_lands_on(state, pending));
+        self.before = earlier;
+        self.target = lands.map(|key| SkipTarget {
+            key,
+            at: Instant::now(),
+        });
+    }
+
+    /// Previous moves the list differently from the row a skip counts
+    /// from, so the next click counts from the top.
+    fn note_previous(&mut self) {
+        self.before = self.pending();
+    }
+
+    /// Puts back the row a later skip counts from, as it was before a
+    /// command the device refused or never got.
+    fn refused(&mut self) {
+        self.target = self.before.take();
+    }
+
+    /// Moves the row a later skip counts from on by the `nexts` of a skip
+    /// sent as a Next per row that went through before `device` refused
+    /// one. They count on the list the skip was counted on, from the row
+    /// it counted from: a push since may already show some of them, or
+    /// have retired that row.
+    fn stopped(&mut self, device: &str, nexts: usize) {
+        self.before = None;
+        // The skip counted from that row, however old it is by now.
+        self.target = self.planned_from.take().map(|from| SkipTarget {
+            at: Instant::now(),
+            ..from
+        });
+        let shown = std::mem::replace(&mut self.state, self.planned.take());
+        for _ in 0..nexts {
+            self.note_next(device);
+        }
+        self.state = shown;
+        let playing = self.state.as_ref().and_then(playing_key);
+        retire_landed(&mut self.target, playing.as_deref());
+    }
+
+    /// Takes the row a skip still on its way goes to, unless it is too old
+    /// to be on its way.
+    fn pending(&mut self) -> Option<SkipTarget> {
+        self.target
+            .take()
+            .filter(|target| target.at.elapsed() < SKIP_TARGET_LIFE)
+    }
+}
+
 /// Forwards cluster pushes that change another device's playback, so the
 /// interface shows them at once instead of on its next poll: a new volume
 /// as it is, anything else as a reason to poll. Spotify pushes no cluster
 /// back for this device's own announcement, so the first push often is the
 /// next change on another device, and it counts as one: at most one extra
-/// poll per connect.
+/// poll per connect. Each push also leaves what the playing device has
+/// coming up in `queue`, for a skip to one of those rows to name.
 async fn watch_cluster(
     mut updates: BoxedStreamResult<ClusterUpdate>,
     own_device: String,
+    queue: Arc<Mutex<RemoteQueue>>,
     notify: Notify,
 ) {
     use futures_util::StreamExt as _;
@@ -417,6 +533,8 @@ async fn watch_cluster(
             });
         }
         shown = view;
+        let mut kept = queue.lock().unwrap_or_else(|p| p.into_inner());
+        kept.show(cluster);
     }
 }
 
@@ -497,6 +615,31 @@ pub struct Engine {
     /// The player came from a dropped session and still plays what that
     /// session left it, until something is loaded through this one.
     carrying: std::sync::atomic::AtomicBool,
+    /// What another device has coming up, for a queue skip sent there.
+    remote_queue: Arc<Mutex<RemoteQueue>>,
+}
+
+/// Where a queue skip lands, named as `row_key` names the row.
+#[derive(Clone)]
+struct SkipTarget {
+    key: String,
+    at: Instant,
+}
+
+/// Each of a skip's Nexts waits for a Connect state update, a fraction of
+/// a second; by this age the skip has landed or its list is gone.
+const SKIP_TARGET_LIFE: Duration = Duration::from_secs(20);
+
+/// Forgets the row a skip or Next goes to once it is `playing`. Counted
+/// after that row, a later click would leave out the Nexts already taken
+/// if another app stepped back to the song before it.
+fn retire_landed(target: &mut Option<SkipTarget>, playing: Option<&str>) {
+    if target
+        .as_ref()
+        .is_some_and(|target| playing == Some(target.key.as_str()))
+    {
+        *target = None;
+    }
 }
 
 impl Engine {
@@ -554,6 +697,7 @@ impl Engine {
         // Subscribed before the Spirc task starts the dealer, while its
         // builder still takes subscriptions. Without it the interface still
         // polls; it only learns of other devices' changes later.
+        let remote_queue: Arc<Mutex<RemoteQueue>> = Arc::default();
         match session
             .dealer()
             .listen_for("hm://connect-state/v1/cluster", Message::from_raw)
@@ -562,6 +706,7 @@ impl Engine {
                 tokio::spawn(watch_cluster(
                     updates,
                     config.device_id(),
+                    Arc::clone(&remote_queue),
                     Arc::clone(&notify),
                 ));
             }
@@ -613,6 +758,7 @@ impl Engine {
             closing,
             audio,
             carrying: std::sync::atomic::AtomicBool::new(carrying),
+            remote_queue,
         })
     }
 
@@ -831,6 +977,51 @@ impl Engine {
             .clone()
     }
 
+    /// The uid of the row that a skip to the `occurrence`th copy of `uri`
+    /// in the Next up of `device`, playing elsewhere, names. `None` leaves
+    /// the skip to name the song alone.
+    pub fn remote_row(&self, device: &str, uri: &str, occurrence: usize) -> Option<String> {
+        self.remote_queue
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .row(device, uri, occurrence)
+    }
+
+    /// Notes a Next about to be sent to `device`, playing elsewhere, for a
+    /// skip after it to count its rows from.
+    pub fn note_remote_next(&self, device: &str) {
+        self.remote_queue
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .note_next(device);
+    }
+
+    /// Notes a Previous about to be sent to another device.
+    pub fn note_remote_previous(&self) {
+        self.remote_queue
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .note_previous();
+    }
+
+    /// The last skip, Next or Previous sent to another device failed: a
+    /// later skip counts from where the device was before it.
+    pub fn remote_step_failed(&self) {
+        self.remote_queue
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .refused();
+    }
+
+    /// A skip to a row on `device`, sent as a Next per row, that the
+    /// device refused after `nexts` of them went through.
+    pub fn remote_skip_stopped(&self, device: &str, nexts: usize) {
+        self.remote_queue
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .stopped(device, nexts);
+    }
+
     pub fn shutdown(&self) {
         self.shutting_down
             .store(true, std::sync::atomic::Ordering::SeqCst);
@@ -952,6 +1143,111 @@ impl Engine {
         }
         Ok(())
     }
+}
+
+/// Next passes queue delimiters, and songs found unavailable, without
+/// stopping on them, as librespot's does.
+fn next_stops_on(track: &ProvidedTrack) -> bool {
+    !track.uid.starts_with("delimiter") && track.provider != "unavailable"
+}
+
+/// What tells a row apart from the rows `after` it: its uid, or for a row
+/// without one its URI and the copies of the song without a uid after it,
+/// which the Nexts that pass the rows above it leave as they are.
+fn row_key(track: &ProvidedTrack, after: &[ProvidedTrack]) -> String {
+    if !track.uid.is_empty() {
+        return track.uid.clone();
+    }
+    let later = after
+        .iter()
+        .filter(|row| row.uid.is_empty() && row.uri == track.uri)
+        .count();
+    format!("{}#{later}", track.uri)
+}
+
+/// The key of the `at`th of the `next` tracks.
+fn next_key(next: &[ProvidedTrack], at: usize) -> String {
+    row_key(&next[at], &next[at + 1..])
+}
+
+/// The key of the row `state` plays.
+fn playing_key(state: &PlayerState) -> Option<String> {
+    let playing = state.track.as_ref()?;
+    Some(row_key(playing, &state.next_tracks))
+}
+
+/// Whether `key` is the uid of a row of `uri`, not the song of a row
+/// without one.
+fn is_uid(key: &str, uri: &str) -> bool {
+    let rest = key.strip_prefix(uri);
+    rest.is_none_or(|rest| !rest.starts_with('#'))
+}
+
+#[derive(Debug, PartialEq)]
+struct QueueSkip {
+    skips: usize,
+    key: String,
+}
+
+/// Where the next tracks of `state` still ahead start: after the row an
+/// earlier skip to `pending` lands on, or at the top once it has landed.
+fn skip_from(state: &PlayerState, pending: Option<&str>) -> usize {
+    let playing = playing_key(state);
+    let next = &state.next_tracks;
+    // That skip's Nexts are still on their way: these follow them.
+    match pending {
+        Some(key) if playing.as_deref() != Some(key) => (0..next.len())
+            .position(|at| next_key(next, at) == key)
+            .map_or(0, |at| at + 1),
+        _ => 0,
+    }
+}
+
+/// The row one more Next takes `state` to, after an earlier skip to
+/// `pending` lands.
+fn next_lands_on(state: &PlayerState, pending: Option<&str>) -> Option<String> {
+    let next = &state.next_tracks;
+    (skip_from(state, pending)..next.len())
+        .find(|&at| next_stops_on(&next[at]))
+        .map(|at| next_key(next, at))
+}
+
+/// The Nexts that take `state` to the `occurrence`th copy of `uri` in its
+/// next tracks, after the row an earlier skip to `pending` lands on.
+fn queue_skip(
+    state: &PlayerState,
+    pending: Option<&str>,
+    uri: &str,
+    occurrence: usize,
+) -> Option<QueueSkip> {
+    let next = &state.next_tracks;
+    let from = skip_from(state, pending);
+    let Some((at, _)) = next
+        .iter()
+        .enumerate()
+        .skip(from)
+        .filter(|(_, track)| track.uri == uri)
+        .nth(occurrence)
+    else {
+        // A row above the one being skipped to: Next cannot go back to
+        // it, so that skip stands.
+        return pending
+            .filter(|_| from > 0 && next[..from].iter().any(|track| track.uri == uri))
+            .map(|key| QueueSkip {
+                skips: 0,
+                key: key.to_string(),
+            });
+    };
+    // Next passes an unavailable row too, onto the song after it.
+    let skips = next[from..at]
+        .iter()
+        .filter(|track| next_stops_on(track))
+        .count()
+        + 1;
+    Some(QueueSkip {
+        skips,
+        key: next_key(next, at),
+    })
 }
 
 /// What to pick up: `resume` as it was when the session dropped, or where a
@@ -1962,6 +2258,344 @@ mod tests {
             assert!(!state.loading, "failure {failure} stops the spinner");
             assert!(state.error.is_some(), "failure {failure} reports why");
         }
+    }
+
+    fn provided(uri: &str, uid: &str, provider: &str) -> ProvidedTrack {
+        ProvidedTrack {
+            uri: uri.into(),
+            uid: uid.into(),
+            provider: provider.into(),
+            ..ProvidedTrack::default()
+        }
+    }
+
+    fn player_state(playing: ProvidedTrack, next: Vec<ProvidedTrack>) -> PlayerState {
+        PlayerState {
+            track: protobuf::MessageField::some(playing),
+            next_tracks: next,
+            ..PlayerState::default()
+        }
+    }
+
+    /// A Next up click counts the rows Next stops on, which the rows on
+    /// screen do not tell: Spotify still lists a song found unavailable,
+    /// and never shows a queue delimiter.
+    #[test]
+    fn a_queue_skip_counts_only_the_rows_next_stops_on() {
+        let state = player_state(
+            provided("spotify:track:now", "u0", "context"),
+            vec![
+                provided("spotify:track:a", "u1", "autoplay"),
+                provided("spotify:track:b", "u2", "unavailable"),
+                provided("spotify:delimiter", "delimiter0", "context"),
+                provided("spotify:track:c", "u3", "autoplay"),
+                provided("spotify:track:a", "u4", "autoplay"),
+            ],
+        );
+        assert_eq!(
+            queue_skip(&state, None, "spotify:track:c", 0),
+            Some(QueueSkip {
+                skips: 2,
+                key: "u3".into(),
+            }),
+            "the screen's row count would say four"
+        );
+        let skips = |uri: &str, n| queue_skip(&state, None, uri, n).map(|skip| skip.skips);
+        assert_eq!(skips("spotify:track:a", 1), Some(3), "the second copy");
+        assert_eq!(
+            skips("spotify:track:b", 0),
+            Some(2),
+            "Next passes an unavailable row onto the song after it"
+        );
+        assert_eq!(skips("spotify:track:gone", 0), None);
+    }
+
+    /// A second click while the first skip's Nexts are still on their way
+    /// counts from where that skip lands, however far the player has got.
+    #[test]
+    fn a_second_queue_skip_counts_from_where_the_first_lands() {
+        let next = vec![
+            provided("spotify:track:a", "u1", "autoplay"),
+            provided("spotify:track:b", "u2", "autoplay"),
+            provided("spotify:track:c", "u3", "autoplay"),
+            provided("spotify:track:d", "u4", "autoplay"),
+        ];
+        let now = provided("spotify:track:now", "u0", "context");
+        let before = player_state(now, next.clone());
+        let halfway = player_state(next[0].clone(), next[1..].to_vec());
+        let landed = player_state(next[2].clone(), next[3..].to_vec());
+        for state in [&before, &halfway, &landed] {
+            assert_eq!(
+                queue_skip(state, Some("u3"), "spotify:track:d", 0),
+                Some(QueueSkip {
+                    skips: 1,
+                    key: "u4".into(),
+                })
+            );
+        }
+        assert_eq!(
+            queue_skip(&before, Some("u3"), "spotify:track:b", 0),
+            Some(QueueSkip {
+                skips: 0,
+                key: "u3".into(),
+            }),
+            "a row above the target leaves the first skip standing"
+        );
+        assert_eq!(
+            queue_skip(&before, Some("gone"), "spotify:track:b", 0).map(|skip| skip.skips),
+            Some(2),
+            "a target the list no longer holds counts from the playing song"
+        );
+    }
+
+    /// A click right after Next, while that Next still waits for its
+    /// Connect state update, counts from the song the Next lands on: from
+    /// a, Next and then d is two more Nexts, not three on to e.
+    #[test]
+    fn a_queue_skip_counts_from_where_a_pending_next_lands() {
+        let next = vec![
+            provided("spotify:track:b", "u1", "autoplay"),
+            provided("spotify:track:c", "u2", "autoplay"),
+            provided("spotify:track:d", "u3", "autoplay"),
+            provided("spotify:track:e", "u4", "autoplay"),
+        ];
+        let before = player_state(provided("spotify:track:a", "u0", "context"), next.clone());
+        let landed = player_state(next[0].clone(), next[1..].to_vec());
+        let lands = next_lands_on(&before, None);
+        assert_eq!(lands.as_deref(), Some("u1"));
+        let to_d = |state: &PlayerState| queue_skip(state, lands.as_deref(), "spotify:track:d", 0);
+        let two_more = Some(QueueSkip {
+            skips: 2,
+            key: "u3".into(),
+        });
+        assert_eq!(to_d(&before), two_more, "Next still on its way to b");
+        assert_eq!(to_d(&landed), two_more, "Next already at b");
+        assert_eq!(
+            next_lands_on(&before, Some("u2")).as_deref(),
+            Some("u3"),
+            "a Next after a skip to c still on its way"
+        );
+        let unavailable = player_state(
+            provided("spotify:track:a", "u0", "context"),
+            vec![
+                provided("spotify:track:b", "u1", "unavailable"),
+                provided("spotify:track:c", "u2", "autoplay"),
+            ],
+        );
+        assert_eq!(
+            next_lands_on(&unavailable, None).as_deref(),
+            Some("u2"),
+            "Next passes an unavailable song"
+        );
+    }
+
+    /// A skip sent to another device names the row by the uid that device
+    /// lists it under, and a second click's skip counts from the row the
+    /// first one goes to, wherever the device has got to.
+    #[test]
+    fn a_skip_on_another_device_names_the_row_by_its_uid() {
+        let next = vec![
+            provided("spotify:track:a", "u1", "context"),
+            provided("spotify:track:b", "u2", "context"),
+            provided("spotify:track:a", "u3", "context"),
+            provided("spotify:track:c", "", "context"),
+        ];
+        let listed = || {
+            let mut pushed = cluster("sonos", "spotify:track:now", true, 30_000);
+            pushed.player_state.mut_or_insert_default().next_tracks = next.clone();
+            let mut queue = RemoteQueue::default();
+            queue.show(pushed);
+            queue
+        };
+        let uid = |uri: &str, n| listed().row("sonos", uri, n);
+        assert_eq!(uid("spotify:track:b", 0).as_deref(), Some("u2"));
+        assert_eq!(uid("spotify:track:a", 1).as_deref(), Some("u3"));
+        assert_eq!(uid("spotify:track:c", 0), None, "a row without a uid");
+        assert_eq!(uid("spotify:track:gone", 0), None);
+        assert_eq!(listed().row("phone", "spotify:track:b", 0), None);
+
+        let mut queue = listed();
+        let first = queue.row("sonos", "spotify:track:b", 0);
+        assert_eq!(first.as_deref(), Some("u2"));
+        let second = queue.row("sonos", "spotify:track:a", 0);
+        assert_eq!(
+            second.as_deref(),
+            Some("u3"),
+            "the first copy is above the row the first skip goes to"
+        );
+    }
+
+    /// Once the row a skip went to plays, the next click counts from the
+    /// top again, even after another app steps back to the song before it.
+    #[test]
+    fn a_skip_target_is_forgotten_once_its_row_plays() {
+        let push = |playing: ProvidedTrack, next: &[ProvidedTrack]| {
+            let mut pushed = Cluster::new();
+            pushed.active_device_id = "sonos".into();
+            let state = pushed.player_state.mut_or_insert_default();
+            *state.track.mut_or_insert_default() = playing;
+            state.next_tracks = next.to_vec();
+            pushed
+        };
+        let a = provided("spotify:track:a", "u0", "context");
+        let next = [
+            provided("spotify:track:b", "u1", "context"),
+            provided("spotify:track:c", "u2", "context"),
+            provided("spotify:track:b", "u3", "context"),
+        ];
+        let mut queue = RemoteQueue::default();
+        queue.show(push(a.clone(), &next));
+        let first = queue.row("sonos", "spotify:track:b", 0);
+        assert_eq!(first.as_deref(), Some("u1"));
+
+        queue.show(push(next[0].clone(), &next[1..]));
+        queue.show(push(a, &next));
+        let again = queue.row("sonos", "spotify:track:b", 0);
+        assert_eq!(again.as_deref(), Some("u1"), "not the copy after it");
+
+        let mut target = Some(SkipTarget {
+            key: "u1".into(),
+            at: Instant::now(),
+        });
+        retire_landed(&mut target, Some("u0"));
+        assert!(target.is_some(), "still on its way");
+        retire_landed(&mut target, Some("u1"));
+        assert!(target.is_none());
+    }
+
+    /// A Next sent to another device moves the row a click right after it
+    /// counts from, before any cluster push shows it, and Previous sends
+    /// the count back to the top. A command that fails gives back the row
+    /// from before it.
+    #[test]
+    fn a_skip_on_another_device_follows_its_next_and_failures() {
+        let mut pushed = cluster("sonos", "spotify:track:now", true, 30_000);
+        pushed.player_state.mut_or_insert_default().next_tracks = vec![
+            provided("spotify:track:b", "u1", "context"),
+            provided("spotify:track:c", "u2", "context"),
+            provided("spotify:track:b", "u3", "context"),
+            provided("spotify:track:d", "u4", "context"),
+        ];
+        let mut queue = RemoteQueue::default();
+        queue.show(pushed);
+
+        queue.note_next("sonos");
+        let after_next = queue.row("sonos", "spotify:track:b", 0);
+        assert_eq!(after_next.as_deref(), Some("u3"), "not the copy passed");
+
+        queue.note_previous();
+        let after_previous = queue.row("sonos", "spotify:track:b", 0);
+        assert_eq!(after_previous.as_deref(), Some("u1"));
+
+        let refused = queue.row("sonos", "spotify:track:c", 0);
+        assert_eq!(refused.as_deref(), Some("u2"));
+        queue.refused();
+        let again = queue.row("sonos", "spotify:track:b", 0);
+        assert_eq!(again.as_deref(), Some("u3"), "after the first skip");
+        queue.refused();
+        assert!(queue.target.is_some(), "the first skip stands");
+    }
+
+    /// Copies of a song without a uid keep their places: a Next after a
+    /// skip to the second one lands after it, and a Next per row that the
+    /// device stops partway counts on from the rows it passed.
+    #[test]
+    fn copies_without_a_uid_keep_their_places() {
+        let listed = || {
+            let mut pushed = cluster("sonos", "spotify:track:now", true, 30_000);
+            pushed.player_state.mut_or_insert_default().next_tracks = vec![
+                provided("spotify:track:a", "", "context"),
+                provided("spotify:track:b", "u2", "context"),
+                provided("spotify:track:a", "", "context"),
+                provided("spotify:track:b", "u4", "context"),
+                provided("spotify:track:c", "u5", "context"),
+                provided("spotify:track:b", "u6", "context"),
+            ];
+            let mut queue = RemoteQueue::default();
+            queue.show(pushed);
+            queue
+        };
+
+        let mut queue = listed();
+        assert_eq!(queue.row("sonos", "spotify:track:a", 1), None, "no uid");
+        queue.note_next("sonos");
+        let after_next = queue.row("sonos", "spotify:track:b", 0);
+        assert_eq!(after_next.as_deref(), Some("u6"), "not the first a's b");
+
+        let mut queue = listed();
+        assert_eq!(queue.row("sonos", "spotify:track:a", 1), None);
+        queue.stopped("sonos", 2);
+        let after_two = queue.row("sonos", "spotify:track:b", 0);
+        assert_eq!(after_two.as_deref(), Some("u4"), "two Nexts went through");
+
+        // A push that shows the second Next landed before the third failed
+        // leaves the two that went through counted once.
+        let mut queue = listed();
+        assert_eq!(queue.row("sonos", "spotify:track:a", 1), None);
+        let mut pushed = cluster("sonos", "spotify:track:b", true, 30_000);
+        let state = pushed.player_state.mut_or_insert_default();
+        state.track.mut_or_insert_default().uid = "u2".into();
+        state.next_tracks = vec![
+            provided("spotify:track:a", "", "context"),
+            provided("spotify:track:b", "u4", "context"),
+            provided("spotify:track:c", "u5", "context"),
+            provided("spotify:track:b", "u6", "context"),
+        ];
+        queue.show(pushed);
+        queue.stopped("sonos", 2);
+        let after_push = queue.row("sonos", "spotify:track:b", 0);
+        assert_eq!(after_push.as_deref(), Some("u4"), "counted once");
+    }
+
+    /// A Next per row stopped partway after an earlier skip counts on from
+    /// that skip's row, even once a push has shown it playing.
+    #[test]
+    fn a_stopped_skip_counts_on_from_the_skip_before_it() {
+        let mut pushed = cluster("sonos", "spotify:track:now", true, 30_000);
+        pushed.player_state.mut_or_insert_default().next_tracks = vec![
+            provided("spotify:track:x", "u0", "context"),
+            provided("spotify:track:a", "", "context"),
+            provided("spotify:track:b", "u2", "context"),
+            provided("spotify:track:a", "", "context"),
+            provided("spotify:track:b", "u4", "context"),
+            provided("spotify:track:a", "", "context"),
+            provided("spotify:track:b", "u6", "context"),
+        ];
+        let mut queue = RemoteQueue::default();
+        queue.show(pushed.clone());
+        // #given a skip to the first b, then one to the second a after it
+        let first = queue.row("sonos", "spotify:track:b", 0);
+        assert_eq!(first.as_deref(), Some("u2"));
+        assert_eq!(queue.row("sonos", "spotify:track:a", 1), None);
+        // #when the push for the first skip comes in, and the second stops
+        // after two of its Nexts
+        let mut landed = cluster("sonos", "spotify:track:b", true, 30_000);
+        let state = landed.player_state.mut_or_insert_default();
+        state.track.mut_or_insert_default().uid = "u2".into();
+        state.next_tracks = vec![
+            provided("spotify:track:a", "", "context"),
+            provided("spotify:track:b", "u4", "context"),
+            provided("spotify:track:a", "", "context"),
+            provided("spotify:track:b", "u6", "context"),
+        ];
+        queue.show(landed);
+        queue.stopped("sonos", 2);
+        // #then the next b is the one after the b those Nexts reached
+        let after = queue.row("sonos", "spotify:track:b", 0);
+        assert_eq!(after.as_deref(), Some("u6"));
+
+        // #and so when no push came, but the first skip's row has outlived
+        // a skip by the time the second stops
+        let mut queue = RemoteQueue::default();
+        queue.show(pushed);
+        let first = queue.row("sonos", "spotify:track:b", 0);
+        assert_eq!(first.as_deref(), Some("u2"));
+        assert_eq!(queue.row("sonos", "spotify:track:a", 1), None);
+        let from = queue.planned_from.as_mut().expect("the first skip's row");
+        from.at -= SKIP_TARGET_LIFE;
+        queue.stopped("sonos", 2);
+        let after = queue.row("sonos", "spotify:track:b", 0);
+        assert_eq!(after.as_deref(), Some("u6"), "not the b passed");
     }
 
     #[test]
