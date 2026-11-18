@@ -821,6 +821,11 @@ pub struct App {
     /// A requested start whose effect on the manual queue is already applied.
     /// Context loads keep it; explicit skips consume their rows immediately.
     queue_start_pending: Option<Target>,
+    /// Counts each time `queue_start_pending` is set, so a dropped held
+    /// play clears only the marker it set itself.
+    queue_start_mark: u64,
+    /// `queue_start_mark` when the held `queued_play` was started.
+    queued_play_mark: u64,
     pub playlist_busy: bool,
     pub quit_requested: bool,
     /// Wheel step, Linux touchpad scale and glide, and the axis a gesture
@@ -1484,6 +1489,8 @@ impl App {
             last_now_playing_uri: None,
             last_now_playing_sequence: 0,
             queue_start_pending: None,
+            queue_start_mark: 0,
+            queued_play_mark: 0,
             playlist_busy: false,
             quit_requested: false,
             scrolling: fastframe_scroll::Scrolling::default(),
@@ -7415,7 +7422,7 @@ impl App {
             }
         }
         self.expect_track(uri.clone(), 0);
-        self.queue_start_pending = Some(self.target());
+        self.mark_queue_start(self.target());
         self.set_play_pending(vec![uri]);
         self.optimistic_playing = Some((true, Instant::now()));
         match self.target() {
@@ -7676,7 +7683,7 @@ impl App {
             self.track_cache.entry(id.to_owned()).or_insert(track);
         }
         self.consume_manual_queue_head(&uri);
-        self.queue_start_pending = Some(self.target());
+        self.mark_queue_start(self.target());
         self.expect_track(uri, 0);
     }
 
@@ -10696,7 +10703,11 @@ impl App {
             // Spotify may have said the episode is for subscribers only
             // while the player was connecting.
             if self.starts_subscriber_only(&request) {
-                self.queue_start_pending = None;
+                // Its marker goes with it, unless a later start or skip
+                // set the marker since and still needs it.
+                if self.queue_start_mark == self.queued_play_mark {
+                    self.queue_start_pending = None;
+                }
                 self.clear_play_pending();
                 self.subscriber_only_notice();
                 return;
@@ -10794,7 +10805,8 @@ impl App {
             shuffle: shuffle.then_some(true),
             at: Instant::now(),
         });
-        self.queue_start_pending = Some(self.target());
+        self.mark_queue_start(self.target());
+        self.queued_play_mark = self.queue_start_mark;
         // Held for Soloist, never handed to the built-in player meanwhile.
         if self.soloist_waiting() {
             self.queued_play = Some(request);
@@ -11508,6 +11520,12 @@ impl App {
     /// something to play. A play-search only counts once its match plays.
     fn changes_song_by_hand(&self, action: &Action) -> bool {
         match action {
+            // A subscriber-only episode does not start, so Repeat One stays.
+            Action::PlayEpisode { uri, .. } | Action::PlayFromRow { uri, .. }
+                if self.is_subscriber_only(uri) =>
+            {
+                false
+            }
             Action::Next
             | Action::PlayContext { .. }
             | Action::PlayUris { .. }
@@ -11590,7 +11608,7 @@ impl App {
             if !self.local.is_active() {
                 // Connect transfers the active device's full playback state.
                 // A Web API snapshot may be stale and cannot recreate its queue.
-                self.queue_start_pending = Some(Target::Local);
+                self.mark_queue_start(Target::Local);
                 self.resume_load = None;
                 self.local_transfer_sequence = Some(self.local.track_sequence);
                 self.local_list = None;
@@ -12221,6 +12239,13 @@ impl App {
     /// can play, and this account does not subscribe (#1361).
     pub fn is_subscriber_only(&self, uri: &str) -> bool {
         self.subscriber_only_episodes.contains(uri)
+    }
+
+    /// Notes that a start or skip already applied its effect on the
+    /// manual queue for `target`.
+    fn mark_queue_start(&mut self, target: Target) {
+        self.queue_start_pending = Some(target);
+        self.queue_start_mark = self.queue_start_mark.wrapping_add(1);
     }
 
     /// Whether `request` starts on an episode only the podcast's
@@ -12955,7 +12980,7 @@ impl App {
                 // discard that expectation or a quick Next, Previous leaves
                 // the row marker stuck on the skipped-to song.
                 self.intent_track = None;
-                self.queue_start_pending = Some(self.target());
+                self.mark_queue_start(self.target());
                 match self.target() {
                     Target::Local => self.backend.player(PlayerCommand::Previous),
                     Target::Remote(device_id) => self.remote(RemoteAction::Previous, device_id),
@@ -20166,6 +20191,40 @@ mod tests {
         assert!(app.backend.take_player_commands().is_empty());
         assert_eq!(app.toasts.len(), 1, "the toast says why");
 
+        // A skip made while the play was held keeps its own marker.
+        app.start_play(
+            PlayRequest::tracks(vec!["spotify:episode:held".into()]),
+            false,
+        );
+        assert!(app.queued_play.is_some(), "the play waits for the engine");
+        app.subscriber_only_episodes
+            .insert("spotify:episode:held".into());
+        app.mark_queue_start(app.target());
+        app.replay_queued_play();
+        assert!(app.queued_play.is_none());
+        assert!(
+            app.queue_start_pending.is_some(),
+            "the later skip's marker stays"
+        );
+
+        // Choosing a locked episode is not a song change: Repeat One stays.
+        for action in [
+            Action::PlayEpisode {
+                uri: "spotify:episode:held".into(),
+                resume_ms: None,
+            },
+            Action::PlayFromRow {
+                context: RowContext::Queue,
+                uri: "spotify:episode:held".into(),
+                index: 0,
+            },
+        ] {
+            assert!(!app.changes_song_by_hand(&action));
+        }
+        assert!(app.changes_song_by_hand(&Action::PlayEpisode {
+            uri: "spotify:episode:free".into(),
+            resume_ms: None,
+        }));
         // Jumping to a locked queue row leaves the queue alone.
         app.toasts.clear();
         app.play_queue_item(0, "spotify:episode:late".into());
