@@ -354,6 +354,25 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             let search_width = fit.search;
             let id = egui::Id::new("global-search");
             let before = app.search.query.clone();
+            if app.search.focus_requested {
+                app.search.focus_requested = false;
+                // As in browsers, select the query on focus so typing replaces
+                // it. Apply the selection before the field draws: egui handles
+                // typed text inside `TextEdit::show`, so a character arriving
+                // this frame must already see the selection.
+                let mut state = egui::TextEdit::load_state(ui.ctx(), id).unwrap_or_default();
+                let end = app.search.query.chars().count();
+                if end > 0 {
+                    state
+                        .cursor
+                        .set_char_range(Some(egui::text::CCursorRange::two(
+                            egui::text::CCursor::new(0),
+                            egui::text::CCursor::new(end),
+                        )));
+                    state.store(ui.ctx(), id);
+                }
+                ui.memory_mut(|memory| memory.request_focus(id));
+            }
             let selected = egui::TextEdit::load_state(ui.ctx(), id)
                 .and_then(|state| state.cursor.char_range())
                 .is_some_and(|range| !range.is_empty());
@@ -366,23 +385,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 &gettext(locale, "What do you want to play?"),
                 search_width,
             );
-            if app.search.focus_requested {
-                app.search.focus_requested = false;
-                response.request_focus();
-                // As in browsers, select the query on focus so typing replaces it.
-                let end = app.search.query.chars().count();
-                if end > 0
-                    && let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), id)
-                {
-                    state
-                        .cursor
-                        .set_char_range(Some(egui::text::CCursorRange::two(
-                            egui::text::CCursor::new(0),
-                            egui::text::CCursor::new(end),
-                        )));
-                    state.store(ui.ctx(), id);
-                }
-            }
             // Clear empties the field and hands it focus in the same frame.
             // Neither should leave the page: only typing a query does.
             let cleared = app.search.query.is_empty() && !before.is_empty();
