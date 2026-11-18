@@ -94,6 +94,10 @@ const REMOTE_RECHECK: Duration = Duration::from_millis(1200);
 const REMOTE_PUSH_SPACING: Duration = Duration::from_secs(1);
 /// Delay before checking the queue after a local change.
 const QUEUE_RECHECK: Duration = Duration::from_millis(700);
+/// How long a Next up click on another device may take to reach its song.
+/// The device gets one skip naming the song, or a Next per row where only
+/// the Web API reaches it, and passes each song above it on the way.
+const QUEUE_SKIP_HOLD: Duration = Duration::from_secs(12);
 /// Delay before reading a playlist's metadata again while Spotify still
 /// reports the snapshot from before a write.
 const PLAYLIST_SNAPSHOT_RECHECK: Duration = Duration::from_secs(1);
@@ -242,6 +246,17 @@ pub enum SoloistView {
 pub enum Target {
     Local,
     Remote(Option<String>),
+}
+
+/// The way a Next up click's skip took through the queue. Spotify's queue
+/// can lag the song it reports, so for as long as a skip may take, a queue
+/// listing this way again shows an earlier copy of the song.
+struct SkipPath {
+    song: String,
+    /// The song playing at the click, then the rows the click took out,
+    /// after those of a click just before that this one carries on from.
+    passed: Vec<String>,
+    at: Instant,
 }
 
 struct PendingAlbumQueue {
@@ -815,6 +830,22 @@ pub struct App {
     /// A requested start whose effect on the manual queue is already applied.
     /// Context loads keep it; explicit skips consume their rows immediately.
     queue_start_pending: Option<Target>,
+    /// The song a Next up click skips another device to, and when. The
+    /// songs above it play for a moment at most on the way, and show
+    /// nowhere.
+    queue_skip: Option<(String, Instant)>,
+    /// The way that skip took, kept after it lands.
+    queue_skip_passed: Option<SkipPath>,
+    /// The device that skip went to, by its id; a Sonos has none.
+    queue_skip_device: Option<String>,
+    /// That skip, on another device, goes to a later copy of its song, or
+    /// to the song that played when it was sent: the Next answers still to
+    /// come, its own the last of them. Until then an answer naming the
+    /// song may be a copy passed on the way, or the one from before.
+    queue_skip_unanswered: usize,
+    /// Nexts and Next up skips sent to another device and not answered
+    /// yet. Each is answered as a `Next`.
+    next_answers_due: usize,
     pub playlist_busy: bool,
     pub quit_requested: bool,
     /// Wheel step, Linux touchpad scale and glide, and the axis a gesture
@@ -1476,6 +1507,11 @@ impl App {
             last_now_playing_uri: None,
             last_now_playing_sequence: 0,
             queue_start_pending: None,
+            queue_skip: None,
+            queue_skip_passed: None,
+            queue_skip_device: None,
+            queue_skip_unanswered: 0,
+            next_answers_due: 0,
             playlist_busy: false,
             quit_requested: false,
             scrolling: fastframe_scroll::Scrolling::default(),
@@ -2099,7 +2135,9 @@ impl App {
     /// Track shown as current, including a recent unconfirmed play request.
     pub fn current_track_uri(&self) -> Option<String> {
         if let Some(intent) = &self.intent_track
-            && (intent.at.elapsed() < PLAYBACK_HOLD || self.queued_play.is_some())
+            && (intent.at.elapsed() < PLAYBACK_HOLD
+                || self.queued_play.is_some()
+                || self.queue_skip_in_flight())
         {
             return Some(intent.uri.clone());
         }
@@ -2214,6 +2252,9 @@ impl App {
     /// Shows a user-requested track until the responsible playback surface
     /// has had a chance to report what really started.
     fn expect_track(&mut self, uri: String, position_ms: u32) {
+        // Another song asked for: no skip is on its way anymore.
+        self.queue_skip = None;
+        self.queue_skip_passed = None;
         let confirmation = match self.target() {
             Target::Local => TrackConfirmation::Local,
             Target::Remote(_) => TrackConfirmation::Remote {
@@ -2241,12 +2282,44 @@ impl App {
         }
     }
 
+    /// A Next up click's skip is still passing the songs above its own.
+    fn queue_skip_in_flight(&self) -> bool {
+        self.queue_skip
+            .as_ref()
+            .is_some_and(|(_, at)| at.elapsed() < QUEUE_SKIP_HOLD)
+    }
+
+    /// Gives up on a Next up click's skip: its song is no longer the one on
+    /// its way, and no later song change is one the click already showed.
+    /// Returns whether a skip was held.
+    fn drop_queue_skip(&mut self) -> bool {
+        self.queue_skip_unanswered = 0;
+        self.queue_skip_passed = None;
+        let Some((uri, _)) = self.queue_skip.take() else {
+            return false;
+        };
+        self.intent_track = None;
+        self.queue_start_pending = None;
+        // The spinner of a request made since, such as Pause, stays.
+        if self.pending_play_keys.contains(&uri) {
+            self.clear_play_pending();
+        }
+        true
+    }
+
     /// A poll issued before the command cannot settle its intent. Spotify's
     /// first later answer may still describe the old track, so a mismatch is
     /// held and checked once more. Agreement, or two later mismatches, settles
-    /// on the reported state.
-    fn reconcile_remote_track_intent(&mut self, poll: u64, reported: Option<&str>) {
+    /// on the reported state. A Next up click's skip has its own time to
+    /// land: until then an answer naming another song, the old one or one
+    /// passed on the way, is only a reason to ask again, and so is one
+    /// naming its song before a skip to a later copy is answered. Returns
+    /// whether the answer is the one that confirms such a skip has landed.
+    fn reconcile_remote_track_intent(&mut self, poll: u64, reported: Option<&str>) -> bool {
+        let skipping = self.queue_skip_in_flight();
+        let unanswered = skipping && self.queue_skip_unanswered > 0;
         let mut settled = false;
+        let mut arrived = false;
         let mut recheck = false;
         if let Some(intent) = &mut self.intent_track
             && let TrackConfirmation::Remote {
@@ -2255,11 +2328,14 @@ impl App {
             } = &mut intent.confirmation
             && poll > *after_poll
         {
-            if reported == Some(intent.uri.as_str()) || *mismatches > 0 {
+            arrived = !unanswered && reported == Some(intent.uri.as_str());
+            if arrived || (*mismatches > 0 && !skipping) {
                 settled = true;
             } else {
                 *after_poll = poll;
-                *mismatches += 1;
+                if !skipping {
+                    *mismatches += 1;
+                }
                 recheck = true;
             }
         }
@@ -2267,6 +2343,25 @@ impl App {
             self.intent_track = None;
         } else if recheck {
             self.remote_recheck_at = Some(Instant::now() + REMOTE_RECHECK);
+        }
+        let Some((uri, _)) = self.queue_skip.take_if(|_| arrived) else {
+            return false;
+        };
+        // It plays. Spotify's copy of the queue gets its own tries to catch
+        // up, and the spinner of a request made since, such as Pause, stays.
+        if self.pending_play_keys.contains(&uri) {
+            self.clear_play_pending();
+        }
+        self.queue_stale_retries = 0;
+        true
+    }
+
+    /// Leaves the remote track intent to a poll sent from now on.
+    fn confirm_after_next_poll(&mut self) {
+        if let Some(intent) = &mut self.intent_track
+            && let TrackConfirmation::Remote { after_poll, .. } = &mut intent.confirmation
+        {
+            *after_poll = self.remote_poll_seq;
         }
     }
 
@@ -2346,7 +2441,10 @@ impl App {
     /// while the responsible playback surface catches up.
     fn requested_track_preview(&self) -> Option<NowPlaying> {
         let intent = self.intent_track.as_ref()?;
-        if intent.at.elapsed() >= PLAYBACK_HOLD && self.queued_play.is_none() {
+        if intent.at.elapsed() >= PLAYBACK_HOLD
+            && self.queued_play.is_none()
+            && !self.queue_skip_in_flight()
+        {
             return None;
         }
         let mut now = self.cached_track_preview(&intent.uri, intent.position_ms)?;
@@ -3737,6 +3835,10 @@ impl App {
         self.pending_remote_volume = None;
         self.local_transfer_sequence = None;
         self.queue_start_pending = None;
+        self.queue_skip = None;
+        self.queue_skip_passed = None;
+        self.queue_skip_unanswered = 0;
+        self.next_answers_due = 0;
         self.pending_album_queues.clear();
         self.pending_queue_batches.clear();
         self.last_album_queue = None;
@@ -4683,6 +4785,29 @@ impl App {
                         due.saturating_duration_since(Instant::now())
                             .max(Duration::from_millis(100)),
                     );
+                }
+            }
+            if let Some((_, at)) = &self.queue_skip {
+                let left = QUEUE_SKIP_HOLD.saturating_sub(at.elapsed());
+                // This computer's player taking over ends a skip sent to
+                // another device as surely as its time running out.
+                let local_playing = self.local_ready && self.local.is_active();
+                if left.is_zero() || local_playing {
+                    if left.is_zero() {
+                        // A Next counted for it still unanswered by now is
+                        // lost, or too late to hold anything.
+                        self.next_answers_due = 0;
+                    }
+                    // The skip ended on another song: show what plays.
+                    self.drop_queue_skip();
+                    self.on_now_playing_changed();
+                    if matches!(self.target(), Target::Remote(_)) {
+                        // The rows consumed for it may still be coming up.
+                        self.poll_remote_soon();
+                        self.refresh_queue(true);
+                    }
+                } else {
+                    ctx.request_repaint_after(left);
                 }
             }
             if let Some(due) = self.queue_recheck_at {
@@ -7358,6 +7483,16 @@ impl App {
         }
         let local = matches!(self.target(), Target::Local);
         let current = self.current_track_uri();
+        // A skip still on its way to another device may pass an earlier
+        // copy of the song.
+        let skipping = self.queue_skip_in_flight();
+        // So may a Next not yet answered, whatever the screen shows.
+        let nexts_unanswered = self.next_answers_due > 0;
+        // A report of the song playing now names the chosen song too, and
+        // so does one of the song Spotify still reports before a Next.
+        let replays = current.as_deref() == Some(uri.as_str())
+            || self.now_playing().is_some_and(|now| now.uri == uri)
+            || self.now_playing_live().is_some_and(|now| now.uri == uri);
         let Loadable::Loaded(queue) = &mut self.queue else {
             self.refresh_queue(true);
             return;
@@ -7380,20 +7515,38 @@ impl App {
             return;
         };
         let skips = position + 1;
+        let occurrence = queue.queue[..position]
+            .iter()
+            .filter(|item| item.uri() == uri)
+            .count();
         let mut items: Vec<_> = queue.queue.drain(..=position).collect();
         let chosen = items.pop().expect("the chosen row was just drained");
         let skipped: Vec<String> = items.iter().map(|item| item.uri().to_string()).collect();
         let mut consumed = skipped.clone();
         consumed.push(chosen.uri().to_string());
+        // The row already has the song's details, so the player bar names
+        // it now, and none of the songs on the way to it.
+        if let PlayableItem::Track(track) = &chosen
+            && let Some(id) = util::uri_id(&uri)
+        {
+            self.track_cache
+                .entry(id.to_owned())
+                .or_insert_with(|| track.clone());
+        }
+        let playing_before = queue
+            .currently_playing
+            .as_ref()
+            .map(|item| item.uri().to_string());
         queue.currently_playing = Some(chosen);
         for gone in &consumed {
             if let Some(at) = self.manual_queue.iter().position(|queued| queued == gone) {
                 self.remove_manual_queue_row(at);
             }
         }
+        let earlier_path = self.queue_skip_passed.take();
         self.expect_track(uri.clone(), 0);
         self.queue_start_pending = Some(self.target());
-        self.set_play_pending(vec![uri]);
+        self.set_play_pending(vec![uri.clone()]);
         self.optimistic_playing = Some((true, Instant::now()));
         match self.target() {
             Target::Local => {
@@ -7409,16 +7562,48 @@ impl App {
             }
             Target::Remote(device_id) => {
                 // The Web API and Soloist cannot take a song out of a live
-                // queue, so another device steps down to the row.
+                // queue, so another device skips down to the row.
                 // With nothing to act on, one call earns the "pick
                 // something first" toast; a skip per row would repeat it.
                 if device_id.is_none() && self.remote_fresh().is_none() {
                     self.remote(RemoteAction::Next, None);
                     return;
                 }
-                for _ in 0..skips {
-                    self.remote(RemoteAction::Next, device_id.clone());
-                }
+                // One request for the whole way. A Next per row raced
+                // each other to the device, and the answers between them
+                // showed the songs on the way as the song playing, with
+                // the chosen one back in Next up.
+                self.queue_skip = Some((uri.clone(), Instant::now()));
+                // A click on the song a click just before chose carries
+                // on from that one's way.
+                let mut passed = earlier_path
+                    .filter(|path| {
+                        path.at.elapsed() < QUEUE_SKIP_HOLD
+                            && playing_before.as_ref() == Some(&path.song)
+                    })
+                    .map(|path| path.passed)
+                    .unwrap_or_default();
+                passed.extend(playing_before);
+                passed.extend(skipped);
+                self.queue_skip_passed = Some(SkipPath {
+                    song: uri.clone(),
+                    passed,
+                    at: Instant::now(),
+                });
+                self.queue_skip_device = device_id.clone();
+                self.next_answers_due += 1;
+                let wait_for_answers = occurrence > 0 || replays || skipping || nexts_unanswered;
+                self.queue_skip_unanswered = if wait_for_answers {
+                    self.next_answers_due
+                } else {
+                    0
+                };
+                self.backend.api(ApiRequest::SkipTo {
+                    device_id,
+                    uri,
+                    occurrence,
+                    skips,
+                });
             }
         }
     }
@@ -7678,8 +7863,75 @@ impl App {
         self.session_dirty = true;
     }
 
+    /// Whether a fetched queue shows an earlier copy of a Next up click's
+    /// song: the song playing, then the way from that copy to the clicked
+    /// one, the song again and the rows shown now, matching further that
+    /// way than the rows shown now do from the top.
+    fn queue_shows_earlier_copy(&self, fetched: &Queue) -> bool {
+        let Some(path) = &self.queue_skip_passed else {
+            return false;
+        };
+        let playing = fetched.currently_playing.as_ref().map(PlayableItem::uri);
+        if path.at.elapsed() >= QUEUE_SKIP_HOLD || playing != Some(path.song.as_str()) {
+            return false;
+        }
+        let rows: Vec<&str> = fetched.queue.iter().map(PlayableItem::uri).collect();
+        let shown: Vec<&str> = self
+            .queue
+            .get()
+            .map(|queue| queue.queue.iter().map(PlayableItem::uri).collect())
+            .unwrap_or_default();
+        // How many fetched rows match a list from its top.
+        let lined_up = |list: &[&str]| {
+            rows.iter()
+                .zip(list)
+                .take_while(|(row, listed)| row == listed)
+                .count()
+        };
+        // Copies of the song still queued under it can match from the top
+        // as far as after the way; only a closer match holds the queue.
+        let as_shown = lined_up(&shown);
+        (0..path.passed.len())
+            .filter(|&copy| path.passed[copy] == path.song)
+            .any(|copy| {
+                let way: Vec<&str> = path.passed[copy + 1..]
+                    .iter()
+                    .chain([&path.song])
+                    .map(String::as_str)
+                    .chain(shown.iter().copied())
+                    .collect();
+                let along = lined_up(&way);
+                along >= path.passed.len() - copy && along > as_shown
+            })
+    }
+
     /// Whether a fetched queue predates the latest local change.
     fn queue_fetch_is_stale(&self, fetched: &Queue) -> bool {
+        // While a Next up click's skip is on its way, Spotify's copy shows
+        // the songs it passes, the chosen one listed again under each, for
+        // as long as the skip takes. Only its own song ends the wait, and
+        // not an earlier copy of it while a skip to a later one goes on, nor
+        // one with rows the click took out still coming up after it.
+        if let Some((uri, _)) = &self.queue_skip
+            && self.queue_skip_in_flight()
+            && (self.queue_skip_unanswered > 0
+                || fetched
+                    .currently_playing
+                    .as_ref()
+                    .is_none_or(|item| item.uri() != uri.as_str())
+                || self.queue.get().is_some_and(|shown| {
+                    shown
+                        .queue
+                        .iter()
+                        .zip(&fetched.queue)
+                        .any(|(row, got)| row.uri() != got.uri())
+                }))
+        {
+            return true;
+        }
+        if self.queue_shows_earlier_copy(fetched) {
+            return true;
+        }
         if self.queue_stale_retries >= QUEUE_STALE_RETRIES {
             return false;
         }
@@ -8353,10 +8605,23 @@ impl App {
                             .remote
                             .as_ref()
                             .map(|remote| remote.state.shuffle_state);
+                        let reported_device = |remote: Option<&RemoteSnapshot>| {
+                            remote
+                                .and_then(|remote| remote.state.device.as_ref())
+                                .map(|device| device.id.clone())
+                        };
+                        let device_before = reported_device(self.remote.as_ref());
                         self.remote = state.map(|state| RemoteSnapshot {
                             state,
                             received_at: Instant::now(),
                         });
+                        // A device other than the one reported before, and
+                        // than the one a skip went to, plays now.
+                        let device_changed = device_before
+                            .zip(reported_device(self.remote.as_ref()))
+                            .is_some_and(|(before, now)| {
+                                before != now && now != self.queue_skip_device
+                            });
                         if let (Some(previous), Some(current)) = (
                             previous_shuffle,
                             self.remote
@@ -8392,7 +8657,12 @@ impl App {
                                 .as_ref()
                                 .map(|item| item.uri().to_string())
                         });
-                        self.reconcile_remote_track_intent(seq, uri.as_deref());
+                        if device_changed {
+                            // Another device plays now: a skip sent to the
+                            // one before is not coming.
+                            self.drop_queue_skip();
+                        }
+                        let skip_landed = self.reconcile_remote_track_intent(seq, uri.as_deref());
                         if let Some(remote) = &self.remote
                             && let Some(device) = &remote.state.device
                             && device.id.is_some()
@@ -8410,8 +8680,20 @@ impl App {
                         {
                             self.optimistic_playing = None;
                         }
-                        if uri != previous_uri {
+                        // A song a Next up click passes on its way to its
+                        // own is not the song playing: it changes nothing
+                        // on screen or in the queue. The answer confirming
+                        // the skip is the change, even when an earlier one
+                        // already named its song.
+                        if (uri != previous_uri || skip_landed) && !self.queue_skip_in_flight() {
                             self.on_now_playing_changed();
+                        }
+                        let target = self.target();
+                        if skip_landed && self.queue_start_pending.as_ref() == Some(&target) {
+                            // Another copy of the song that played before:
+                            // no new song for the queue to follow, and the
+                            // click already took its rows out.
+                            self.queue_start_pending = None;
                         }
                     }
                     Err(error) => log::debug!("playback state unavailable: {error}"),
@@ -8426,12 +8708,18 @@ impl App {
                     self.drop_queue_padding(fetched);
                 }
                 // Partial reads and read failures must preserve optimistic
-                // additions while Spotify is still accepting their writes.
+                // additions while Spotify is still accepting their writes,
+                // and the rows a Next up click left while its skip is on
+                // its way.
                 let writing_queue = self
                     .pending_queue_batches
                     .values()
                     .any(|target| *target == self.target());
+                let skip_holds = result.is_err()
+                    && self.queue_skip_in_flight()
+                    && matches!(self.queue, Loadable::Loaded(_));
                 if writing_queue
+                    || skip_holds
                     || result
                         .as_ref()
                         .is_ok_and(|fetched| self.queue_fetch_is_stale(fetched))
@@ -9848,6 +10136,20 @@ impl App {
                 if matches!(action, RemoteAction::Play | RemoteAction::Pause) {
                     self.clear_play_pending();
                 }
+                if action == RemoteAction::Next {
+                    self.next_answers_due = self.next_answers_due.saturating_sub(1);
+                    if self.queue_skip_unanswered == 1 {
+                        // A skip's Nexts are all sent: its song is the one
+                        // meant, in a poll sent from now on. One sent before
+                        // may have caught an earlier copy on the way, and so
+                        // may a queue read: ask for the queue again.
+                        self.confirm_after_next_poll();
+                        if self.queue_skip_in_flight() {
+                            self.refresh_queue(true);
+                        }
+                    }
+                    self.queue_skip_unanswered = self.queue_skip_unanswered.saturating_sub(1);
+                }
                 match result {
                     Ok(()) => {
                         self.remote_recheck_at = Some(Instant::now() + REMOTE_RECHECK);
@@ -9874,6 +10176,11 @@ impl App {
                             matches!(intent.confirmation, TrackConfirmation::Remote { .. })
                         }) {
                             self.intent_track = None;
+                            if self.drop_queue_skip() {
+                                // A Next up click that went nowhere: its
+                                // spinner goes and its rows come back.
+                                self.refresh_queue(true);
+                            }
                         }
                         let hint = if error.status() == Some(404) {
                             format!(
@@ -10361,6 +10668,9 @@ impl App {
             ));
             return;
         }
+        if action == RemoteAction::Next {
+            self.next_answers_due += 1;
+        }
         self.backend.api(ApiRequest::Remote {
             action,
             device_id,
@@ -10707,6 +11017,9 @@ impl App {
             }
             self.expect_track(uri, request.position_ms);
         } else {
+            // No song to show, and no skip on its way to one either.
+            self.queue_skip = None;
+            self.queue_skip_passed = None;
             self.intent_track = None;
         }
         self.set_play_pending(keys);
@@ -11503,6 +11816,8 @@ impl App {
     }
 
     fn transfer(&mut self, device_id: String) {
+        // A Next up click's skip went to the device playing until now.
+        self.drop_queue_skip();
         if self
             .pending_remote_volume
             .as_ref()
@@ -11536,6 +11851,7 @@ impl App {
     }
 
     fn transfer_remote(&mut self, device_id: String, play: bool) {
+        self.drop_queue_skip();
         self.selected_device = Some(device_id.clone());
         self.backend.api(ApiRequest::Transfer { device_id, play });
     }
@@ -12808,12 +13124,25 @@ impl App {
                 // Move the queue head to the playing row immediately. Do not
                 // pop when there is no active playback target.
                 let target = self.target();
+                let skipping = self.queue_skip_in_flight();
                 if !matches!(target, Target::Remote(None)) || self.remote_fresh().is_some() {
                     self.pop_queue_head();
                 }
+                if skipping && let Some(intent) = &self.intent_track {
+                    // One more song for the skip to pass.
+                    self.queue_skip = Some((intent.uri.clone(), Instant::now()));
+                }
                 match target {
                     Target::Local => self.backend.player(PlayerCommand::Next),
-                    Target::Remote(device_id) => self.remote(RemoteAction::Next, device_id),
+                    Target::Remote(device_id) => {
+                        self.remote(RemoteAction::Next, device_id);
+                        if skipping {
+                            // Its new song may be a later copy of one the
+                            // skip passes, and the Web API may answer this
+                            // Next before the skip: it waits for both.
+                            self.queue_skip_unanswered = self.next_answers_due;
+                        }
+                    }
                 }
             }
             // Previous restarts after three seconds and otherwise steps back,
@@ -12833,6 +13162,8 @@ impl App {
                 // discard that expectation or a quick Next, Previous leaves
                 // the row marker stuck on the skipped-to song.
                 self.intent_track = None;
+                self.queue_skip = None;
+                self.queue_skip_passed = None;
                 self.queue_start_pending = Some(self.target());
                 match self.target() {
                     Target::Local => self.backend.player(PlayerCommand::Previous),
@@ -20258,6 +20589,38 @@ mod tests {
         )
     }
 
+    /// What Spotify reports while a Sonos plays `uri`. The Web API names a
+    /// Sonos without a device id.
+    fn sonos_playing(uri: &str) -> PlaybackState {
+        PlaybackState {
+            device: Some(crate::api::models::Device {
+                is_restricted: true,
+                ..Default::default()
+            }),
+            item: Some(queued_song(uri)),
+            is_playing: true,
+            ..Default::default()
+        }
+    }
+
+    /// The answer to a poll sent after everything asked so far.
+    fn report_sonos_playing(app: &mut App, uri: &str) {
+        app.remote_poll_seq += 1;
+        app.handle_api(ApiResponse::PlaybackState {
+            seq: app.remote_poll_seq,
+            result: Ok(Some(sonos_playing(uri))),
+        });
+    }
+
+    /// What Spotify reports while the device with `id` plays `uri`.
+    fn playing_on(id: &str, uri: &str) -> PlaybackState {
+        let mut state = sonos_playing(uri);
+        if let Some(device) = &mut state.device {
+            device.id = Some(id.into());
+        }
+        state
+    }
+
     /// Next moves the queue head to the playing row immediately.
     #[test]
     fn next_pops_the_queue_head_into_now_playing() {
@@ -20756,6 +21119,1291 @@ mod tests {
         assert_eq!(app.manual_queue, vec!["spotify:track:b".to_string()]);
         assert_eq!(queue_uris(&app).1.len(), 2, "no row was dropped");
         app.backend.shutdown();
+    }
+
+    /// On another device a Next up click is one request naming the song. A
+    /// Next per row raced each other there, and what Spotify reported
+    /// between them showed a song on the way as the one playing, with the
+    /// chosen song back in Next up.
+    #[test]
+    fn a_chosen_queue_row_on_another_device_is_one_skip_naming_its_song() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.local_ready = false;
+        app.remote = Some(RemoteSnapshot {
+            state: sonos_playing("spotify:track:a"),
+            received_at: Instant::now(),
+        });
+        app.queue = loaded_queue(
+            "spotify:track:a",
+            &[
+                "spotify:track:b",
+                "spotify:track:c",
+                "spotify:track:b",
+                "spotify:track:d",
+            ],
+        );
+        app.backend.take_queue_skip_requests();
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Queue,
+                uri: "spotify:track:b".into(),
+                index: 2,
+            },
+            &ctx,
+        );
+        let sent = app.backend.take_queue_skip_requests();
+        assert!(
+            matches!(
+                sent.as_slice(),
+                [ApiRequest::SkipTo {
+                    device_id: None,
+                    uri,
+                    occurrence: 1,
+                    skips: 3,
+                }] if uri == "spotify:track:b"
+            ),
+            "one skip to the second copy of b, three rows down: {sent:?}"
+        );
+    }
+
+    /// The other device passes the songs above the chosen one, and Spotify
+    /// reports them for as long as that takes. None of it shows: no song on
+    /// the way as the one playing, no second copy of the chosen song in
+    /// Next up with a spinner of its own. A second click meanwhile counts
+    /// its rows on the list as shown, and is the song that plays.
+    #[test]
+    fn a_queue_skip_on_another_device_holds_what_was_chosen() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.local_ready = false;
+        app.remote = Some(RemoteSnapshot {
+            state: sonos_playing("spotify:track:a"),
+            received_at: Instant::now(),
+        });
+        app.queue = loaded_queue(
+            "spotify:track:a",
+            &[
+                "spotify:track:b",
+                "spotify:track:c",
+                "spotify:track:d",
+                "spotify:track:e",
+            ],
+        );
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Queue,
+                uri: "spotify:track:c".into(),
+                index: 1,
+            },
+            &ctx,
+        );
+        let chosen = (
+            Some("spotify:track:c".to_string()),
+            vec!["spotify:track:d".to_string(), "spotify:track:e".to_string()],
+        );
+
+        for passed in ["spotify:track:a", "spotify:track:b", "spotify:track:b"] {
+            report_sonos_playing(&mut app, passed);
+            assert_eq!(
+                app.current_track_uri().as_deref(),
+                Some("spotify:track:c"),
+                "a song on the way does not show as playing"
+            );
+            assert_eq!(
+                app.now_playing().map(|now| now.uri).as_deref(),
+                Some("spotify:track:c"),
+                "nor in the player bar"
+            );
+            assert!(
+                app.play_pending("spotify:track:c"),
+                "the chosen song still loads"
+            );
+        }
+        let halfway = Queue {
+            currently_playing: Some(queued_song("spotify:track:b")),
+            queue: vec![
+                queued_song("spotify:track:c"),
+                queued_song("spotify:track:d"),
+                queued_song("spotify:track:e"),
+            ],
+        };
+        for _ in 0..=QUEUE_STALE_RETRIES {
+            app.handle_api(ApiResponse::Queue {
+                seq: app.queue_seq,
+                result: Ok(halfway.clone()),
+            });
+        }
+        assert_eq!(
+            queue_uris(&app),
+            chosen,
+            "no second copy of the chosen song under the one passed"
+        );
+
+        app.backend.take_queue_skip_requests();
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Queue,
+                uri: "spotify:track:e".into(),
+                index: 1,
+            },
+            &ctx,
+        );
+        let sent = app.backend.take_queue_skip_requests();
+        assert!(
+            matches!(
+                sent.as_slice(),
+                [ApiRequest::SkipTo {
+                    uri,
+                    occurrence: 0,
+                    skips: 2,
+                    ..
+                }] if uri == "spotify:track:e"
+            ),
+            "counted on the rows as shown, not on Spotify's halfway copy: {sent:?}"
+        );
+
+        // The first click's song is one more on the way to the second's.
+        report_sonos_playing(&mut app, "spotify:track:c");
+        assert_eq!(app.current_track_uri().as_deref(), Some("spotify:track:e"));
+        assert!(app.play_pending("spotify:track:e"));
+
+        // Its song is the one meant once both skips are answered.
+        report_sonos_playing(&mut app, "spotify:track:e");
+        assert!(app.play_pending("spotify:track:e"), "not answered yet");
+        for _ in 0..2 {
+            app.handle_api(ApiResponse::Remote {
+                action: RemoteAction::Next,
+                result: Ok(()),
+            });
+        }
+        report_sonos_playing(&mut app, "spotify:track:e");
+        assert_eq!(app.current_track_uri().as_deref(), Some("spotify:track:e"));
+        assert!(!app.play_pending("spotify:track:e"), "it plays");
+        assert!(app.queue_skip.is_none());
+        assert_eq!(app.queue_stale_retries, 0, "Spotify's copy may catch up");
+        assert_eq!(
+            queue_uris(&app),
+            (Some("spotify:track:e".to_string()), Vec::new())
+        );
+    }
+
+    /// A skip to a later copy of a song, on a device whose rows have no
+    /// uid, goes a Next per row and passes the earlier copy. An answer
+    /// naming the song before the skip is answered may be that copy, so it
+    /// neither ends the skip nor brings back the rows passed.
+    #[test]
+    fn a_skip_to_a_later_copy_waits_for_its_answer() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.local_ready = false;
+        app.remote = Some(RemoteSnapshot {
+            state: sonos_playing("spotify:track:a"),
+            received_at: Instant::now(),
+        });
+        app.queue = loaded_queue(
+            "spotify:track:a",
+            &[
+                "spotify:track:b",
+                "spotify:track:c",
+                "spotify:track:b",
+                "spotify:track:d",
+            ],
+        );
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Queue,
+                uri: "spotify:track:b".into(),
+                index: 2,
+            },
+            &ctx,
+        );
+        let sent = app.backend.take_queue_skip_requests();
+        assert!(
+            matches!(
+                sent.as_slice(),
+                [ApiRequest::SkipTo {
+                    occurrence: 1,
+                    skips: 3,
+                    ..
+                }]
+            ),
+            "{sent:?}"
+        );
+        let chosen = (
+            Some("spotify:track:b".to_string()),
+            vec!["spotify:track:d".to_string()],
+        );
+
+        // The first copy, passed on the way.
+        report_sonos_playing(&mut app, "spotify:track:b");
+        assert!(app.queue_skip.is_some(), "its Nexts are still going");
+        let passed = Queue {
+            currently_playing: Some(queued_song("spotify:track:b")),
+            queue: vec![
+                queued_song("spotify:track:c"),
+                queued_song("spotify:track:b"),
+                queued_song("spotify:track:d"),
+            ],
+        };
+        app.handle_api(ApiResponse::Queue {
+            seq: app.queue_seq,
+            result: Ok(passed),
+        });
+        assert_eq!(queue_uris(&app), chosen, "the rows passed stay gone");
+
+        app.handle_api(ApiResponse::Remote {
+            action: RemoteAction::Next,
+            result: Ok(()),
+        });
+        report_sonos_playing(&mut app, "spotify:track:b");
+        assert!(app.queue_skip.is_none(), "it plays");
+        assert_eq!(queue_uris(&app), chosen);
+    }
+
+    /// A second click to a later copy, while the first click's skip is
+    /// still on its way, waits for its own answer, not the first one's.
+    #[test]
+    fn a_second_skip_to_a_later_copy_waits_for_its_own_answer() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.local_ready = false;
+        app.remote = Some(RemoteSnapshot {
+            state: sonos_playing("spotify:track:a"),
+            received_at: Instant::now(),
+        });
+        app.queue = loaded_queue(
+            "spotify:track:a",
+            &[
+                "spotify:track:c",
+                "spotify:track:b",
+                "spotify:track:x",
+                "spotify:track:b",
+            ],
+        );
+        for (uri, index) in [("spotify:track:c", 0), ("spotify:track:b", 2)] {
+            app.apply(
+                Action::PlayFromRow {
+                    context: RowContext::Queue,
+                    uri: uri.into(),
+                    index,
+                },
+                &ctx,
+            );
+        }
+        assert_eq!(app.backend.take_queue_skip_requests().len(), 2);
+
+        // The first click's answer.
+        app.handle_api(ApiResponse::Remote {
+            action: RemoteAction::Next,
+            result: Ok(()),
+        });
+        report_sonos_playing(&mut app, "spotify:track:b");
+        assert!(app.queue_skip.is_some(), "an earlier copy");
+        assert_eq!(app.current_track_uri().as_deref(), Some("spotify:track:b"));
+
+        app.handle_api(ApiResponse::Remote {
+            action: RemoteAction::Next,
+            result: Ok(()),
+        });
+        report_sonos_playing(&mut app, "spotify:track:b");
+        assert!(app.queue_skip.is_none(), "it plays");
+    }
+
+    /// Next pressed while a skip is on its way moves the skip one song on,
+    /// to a later copy of the song it passes first. Until both are answered,
+    /// that copy playing is the skip on its way.
+    #[test]
+    fn a_next_after_a_skip_to_a_first_copy_waits_for_both_answers() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.local_ready = false;
+        app.remote = Some(RemoteSnapshot {
+            state: sonos_playing("spotify:track:a"),
+            received_at: Instant::now(),
+        });
+        app.queue = loaded_queue(
+            "spotify:track:a",
+            &["spotify:track:d", "spotify:track:b", "spotify:track:d"],
+        );
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Queue,
+                uri: "spotify:track:b".into(),
+                index: 1,
+            },
+            &ctx,
+        );
+        app.apply(Action::Next, &ctx);
+        assert_eq!(app.current_track_uri().as_deref(), Some("spotify:track:d"));
+
+        report_sonos_playing(&mut app, "spotify:track:d");
+        assert!(app.queue_skip.is_some(), "the first d, passed on the way");
+
+        for _ in 0..2 {
+            app.handle_api(ApiResponse::Remote {
+                action: RemoteAction::Next,
+                result: Ok(()),
+            });
+        }
+        report_sonos_playing(&mut app, "spotify:track:d");
+        assert!(app.queue_skip.is_none(), "it plays");
+    }
+
+    /// Next pressed while a skip to a later copy is on its way moves the
+    /// skip one song on. The Web API may answer that Next first, and the
+    /// skip still waits for its own answer.
+    #[test]
+    fn a_next_answered_before_the_skip_it_follows_does_not_end_it() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.local_ready = false;
+        app.remote = Some(RemoteSnapshot {
+            state: sonos_playing("spotify:track:a"),
+            received_at: Instant::now(),
+        });
+        app.queue = loaded_queue(
+            "spotify:track:a",
+            &[
+                "spotify:track:d",
+                "spotify:track:b",
+                "spotify:track:c",
+                "spotify:track:b",
+                "spotify:track:d",
+            ],
+        );
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Queue,
+                uri: "spotify:track:b".into(),
+                index: 3,
+            },
+            &ctx,
+        );
+        app.apply(Action::Next, &ctx);
+        assert_eq!(app.current_track_uri().as_deref(), Some("spotify:track:d"));
+
+        // The Next's answer, then the first d, passed on the way.
+        app.handle_api(ApiResponse::Remote {
+            action: RemoteAction::Next,
+            result: Ok(()),
+        });
+        report_sonos_playing(&mut app, "spotify:track:d");
+        assert!(app.queue_skip.is_some(), "its Nexts are still going");
+
+        app.handle_api(ApiResponse::Remote {
+            action: RemoteAction::Next,
+            result: Ok(()),
+        });
+        report_sonos_playing(&mut app, "spotify:track:d");
+        assert!(app.queue_skip.is_none(), "it plays");
+    }
+
+    /// A poll sent before a skip to a later copy is answered may have
+    /// caught the earlier copy on the way, even when it comes back after
+    /// the answer. Only a poll sent after the answer confirms the skip.
+    #[test]
+    fn a_poll_sent_before_a_skip_is_answered_does_not_confirm_it() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.local_ready = false;
+        app.remote = Some(RemoteSnapshot {
+            state: sonos_playing("spotify:track:a"),
+            received_at: Instant::now(),
+        });
+        app.queue = loaded_queue(
+            "spotify:track:a",
+            &[
+                "spotify:track:b",
+                "spotify:track:c",
+                "spotify:track:b",
+                "spotify:track:d",
+            ],
+        );
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Queue,
+                uri: "spotify:track:b".into(),
+                index: 2,
+            },
+            &ctx,
+        );
+        app.remote_poll_seq += 1;
+        let early = app.remote_poll_seq;
+
+        app.handle_api(ApiResponse::Remote {
+            action: RemoteAction::Next,
+            result: Ok(()),
+        });
+        app.handle_api(ApiResponse::PlaybackState {
+            seq: early,
+            result: Ok(Some(sonos_playing("spotify:track:b"))),
+        });
+        assert!(app.queue_skip.is_some(), "it may be the earlier copy");
+
+        report_sonos_playing(&mut app, "spotify:track:b");
+        assert!(app.queue_skip.is_none(), "it plays");
+    }
+
+    /// A click on a later copy of the song playing waits for its answer:
+    /// until then a report of the song may be the copy from before.
+    #[test]
+    fn a_skip_to_the_song_playing_again_waits_for_its_answer() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.auth = AuthStatus::Connected {
+            username: "alice".into(),
+        };
+        app.local_ready = false;
+        app.remote = Some(RemoteSnapshot {
+            state: sonos_playing("spotify:track:b"),
+            received_at: Instant::now(),
+        });
+        app.queue = loaded_queue(
+            "spotify:track:b",
+            &["spotify:track:c", "spotify:track:b", "spotify:track:d"],
+        );
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Queue,
+                uri: "spotify:track:b".into(),
+                index: 1,
+            },
+            &ctx,
+        );
+        report_sonos_playing(&mut app, "spotify:track:b");
+        assert!(app.queue_skip.is_some(), "it may be the song from before");
+        report_sonos_playing(&mut app, "spotify:track:c");
+        assert_eq!(app.current_track_uri().as_deref(), Some("spotify:track:b"));
+
+        app.handle_api(ApiResponse::Remote {
+            action: RemoteAction::Next,
+            result: Ok(()),
+        });
+        report_sonos_playing(&mut app, "spotify:track:b");
+        assert!(app.queue_skip.is_none(), "it plays");
+
+        // A queue read from before the click shows the copy playing then.
+        app.handle_api(ApiResponse::Queue {
+            seq: app.queue_seq,
+            result: Ok(Queue {
+                currently_playing: Some(queued_song("spotify:track:b")),
+                queue: vec![
+                    queued_song("spotify:track:c"),
+                    queued_song("spotify:track:b"),
+                    queued_song("spotify:track:d"),
+                ],
+            }),
+        });
+        assert_eq!(queue_uris(&app).1, vec!["spotify:track:d"]);
+    }
+
+    /// A skip to another copy of the song that was playing changes no song,
+    /// and its click already took its rows out: the song after it, when it
+    /// starts, still leaves Next up.
+    #[test]
+    fn a_skip_to_another_copy_of_the_song_playing_leaves_the_next_row_to_its_song() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.local_ready = false;
+        app.remote = Some(RemoteSnapshot {
+            state: sonos_playing("spotify:track:b"),
+            received_at: Instant::now(),
+        });
+        app.last_now_playing_uri = Some("spotify:track:b".into());
+        app.queue = loaded_queue(
+            "spotify:track:b",
+            &["spotify:track:c", "spotify:track:b", "spotify:track:d"],
+        );
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Queue,
+                uri: "spotify:track:b".into(),
+                index: 1,
+            },
+            &ctx,
+        );
+        app.handle_api(ApiResponse::Remote {
+            action: RemoteAction::Next,
+            result: Ok(()),
+        });
+        report_sonos_playing(&mut app, "spotify:track:b");
+        assert!(app.queue_skip.is_none(), "it plays");
+        assert!(app.queue_start_pending.is_none());
+
+        report_sonos_playing(&mut app, "spotify:track:d");
+        let (current, next) = queue_uris(&app);
+        assert_eq!(current.as_deref(), Some("spotify:track:d"));
+        assert!(next.is_empty());
+    }
+
+    /// A second click's song may be one the first click's skip passes on
+    /// its way. Until both are answered, that copy playing is the first
+    /// skip on its way, not the second one landing.
+    #[test]
+    fn a_second_skip_waits_for_the_copy_the_first_one_passes() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.auth = AuthStatus::Connected {
+            username: "alice".into(),
+        };
+        app.local_ready = false;
+        app.remote = Some(RemoteSnapshot {
+            state: sonos_playing("spotify:track:a"),
+            received_at: Instant::now(),
+        });
+        app.queue = loaded_queue(
+            "spotify:track:a",
+            &[
+                "spotify:track:b",
+                "spotify:track:c",
+                "spotify:track:b",
+                "spotify:track:d",
+            ],
+        );
+        for (uri, index) in [("spotify:track:c", 1), ("spotify:track:b", 0)] {
+            app.apply(
+                Action::PlayFromRow {
+                    context: RowContext::Queue,
+                    uri: uri.into(),
+                    index,
+                },
+                &ctx,
+            );
+        }
+        assert_eq!(app.backend.take_queue_skip_requests().len(), 2);
+
+        report_sonos_playing(&mut app, "spotify:track:b");
+        assert!(app.queue_skip.is_some(), "the first b, passed on the way");
+        assert_eq!(app.current_track_uri().as_deref(), Some("spotify:track:b"));
+        assert_eq!(queue_uris(&app).1, vec!["spotify:track:d"]);
+
+        for _ in 0..2 {
+            app.handle_api(ApiResponse::Remote {
+                action: RemoteAction::Next,
+                result: Ok(()),
+            });
+        }
+        report_sonos_playing(&mut app, "spotify:track:b");
+        assert!(app.queue_skip.is_none(), "it plays");
+
+        // The first b's queue, still on the first click's way.
+        app.handle_api(ApiResponse::Queue {
+            seq: app.queue_seq,
+            result: Ok(Queue {
+                currently_playing: Some(queued_song("spotify:track:b")),
+                queue: vec![
+                    queued_song("spotify:track:c"),
+                    queued_song("spotify:track:b"),
+                    queued_song("spotify:track:d"),
+                ],
+            }),
+        });
+        assert_eq!(queue_uris(&app).1, vec!["spotify:track:d"]);
+    }
+
+    /// A skip on its way belongs to the device it was sent to. Choosing
+    /// another device ends its hold, so that device's own answers count.
+    #[test]
+    fn choosing_another_device_ends_a_queue_skip_hold() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.local_ready = false;
+        app.remote = Some(RemoteSnapshot {
+            state: sonos_playing("spotify:track:a"),
+            received_at: Instant::now(),
+        });
+        app.queue = loaded_queue(
+            "spotify:track:a",
+            &["spotify:track:b", "spotify:track:b", "spotify:track:c"],
+        );
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Queue,
+                uri: "spotify:track:b".into(),
+                index: 1,
+            },
+            &ctx,
+        );
+        assert!(app.queue_skip_in_flight());
+        assert!(app.queue_skip_unanswered > 0);
+
+        app.transfer("kitchen".into());
+        assert!(!app.queue_skip_in_flight());
+        assert_eq!(app.queue_skip_unanswered, 0);
+    }
+
+    /// A queue read that fails while a skip is on its way does not take
+    /// away the chosen row and the rows below it.
+    #[test]
+    fn a_failed_queue_read_during_a_queue_skip_keeps_its_rows() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.local_ready = false;
+        app.remote = Some(RemoteSnapshot {
+            state: sonos_playing("spotify:track:a"),
+            received_at: Instant::now(),
+        });
+        app.queue = loaded_queue(
+            "spotify:track:a",
+            &["spotify:track:b", "spotify:track:c", "spotify:track:d"],
+        );
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Queue,
+                uri: "spotify:track:c".into(),
+                index: 1,
+            },
+            &ctx,
+        );
+        let shown = queue_uris(&app);
+        assert_eq!(shown.0.as_deref(), Some("spotify:track:c"));
+
+        app.handle_api(ApiResponse::Queue {
+            seq: app.queue_seq,
+            result: Err(crate::api::ApiError::RateLimited),
+        });
+        assert_eq!(queue_uris(&app), shown);
+        assert!(app.queue_recheck_at.is_some(), "it asks again");
+    }
+
+    /// A skip that never lands does not hold the screen for good: once its
+    /// time is up, Spotify's answers count again.
+    #[test]
+    fn a_queue_skip_that_never_lands_gives_way_to_what_plays() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.local_ready = false;
+        app.remote = Some(RemoteSnapshot {
+            state: sonos_playing("spotify:track:a"),
+            received_at: Instant::now(),
+        });
+        app.queue = loaded_queue("spotify:track:a", &["spotify:track:b", "spotify:track:c"]);
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Queue,
+                uri: "spotify:track:c".into(),
+                index: 1,
+            },
+            &ctx,
+        );
+        let (_, asked_at) = app.queue_skip.as_mut().expect("a skip on its way");
+        *asked_at = Instant::now() - QUEUE_SKIP_HOLD;
+
+        report_sonos_playing(&mut app, "spotify:track:a");
+        assert!(app.intent_track.is_some(), "one lagging answer is retried");
+        report_sonos_playing(&mut app, "spotify:track:a");
+        assert!(app.intent_track.is_none(), "the second one is believed");
+    }
+
+    /// A skip that runs out of time without its song leaves no trace: the
+    /// song after the one still playing, when it starts, leaves Next up.
+    #[test]
+    fn a_queue_skip_out_of_time_leaves_the_next_song_its_row() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.auth = AuthStatus::Connected {
+            username: "alice".into(),
+        };
+        app.local_ready = false;
+        app.remote = Some(RemoteSnapshot {
+            state: sonos_playing("spotify:track:a"),
+            received_at: Instant::now(),
+        });
+        app.last_now_playing_uri = Some("spotify:track:a".into());
+        let spotify = Queue {
+            currently_playing: Some(queued_song("spotify:track:a")),
+            queue: vec![
+                queued_song("spotify:track:b"),
+                queued_song("spotify:track:c"),
+                queued_song("spotify:track:d"),
+            ],
+        };
+        app.queue = Loadable::Loaded(spotify.clone());
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Queue,
+                uri: "spotify:track:c".into(),
+                index: 1,
+            },
+            &ctx,
+        );
+        let (_, asked_at) = app.queue_skip.as_mut().expect("a skip on its way");
+        *asked_at = Instant::now() - QUEUE_SKIP_HOLD;
+        app.tick(&ctx);
+        assert!(app.queue_skip.is_none());
+        assert!(app.queue_start_pending.is_none(), "no song change is its");
+        assert_eq!(app.next_answers_due, 0, "its answer is not coming");
+
+        app.handle_api(ApiResponse::Queue {
+            seq: app.queue_seq,
+            result: Ok(spotify),
+        });
+        report_sonos_playing(&mut app, "spotify:track:b");
+        let (current, next) = queue_uris(&app);
+        assert_eq!(current.as_deref(), Some("spotify:track:b"));
+        assert_eq!(next, vec!["spotify:track:c", "spotify:track:d"]);
+    }
+
+    /// A queue read sent while the skip passes an earlier copy of its song
+    /// shows that copy with the rows the click took out after it. Neither an
+    /// answer to a read sent before the skip's answer, nor a later one still
+    /// listing those rows, even once the song plays, brings them back.
+    #[test]
+    fn a_queue_read_of_an_earlier_copy_keeps_the_rows_taken_out() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.auth = AuthStatus::Connected {
+            username: "alice".into(),
+        };
+        app.local_ready = false;
+        app.remote = Some(RemoteSnapshot {
+            state: sonos_playing("spotify:track:a"),
+            received_at: Instant::now(),
+        });
+        app.queue = loaded_queue(
+            "spotify:track:a",
+            &[
+                "spotify:track:b",
+                "spotify:track:c",
+                "spotify:track:b",
+                "spotify:track:d",
+            ],
+        );
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Queue,
+                uri: "spotify:track:b".into(),
+                index: 2,
+            },
+            &ctx,
+        );
+        let chosen = (
+            Some("spotify:track:b".to_string()),
+            vec!["spotify:track:d".to_string()],
+        );
+        assert_eq!(queue_uris(&app), chosen);
+        let halfway = Queue {
+            currently_playing: Some(queued_song("spotify:track:b")),
+            queue: vec![
+                queued_song("spotify:track:c"),
+                queued_song("spotify:track:b"),
+                queued_song("spotify:track:d"),
+            ],
+        };
+        let read_before = app.queue_seq;
+
+        app.handle_api(ApiResponse::Remote {
+            action: RemoteAction::Next,
+            result: Ok(()),
+        });
+        assert!(app.queue_seq > read_before, "the queue is asked for again");
+        for seq in [read_before, app.queue_seq] {
+            app.handle_api(ApiResponse::Queue {
+                seq,
+                result: Ok(halfway.clone()),
+            });
+            assert_eq!(queue_uris(&app), chosen);
+        }
+
+        report_sonos_playing(&mut app, "spotify:track:b");
+        assert!(app.queue_skip.is_none(), "it plays");
+        app.handle_api(ApiResponse::Queue {
+            seq: app.queue_seq,
+            result: Ok(halfway),
+        });
+        assert_eq!(queue_uris(&app), chosen, "Spotify's queue lags");
+        app.handle_api(ApiResponse::Queue {
+            seq: app.queue_seq,
+            result: Ok(Queue {
+                currently_playing: Some(queued_song("spotify:track:b")),
+                queue: vec![
+                    queued_song("spotify:track:d"),
+                    queued_song("spotify:track:e"),
+                ],
+            }),
+        });
+        let (_, next) = queue_uris(&app);
+        assert_eq!(next, vec!["spotify:track:d", "spotify:track:e"]);
+    }
+
+    /// The same for a click on the last row: with no rows left below it, a
+    /// queue listing the rows taken out again still shows an earlier copy.
+    #[test]
+    fn a_click_on_the_last_copy_keeps_the_rows_taken_out() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.auth = AuthStatus::Connected {
+            username: "alice".into(),
+        };
+        app.local_ready = false;
+        app.remote = Some(RemoteSnapshot {
+            state: sonos_playing("spotify:track:a"),
+            received_at: Instant::now(),
+        });
+        app.queue = loaded_queue(
+            "spotify:track:a",
+            &["spotify:track:b", "spotify:track:c", "spotify:track:b"],
+        );
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Queue,
+                uri: "spotify:track:b".into(),
+                index: 2,
+            },
+            &ctx,
+        );
+        app.handle_api(ApiResponse::Remote {
+            action: RemoteAction::Next,
+            result: Ok(()),
+        });
+        app.handle_api(ApiResponse::Queue {
+            seq: app.queue_seq,
+            result: Ok(Queue {
+                currently_playing: Some(queued_song("spotify:track:b")),
+                queue: vec![
+                    queued_song("spotify:track:c"),
+                    queued_song("spotify:track:b"),
+                ],
+            }),
+        });
+        let (current, next) = queue_uris(&app);
+        assert_eq!(current.as_deref(), Some("spotify:track:b"));
+        assert!(next.is_empty(), "the rows taken out stay out");
+    }
+
+    /// Copies of the song still queued below the clicked one: a queue
+    /// listing the clicked copy again is held, and Spotify's queue in
+    /// another order comes through.
+    #[test]
+    fn copies_left_below_the_chosen_song_let_a_new_order_in() {
+        let ctx = egui::Context::default();
+        for copies in [3, 4] {
+            let mut app = headless_app();
+            app.auth = AuthStatus::Connected {
+                username: "alice".into(),
+            };
+            app.local_ready = false;
+            app.remote = Some(RemoteSnapshot {
+                state: sonos_playing("spotify:track:a"),
+                received_at: Instant::now(),
+            });
+            let mut rows = vec!["spotify:track:b"; copies];
+            rows.extend(["spotify:track:c", "spotify:track:d"]);
+            app.queue = loaded_queue("spotify:track:a", &rows);
+            app.apply(
+                Action::PlayFromRow {
+                    context: RowContext::Queue,
+                    uri: "spotify:track:b".into(),
+                    index: 1,
+                },
+                &ctx,
+            );
+            app.handle_api(ApiResponse::Remote {
+                action: RemoteAction::Next,
+                result: Ok(()),
+            });
+            report_sonos_playing(&mut app, "spotify:track:b");
+            assert!(app.queue_skip.is_none(), "it plays");
+            let shown = rows[2..].to_vec();
+            app.handle_api(ApiResponse::Queue {
+                seq: app.queue_seq,
+                result: Ok(Queue {
+                    currently_playing: Some(queued_song("spotify:track:b")),
+                    queue: rows[1..].iter().copied().map(queued_song).collect(),
+                }),
+            });
+            assert_eq!(
+                queue_uris(&app).1,
+                shown,
+                "{copies} copies: Spotify's queue lags"
+            );
+
+            let mut reordered = shown.clone();
+            reordered.swap(copies - 2, copies - 1);
+            app.handle_api(ApiResponse::Queue {
+                seq: app.queue_seq,
+                result: Ok(Queue {
+                    currently_playing: Some(queued_song("spotify:track:b")),
+                    queue: reordered.iter().copied().map(queued_song).collect(),
+                }),
+            });
+            assert_eq!(queue_uris(&app).1, reordered, "{copies} copies");
+        }
+    }
+
+    /// A song added while the skip goes on is listed after the rows taken
+    /// out in a queue that lags, and that queue is still held.
+    #[test]
+    fn a_song_added_during_a_skip_keeps_the_rows_taken_out() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.auth = AuthStatus::Connected {
+            username: "alice".into(),
+        };
+        app.local_ready = false;
+        app.remote = Some(RemoteSnapshot {
+            state: sonos_playing("spotify:track:a"),
+            received_at: Instant::now(),
+        });
+        app.queue = loaded_queue(
+            "spotify:track:a",
+            &[
+                "spotify:track:b",
+                "spotify:track:c",
+                "spotify:track:b",
+                "spotify:track:d",
+                "spotify:track:e",
+            ],
+        );
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Queue,
+                uri: "spotify:track:b".into(),
+                index: 2,
+            },
+            &ctx,
+        );
+        app.apply(
+            Action::AddToQueue {
+                uri: "spotify:track:x".into(),
+                label: "x".into(),
+            },
+            &ctx,
+        );
+        let shown = ["spotify:track:x", "spotify:track:d", "spotify:track:e"];
+        assert_eq!(queue_uris(&app).1, shown);
+        app.handle_api(ApiResponse::QueueBatchAdded {
+            request: app.album_queue_serial,
+            added: 1,
+            result: Ok(()),
+        });
+        app.handle_api(ApiResponse::Remote {
+            action: RemoteAction::Next,
+            result: Ok(()),
+        });
+        report_sonos_playing(&mut app, "spotify:track:b");
+        assert!(app.queue_skip.is_none(), "it plays");
+
+        let lagging = [
+            "spotify:track:c",
+            "spotify:track:b",
+            "spotify:track:x",
+            "spotify:track:d",
+            "spotify:track:e",
+        ];
+        app.handle_api(ApiResponse::Queue {
+            seq: app.queue_seq,
+            result: Ok(Queue {
+                currently_playing: Some(queued_song("spotify:track:b")),
+                queue: lagging.into_iter().map(queued_song).collect(),
+            }),
+        });
+        assert_eq!(queue_uris(&app).1, shown, "Spotify's queue lags");
+    }
+
+    /// Next, then a click on a later copy of the song that was playing:
+    /// Spotify still naming that song is the Next not yet made, not the
+    /// click's song arriving.
+    #[test]
+    fn a_click_on_the_song_a_next_leaves_waits_for_the_next() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.local_ready = false;
+        app.remote = Some(RemoteSnapshot {
+            state: sonos_playing("spotify:track:a"),
+            received_at: Instant::now(),
+        });
+        app.queue = loaded_queue(
+            "spotify:track:a",
+            &[
+                "spotify:track:b",
+                "spotify:track:c",
+                "spotify:track:a",
+                "spotify:track:d",
+            ],
+        );
+        app.apply(Action::Next, &ctx);
+        app.refresh_frame_now();
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Queue,
+                uri: "spotify:track:a".into(),
+                index: 1,
+            },
+            &ctx,
+        );
+
+        report_sonos_playing(&mut app, "spotify:track:a");
+        assert!(app.queue_skip.is_some(), "the a before the Next");
+        report_sonos_playing(&mut app, "spotify:track:b");
+        assert_eq!(app.current_track_uri().as_deref(), Some("spotify:track:a"));
+
+        for _ in 0..2 {
+            app.handle_api(ApiResponse::Remote {
+                action: RemoteAction::Next,
+                result: Ok(()),
+            });
+        }
+        report_sonos_playing(&mut app, "spotify:track:a");
+        assert!(app.queue_skip.is_none(), "it plays");
+    }
+
+    /// A skip belongs to the device it went to, however another device or
+    /// this computer's player comes to play instead.
+    #[test]
+    fn another_player_taking_over_ends_a_queue_skip_hold() {
+        let ctx = egui::Context::default();
+        for local in [false, true] {
+            let mut app = headless_app();
+            app.auth = AuthStatus::Connected {
+                username: "alice".into(),
+            };
+            app.local_ready = false;
+            app.remote = Some(RemoteSnapshot {
+                state: sonos_playing("spotify:track:a"),
+                received_at: Instant::now(),
+            });
+            app.queue = loaded_queue(
+                "spotify:track:a",
+                &["spotify:track:b", "spotify:track:c", "spotify:track:d"],
+            );
+            app.apply(
+                Action::PlayFromRow {
+                    context: RowContext::Queue,
+                    uri: "spotify:track:c".into(),
+                    index: 1,
+                },
+                &ctx,
+            );
+            assert!(app.queue_skip_in_flight());
+            if local {
+                app.local_ready = true;
+                app.local.track = Some(crate::player::LocalTrack {
+                    uri: "spotify:track:x".into(),
+                    ..Default::default()
+                });
+                app.local.playback = Playback::Playing;
+                app.tick(&ctx);
+            } else {
+                app.transfer_remote("kitchen".into(), true);
+            }
+            assert!(app.queue_skip.is_none(), "local: {local}");
+            assert!(app.intent_track.is_none(), "local: {local}");
+            assert!(!app.play_pending("spotify:track:c"), "local: {local}");
+        }
+    }
+
+    /// A remote report growing old is not this computer's player taking
+    /// over: a skip with time left keeps its hold.
+    #[test]
+    fn an_old_remote_report_leaves_a_queue_skip_its_hold() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.auth = AuthStatus::Connected {
+            username: "alice".into(),
+        };
+        app.local_ready = false;
+        app.remote = Some(RemoteSnapshot {
+            state: sonos_playing("spotify:track:a"),
+            received_at: Instant::now(),
+        });
+        app.queue = loaded_queue("spotify:track:a", &["spotify:track:b", "spotify:track:c"]);
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Queue,
+                uri: "spotify:track:c".into(),
+                index: 1,
+            },
+            &ctx,
+        );
+        app.local_ready = true;
+        if let Some(remote) = &mut app.remote {
+            remote.received_at = Instant::now() - REMOTE_FRESH;
+        }
+        assert!(matches!(app.target(), Target::Local));
+        app.tick(&ctx);
+        assert!(app.queue_skip_in_flight());
+    }
+
+    /// Another device reported playing ends a skip sent to the one before,
+    /// a Sonos without an id too.
+    #[test]
+    fn another_device_reported_playing_ends_a_queue_skip_hold() {
+        let ctx = egui::Context::default();
+        for before in [
+            playing_on("phone", "spotify:track:a"),
+            sonos_playing("spotify:track:a"),
+        ] {
+            let mut app = headless_app();
+            app.local_ready = false;
+            app.remote = Some(RemoteSnapshot {
+                state: before,
+                received_at: Instant::now(),
+            });
+            app.queue = loaded_queue("spotify:track:a", &["spotify:track:b", "spotify:track:c"]);
+            app.apply(
+                Action::PlayFromRow {
+                    context: RowContext::Queue,
+                    uri: "spotify:track:c".into(),
+                    index: 1,
+                },
+                &ctx,
+            );
+            assert!(app.queue_skip_in_flight());
+
+            app.remote_poll_seq += 1;
+            app.handle_api(ApiResponse::PlaybackState {
+                seq: app.remote_poll_seq,
+                result: Ok(Some(playing_on("laptop", "spotify:track:x"))),
+            });
+            assert!(app.queue_skip.is_none());
+            app.refresh_frame_now();
+            assert_eq!(app.current_track_uri().as_deref(), Some("spotify:track:x"));
+        }
+    }
+
+    /// The device a skip went to reporting in, after another one, is the
+    /// skip on its way, not a takeover.
+    #[test]
+    fn the_device_a_skip_went_to_reporting_in_keeps_its_hold() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.local_ready = false;
+        app.remote = Some(RemoteSnapshot {
+            state: playing_on("phone", "spotify:track:a"),
+            received_at: Instant::now(),
+        });
+        app.selected_device = Some("laptop".into());
+        app.queue = loaded_queue("spotify:track:a", &["spotify:track:b", "spotify:track:c"]);
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Queue,
+                uri: "spotify:track:c".into(),
+                index: 1,
+            },
+            &ctx,
+        );
+
+        app.remote_poll_seq += 1;
+        app.handle_api(ApiResponse::PlaybackState {
+            seq: app.remote_poll_seq,
+            result: Ok(Some(playing_on("laptop", "spotify:track:a"))),
+        });
+        assert!(app.queue_skip_in_flight());
+        app.refresh_frame_now();
+        assert_eq!(app.current_track_uri().as_deref(), Some("spotify:track:c"));
+    }
+
+    /// A skip ending, by giving way or by landing, leaves the spinner of a
+    /// request made since, such as Pause, to that request's answer.
+    #[test]
+    fn a_queue_skip_ending_keeps_a_newer_spinner() {
+        let ctx = egui::Context::default();
+        for lands in [false, true] {
+            let mut app = headless_app();
+            app.auth = AuthStatus::Connected {
+                username: "alice".into(),
+            };
+            app.local_ready = false;
+            app.remote = Some(RemoteSnapshot {
+                state: sonos_playing("spotify:track:a"),
+                received_at: Instant::now(),
+            });
+            app.queue = loaded_queue("spotify:track:a", &["spotify:track:b", "spotify:track:c"]);
+            app.apply(
+                Action::PlayFromRow {
+                    context: RowContext::Queue,
+                    uri: "spotify:track:c".into(),
+                    index: 1,
+                },
+                &ctx,
+            );
+            app.apply(Action::TogglePlay, &ctx);
+            if lands {
+                report_sonos_playing(&mut app, "spotify:track:c");
+            } else {
+                let (_, asked_at) = app.queue_skip.as_mut().expect("a skip on its way");
+                *asked_at = Instant::now() - QUEUE_SKIP_HOLD;
+                app.tick(&ctx);
+            }
+            assert!(app.queue_skip.is_none());
+            assert!(app.any_play_pending(), "Pause is not answered yet");
+        }
+    }
+
+    /// Something new playing with no song to name, an episode, ends a skip
+    /// still on its way: its answers no longer hold the screen.
+    #[test]
+    fn playing_an_episode_ends_a_queue_skip_hold() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.local_ready = false;
+        app.remote = Some(RemoteSnapshot {
+            state: sonos_playing("spotify:track:a"),
+            received_at: Instant::now(),
+        });
+        app.queue = loaded_queue("spotify:track:a", &["spotify:track:b", "spotify:track:c"]);
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Queue,
+                uri: "spotify:track:c".into(),
+                index: 1,
+            },
+            &ctx,
+        );
+        app.start_play(
+            PlayRequest::tracks(vec!["spotify:episode:podcast".into()]),
+            false,
+        );
+        assert!(app.queue_skip.is_none());
+        assert!(app.intent_track.is_none());
+    }
+
+    /// An answer to a poll sent before the click may already name the
+    /// chosen song without confirming it. The answer that does confirm it
+    /// names the same song again, and the arrival is still taken in: the
+    /// queue row it consumed is not consumed a second time later.
+    #[test]
+    fn a_queue_skip_confirmed_by_a_repeated_answer_still_arrives() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.local_ready = false;
+        app.remote = Some(RemoteSnapshot {
+            state: sonos_playing("spotify:track:a"),
+            received_at: Instant::now(),
+        });
+        app.queue = loaded_queue(
+            "spotify:track:a",
+            &["spotify:track:b", "spotify:track:c", "spotify:track:d"],
+        );
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Queue,
+                uri: "spotify:track:c".into(),
+                index: 1,
+            },
+            &ctx,
+        );
+
+        app.handle_api(ApiResponse::PlaybackState {
+            seq: app.remote_poll_seq,
+            result: Ok(Some(sonos_playing("spotify:track:c"))),
+        });
+        assert!(app.queue_skip.is_some(), "a poll from before the click");
+        assert!(app.queue_start_pending.is_some());
+
+        report_sonos_playing(&mut app, "spotify:track:c");
+        assert!(app.queue_skip.is_none(), "it plays");
+        assert_eq!(
+            app.last_now_playing_uri.as_deref(),
+            Some("spotify:track:c"),
+            "lyrics and tint follow the song"
+        );
+        assert!(
+            app.queue_start_pending.is_none(),
+            "the arrival took in the row the click consumed"
+        );
     }
 
     /// The click names a song: when the rows have shifted under the

@@ -187,6 +187,26 @@ impl Client {
                     result,
                 })
             }
+            // A Next up click: Soloist has no skip that names its song, so
+            // one skip per row, in turn.
+            ApiRequest::SkipTo {
+                device_id, skips, ..
+            } if device_id.is_some() && device_id == &device.id => {
+                let result = async {
+                    let _guard = self.serial.lock().await;
+                    for _ in 0..(*skips).max(1) {
+                        let skip = json!({"command":"skip_next"});
+                        self.rpc_unlocked(port, skip, None).await?;
+                    }
+                    Ok(())
+                }
+                .await
+                .map_err(failure);
+                Some(ApiResponse::Remote {
+                    action: RemoteAction::Next,
+                    result,
+                })
+            }
             // Adding remains on the existing serialized queue writer, so an
             // album and a single addition cannot overtake one another.
             _ => None,

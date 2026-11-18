@@ -54,6 +54,10 @@ struct Known {
 pub struct Controller {
     known: Mutex<Known>,
     queue_writes: tokio::sync::Mutex<()>,
+    /// Skips to a Next up row, and Next and Previous, reach the device in
+    /// the order they were asked for: a second click's skip follows the
+    /// first one's, and a Next pressed after a click follows its skip.
+    queue_skips: tokio::sync::Mutex<()>,
 }
 
 impl Controller {
@@ -160,6 +164,25 @@ impl Controller {
             _ => self.restricted_target(device),
         }
     }
+
+    /// Holds skips to a Next up row to one at a time, in the order asked.
+    pub async fn queue_skip_turn(&self) -> tokio::sync::MutexGuard<'_, ()> {
+        self.queue_skips.lock().await
+    }
+
+    /// The turn a Next or Previous takes among skips to a Next up row. Sent
+    /// while such a skip waits, it would reach the device first, and the
+    /// skip, which names its row, would then undo it. Other actions leave
+    /// the place in the queue alone and need no turn.
+    pub async fn command_turn(
+        &self,
+        action: RemoteAction,
+    ) -> Option<tokio::sync::MutexGuard<'_, ()>> {
+        match action {
+            RemoteAction::Next | RemoteAction::Previous => Some(self.queue_skips.lock().await),
+            _ => None,
+        }
+    }
 }
 
 /// Whether a ZeroConf receiver is a Sonos player.
@@ -211,6 +234,36 @@ pub fn command_body(
         RemoteAction::Volume { .. } => return None,
     };
     Some(json!({ "command": command }))
+}
+
+/// A skip to one row of the device's Next up. Spotify's own apps name the
+/// row in the skip, where one skip per row above it would have the device
+/// start every song on the way, and a second click would count its rows in
+/// a list still moving. The row's uid tells copies of a song apart; without
+/// one the song alone is named, and the device goes to its first copy.
+pub fn skip_to_body(uri: &str, uid: Option<&str>) -> Value {
+    let mut track = json!({ "uri": uri });
+    if let Some(uid) = uid.filter(|uid| !uid.is_empty()) {
+        track["uid"] = json!(uid);
+    }
+    json!({ "command": { "endpoint": "skip_next", "track": track } })
+}
+
+/// The commands that take the device to a row of its Next up, the
+/// `occurrence`th copy (from 0) of `uri`, `skips` rows down: one skip that
+/// names the row. The song alone names its first copy, so a later copy
+/// that no uid tells apart is reached by a Next per row instead.
+pub fn skip_to_commands(
+    uri: &str,
+    uid: Option<&str>,
+    occurrence: usize,
+    skips: usize,
+) -> Vec<Value> {
+    if occurrence == 0 || uid.is_some_and(|uid| !uid.is_empty()) {
+        return vec![skip_to_body(uri, uid)];
+    }
+    let next = json!({ "command": { "endpoint": "skip_next" } });
+    vec![next; skips.max(1)]
 }
 
 /// Keeps a Spotify context intact or builds an ordered page for explicit tracks.
@@ -422,6 +475,56 @@ mod tests {
         let body = command_body(RemoteAction::Play, None, 0, false, "").unwrap();
         assert_eq!(body["command"]["endpoint"], "resume");
         assert!(command_body(RemoteAction::Volume { request: 1 }, None, 0, false, "").is_none());
+    }
+
+    /// A Next up click on a restricted device is one skip that names its
+    /// row, not a skip for every row above it.
+    #[test]
+    fn a_skip_to_a_queue_row_names_the_row() {
+        let body = skip_to_body("spotify:track:c", Some("u3"));
+        let command = &body["command"];
+        assert_eq!(command["endpoint"], "skip_next");
+        assert_eq!(command["track"]["uri"], "spotify:track:c");
+        assert_eq!(command["track"]["uid"], "u3");
+
+        let song_alone = json!({ "uri": "spotify:track:c" });
+        let unknown = skip_to_body("spotify:track:c", None);
+        assert_eq!(unknown["command"]["track"], song_alone);
+        let empty = skip_to_body("spotify:track:c", Some(""));
+        assert_eq!(empty["command"]["track"], song_alone);
+    }
+
+    /// Naming the song alone takes the device to its first copy. A later
+    /// copy that no uid tells apart is reached by a Next per row instead.
+    #[test]
+    fn a_later_copy_without_a_uid_is_reached_by_counted_skips() {
+        let c = "spotify:track:c";
+        let named = skip_to_body(c, Some("u3"));
+        assert_eq!(skip_to_commands(c, Some("u3"), 1, 3), vec![named]);
+        let first = skip_to_body(c, None);
+        assert_eq!(skip_to_commands(c, None, 0, 2), vec![first]);
+        let next = command_body(RemoteAction::Next, None, 0, false, "").unwrap();
+        assert_eq!(skip_to_commands(c, None, 1, 3), vec![next.clone(); 3]);
+        assert_eq!(skip_to_commands(c, Some(""), 1, 3), vec![next; 3]);
+    }
+
+    /// A Next or Previous pressed while a skip to a Next up row waits for
+    /// its answer goes after it, not ahead of it.
+    #[test]
+    fn a_next_waits_for_a_skip_to_a_queue_row() {
+        use futures_util::FutureExt as _;
+        let controller = Controller::default();
+        let skip = controller.queue_skip_turn().now_or_never();
+        assert!(skip.is_some(), "no skip waits yet");
+        for action in [RemoteAction::Next, RemoteAction::Previous] {
+            let turn = controller.command_turn(action).now_or_never();
+            assert!(turn.is_none(), "it waits for the skip");
+        }
+        let pause = controller.command_turn(RemoteAction::Pause).now_or_never();
+        assert!(matches!(pause, Some(None)), "a pause needs no turn");
+        drop(skip);
+        let next = controller.command_turn(RemoteAction::Next).now_or_never();
+        assert!(matches!(next, Some(Some(_))));
     }
 
     #[test]

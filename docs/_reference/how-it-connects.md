@@ -549,6 +549,21 @@ API device, one refusal is the exception: "Restriction violated" means what
 plays now forbids shuffle, as autoplay does, so the start goes first and
 shuffle follows. If shuffle is refused again, the start keeps playing in order.
 
+Playing a row of Next up is one `skip_next` command that names the row, as
+Spotify's own apps send it: the song's URI, and the row's uid when the latest
+Connect cluster push listed that device's next tracks, which tells copies of a
+song apart. The device goes to that row itself. The song alone names its first
+copy, so a later copy without a uid gets one plain `skip_next` per row down to
+it instead. A second click's command, and a Next or Previous pressed
+meanwhile, waits for the first one's answer. A click right after a Next counts
+its rows from where that Next lands, before the next cluster push shows it,
+and a command that fails leaves the count where the device got to: where it
+was, or for a Next per row stopped partway, past the rows it passed. A row
+without a uid is told apart by the copies of its song after it. A device the
+Web API controls has no such command and gets one Next per row down to the
+song, the song's own row included (one for the top row), each sent after the
+one before it is answered.
+
 Individual and album queue additions use the same Connect route, one song at
 a time. A later addition waits for the whole album, repeated songs keep their
 places, and a failed write stops the remaining songs. Signing out cancels
