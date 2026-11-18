@@ -28,6 +28,9 @@ const MARQUEE_GAP: &str = "  ***  ";
 /// How long a skin file must stay unchanged after a write before it is read
 /// again, so a file still being written is not read half done.
 const SKIN_SETTLE: Duration = Duration::from_millis(300);
+/// How long to wait before trying again to watch a skins folder that could
+/// not be watched.
+const SKIN_WATCH_RETRY: Duration = Duration::from_secs(30);
 
 /// The text with the gap it scrolls through, for drawing it as pixels.
 pub fn marquee_strip(text: &str) -> String {
@@ -186,7 +189,12 @@ struct SkinWatch {
     /// When each file in the folder was last written. Empty while the
     /// folder could not be watched.
     written: Arc<Mutex<HashMap<String, Instant>>>,
+    /// The window to wake when a file is written: the latest one that asked,
+    /// since the mini player's window and context are remade when reopened.
+    wake: Arc<Mutex<egui::Context>>,
     _watcher: Option<notify::RecommendedWatcher>,
+    /// When the folder could not be watched, so that it is tried again later.
+    failed: Option<Instant>,
 }
 
 impl SkinWatch {
@@ -194,7 +202,8 @@ impl SkinWatch {
         use notify::Watcher as _;
         let written = Arc::new(Mutex::new(HashMap::new()));
         let seen = Arc::clone(&written);
-        let ctx = ctx.clone();
+        let wake = Arc::new(Mutex::new(ctx.clone()));
+        let waker = Arc::clone(&wake);
         let watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
             let Ok(event) = event else { return };
             if event.kind.is_access() || event.kind.is_remove() {
@@ -208,7 +217,9 @@ impl SkinWatch {
                     }
                 }
             }
-            ctx.request_repaint_after(SKIN_SETTLE);
+            if let Ok(ctx) = waker.lock() {
+                ctx.request_repaint_after(SKIN_SETTLE);
+            }
         })
         .and_then(|mut watcher| {
             watcher.watch(folder, notify::RecursiveMode::NonRecursive)?;
@@ -219,13 +230,26 @@ impl SkinWatch {
         Self {
             folder: folder.to_path_buf(),
             written,
+            wake,
+            failed: watcher.is_none().then(Instant::now),
             _watcher: watcher,
         }
+    }
+
+    /// Whether this watch serves `folder`: the same folder, and either
+    /// watched or not yet due another try.
+    fn serves(&self, folder: &Path) -> bool {
+        self.folder == folder && self.failed.is_none_or(|at| at.elapsed() < SKIN_WATCH_RETRY)
     }
 
     /// Whether `name` was rewritten and has since been left alone long enough
     /// to read. Asks for a frame when it is still settling.
     fn rewritten(&self, name: &str, ctx: &egui::Context) -> bool {
+        if let Ok(mut wake) = self.wake.lock()
+            && *wake != *ctx
+        {
+            *wake = ctx.clone();
+        }
         let Ok(mut written) = self.written.lock() else {
             return false;
         };
@@ -438,7 +462,7 @@ impl WinampState {
         if self
             .skin_watch
             .as_ref()
-            .is_none_or(|watch| watch.folder != folder)
+            .is_none_or(|watch| !watch.serves(folder))
         {
             if !folder.is_dir() {
                 return false;
@@ -870,7 +894,9 @@ mod tests {
         SkinWatch {
             folder: PathBuf::from("skins"),
             written: Arc::new(Mutex::new(written)),
+            wake: Arc::new(Mutex::new(egui::Context::default())),
             _watcher: None,
+            failed: None,
         }
     }
 
@@ -893,5 +919,16 @@ mod tests {
             (".tmp.zip", SKIN_SETTLE * 2),
         ]);
         assert!(!watch.rewritten("Skin.wsz", &ctx));
+    }
+
+    #[test]
+    fn a_folder_that_could_not_be_watched_is_tried_again_later() {
+        let mut watch = watch_with(&[]);
+        assert!(watch.serves(Path::new("skins")));
+        assert!(!watch.serves(Path::new("other")));
+        watch.failed = Some(Instant::now());
+        assert!(watch.serves(Path::new("skins")), "not yet due");
+        watch.failed = Some(Instant::now() - SKIN_WATCH_RETRY);
+        assert!(!watch.serves(Path::new("skins")), "due another try");
     }
 }

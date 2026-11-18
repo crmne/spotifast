@@ -5384,7 +5384,10 @@ impl App {
             }
             Err(error) => {
                 self.toast_error(format!("{}: {error}", crate::winamp::label(&loaded.name)));
-                if !loaded.installed {
+                // Only if the setting still names this skin: one chosen
+                // while it was being read stays chosen.
+                if !loaded.installed && self.settings.skin.as_deref() == Some(loaded.name.as_str())
+                {
                     self.settings.skin = self.winamp.worn.clone();
                     self.settings_dirty = true;
                 }
