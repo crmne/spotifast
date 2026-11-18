@@ -7353,6 +7353,10 @@ impl App {
     /// rows as a fresh list instead used to take seconds, threw the
     /// context away, and left Spotify's copy of the queue to reappear.
     fn play_queue_item(&mut self, index: usize, uri: String) {
+        if self.is_subscriber_only(&uri) {
+            self.subscriber_only_notice();
+            return;
+        }
         self.resume_load = None;
         if self.resume_only() {
             // Nothing is playing anywhere, so there is no live queue to
@@ -10689,6 +10693,13 @@ impl App {
     /// while it waited still plays its match.
     fn replay_queued_play(&mut self) {
         if let Some(request) = self.queued_play.take() {
+            // Spotify may have said the episode is for subscribers only
+            // while the player was connecting.
+            if self.starts_subscriber_only(&request) {
+                self.clear_play_pending();
+                self.subscriber_only_notice();
+                return;
+            }
             self.start_play(request, false);
         }
     }
@@ -12156,14 +12167,16 @@ impl App {
     /// Whether the song at `uri` can be queued. Spotify's queue refuses a
     /// `spotify:local:` URI, so a local file queues only on this computer's
     /// active player, which plays it from the local files folder, and only
-    /// when the folder holds it (#1002).
+    /// when the folder holds it (#1002). An episode only the podcast's
+    /// subscribers can play is never queued: Spotify refuses its audio key.
     pub fn can_queue(&self, uri: &str) -> bool {
-        !uri.starts_with(LOCAL_URI_PREFIX)
+        (!uri.starts_with(LOCAL_URI_PREFIX)
             || (self.queue_locally_reorderable()
                 && self
                     .local_files
                     .as_ref()
-                    .is_some_and(|(_, uris)| uris.contains_key(&local_file_key(uri))))
+                    .is_some_and(|(_, uris)| uris.contains_key(&local_file_key(uri)))))
+            && !self.is_subscriber_only(uri)
     }
 
     /// The file in the local files folder that `uri` plays from.
@@ -12207,6 +12220,29 @@ impl App {
     /// can play, and this account does not subscribe (#1361).
     pub fn is_subscriber_only(&self, uri: &str) -> bool {
         self.subscriber_only_episodes.contains(uri)
+    }
+
+    /// Whether `request` starts on an episode only the podcast's
+    /// subscribers can play.
+    fn starts_subscriber_only(&self, request: &PlayRequest) -> bool {
+        request
+            .offset_uri
+            .as_deref()
+            .or_else(|| {
+                request
+                    .uris
+                    .get(request.offset_position.unwrap_or(0) as usize)
+                    .map(String::as_str)
+            })
+            .is_some_and(|uri| self.is_subscriber_only(uri))
+    }
+
+    /// Explains why a subscriber-only episode does not start.
+    fn subscriber_only_notice(&mut self) {
+        self.toast(gettext(
+            self.locale,
+            "This episode is only for the podcast's subscribers.",
+        ));
     }
 
     /// Asks the streaming session once per session which of these episodes
@@ -12786,10 +12822,7 @@ impl App {
                 self.play_request(request, false);
             }
             Action::PlayEpisode { uri, .. } if self.is_subscriber_only(&uri) => {
-                self.toast(gettext(
-                    self.locale,
-                    "This episode is only for the podcast's subscribers.",
-                ));
+                self.subscriber_only_notice();
             }
             Action::PlayEpisode { uri, resume_ms } => {
                 // A started episode continues from the place the row or card
@@ -20084,6 +20117,13 @@ mod tests {
             .insert("spotify:episode:locked".into());
         assert!(!app.row_playable(&locked));
         assert!(app.row_playable(&free));
+        // Add to queue and Play next are not offered, and a queue request
+        // never reaches the player.
+        assert!(!app.can_queue("spotify:episode:locked"));
+        assert!(app.can_queue("spotify:episode:free"));
+        app.backend.take_player_commands();
+        app.queue_one("spotify:episode:locked".into(), "Locked".into(), true);
+        assert!(app.backend.take_player_commands().is_empty());
 
         app.queued_play = None;
         app.apply(
@@ -20108,6 +20148,23 @@ mod tests {
             &ctx,
         );
         assert!(app.queued_play.is_some(), "other episodes still play");
+
+        // A play held while the player connected is dropped if Spotify
+        // locks its episode meanwhile.
+        app.queued_play = Some(PlayRequest::tracks(vec!["spotify:episode:late".into()]));
+        app.subscriber_only_episodes
+            .insert("spotify:episode:late".into());
+        app.toasts.clear();
+        app.replay_queued_play();
+        assert!(app.queued_play.is_none());
+        assert!(app.backend.take_player_commands().is_empty());
+        assert_eq!(app.toasts.len(), 1, "the toast says why");
+
+        // Jumping to a locked queue row leaves the queue alone.
+        app.toasts.clear();
+        app.play_queue_item(0, "spotify:episode:late".into());
+        assert!(app.backend.take_player_commands().is_empty());
+        assert_eq!(app.toasts.len(), 1);
     }
 
     /// A started episode resumes where Spotify left it; a finished or

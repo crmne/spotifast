@@ -1156,7 +1156,9 @@ fn episode_access_request(uris: &[String]) -> BatchedEntityRequest {
 fn subscriber_only_in(response: &BatchedExtensionResponse) -> Vec<String> {
     let mut locked = Vec::new();
     for array in &response.extended_metadata {
-        if array.extension_kind.enum_value() != Ok(ExtensionKind::EPISODE_ACCESS) {
+        if array.extension_kind.enum_value() != Ok(ExtensionKind::EPISODE_ACCESS)
+            || !matches!(array.header.provider_error_status, 0 | 200)
+        {
             continue;
         }
         for data in &array.extension_data {
@@ -1191,6 +1193,8 @@ fn locked_by_paywall(bytes: &[u8]) -> bool {
             Err(_) => return false,
         };
         let read = match (tag >> 3, WireType::new(tag & 7)) {
+            // Field number zero is not valid protobuf.
+            (0, _) => return false,
             (1, Some(WireType::Varint)) => input.read_bool().map(|value| paywalled = value),
             (2, Some(WireType::Varint)) => input.read_bool().map(|value| subscribed = value),
             (_, Some(wire_type)) => input.skip_field(wire_type),
@@ -3036,6 +3040,7 @@ mod tests {
         assert!(!locked_by_paywall(&[0x08, 0x00]));
         assert!(!locked_by_paywall(&[]));
         assert!(!locked_by_paywall(&[0x08]));
+        assert!(!locked_by_paywall(&[0x08, 0x01, 0x00, 0x00]));
 
         let locked = "spotify:episode:locked";
         let answers = response([
@@ -3065,6 +3070,16 @@ mod tests {
             ),
         ]);
         assert_eq!(subscriber_only_in(&answers), vec![locked.to_string()]);
+
+        // A failed metadata provider locks nothing.
+        let mut failed = answer(
+            ExtensionKind::EPISODE_ACCESS,
+            locked,
+            200,
+            Some(vec![0x08, 0x01]),
+        );
+        failed.header.mut_or_insert_default().provider_error_status = 503;
+        assert!(subscriber_only_in(&response([failed])).is_empty());
 
         let request = episode_access_request(&[locked.into(), "spotify:track:song".into()]);
         assert_eq!(
