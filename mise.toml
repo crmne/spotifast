@@ -4,3 +4,11 @@
 [tools]
 rust = { version = "1.98.0", components = ["rustfmt", "clippy"], mr_boxington = true }
 mr-boxington = "latest"
+# libprojectM, for MilkDrop, is built with CMake.
+cmake = "4.4.5"
+# The policy checks in .github/scripts, and zizmor's hook environment.
+python = "3.15.2"
+
+# Git hooks from .pre-commit-config.yaml: checks on commit, tests on push.
+[hooks]
+postinstall = "cargo install --locked prek@0.5.10 && prek install"

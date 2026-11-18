@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+#MISE description="Build and install spotifast into ~/.cargo/bin"
+exec cargo install --path . --locked
