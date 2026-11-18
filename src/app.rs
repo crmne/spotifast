@@ -45,6 +45,10 @@ const REMOTE_FRESH: Duration = Duration::from_secs(60);
 /// How often the open Friend activity panel asks for news.
 const FRIENDS_POLL: Duration = Duration::from_secs(15);
 const DEVICES_FRESH: Duration = Duration::from_secs(12);
+/// How long a signed-in Soloist is looked for each second. Spotify lists it
+/// a moment after sign-in; one still missing is likely hidden.
+const SOLOIST_APPEARING: Duration = Duration::from_secs(20);
+const SOLOIST_APPEARING_POLL: Duration = Duration::from_secs(1);
 const SEARCH_DEBOUNCE: Duration = Duration::from_millis(280);
 /// How long a suspend or the end of the session waits for pending file
 /// writes. fastframe-power holds the system back for 1.5 s before a
@@ -4647,13 +4651,11 @@ impl App {
                 }
                 self.poll_remote(true);
             }
-            if (self.show_devices
-                || (matches!(self.soloist_status, crate::soloist::Status::Ready { .. })
-                    && self.soloist_device_id.is_none()))
+            if let Some(fresh) = self.devices_refresh_after()
                 && !self.devices_loading
                 && self
                     .devices_fetched_at
-                    .is_none_or(|at| at.elapsed() > DEVICES_FRESH)
+                    .is_none_or(|at| at.elapsed() > fresh)
             {
                 self.refresh_devices();
             }
@@ -7296,6 +7298,20 @@ impl App {
         self.backend.api(ApiRequest::PlaybackState {
             seq: self.remote_poll_seq,
         });
+    }
+
+    /// How old the device list may grow, or `None` when nothing needs it.
+    fn devices_refresh_after(&self) -> Option<Duration> {
+        if matches!(self.soloist_status, crate::soloist::Status::Ready { .. })
+            && self.soloist_device_id.is_none()
+        {
+            return Some(if self.soloist_status_at.elapsed() < SOLOIST_APPEARING {
+                SOLOIST_APPEARING_POLL
+            } else {
+                DEVICES_FRESH
+            });
+        }
+        self.show_devices.then_some(DEVICES_FRESH)
     }
 
     fn refresh_devices(&mut self) {
@@ -23710,6 +23726,37 @@ mod tests {
         assert_eq!(app.page(), &Page::Settings);
         app.apply(Action::SetSoloist(false), &ctx);
         assert!(!app.soloist_waiting());
+        app.backend.shutdown();
+    }
+
+    /// Soloist took 12 s to start: Spotify listed it only on the second ask.
+    #[test]
+    fn a_signed_in_soloist_is_looked_for_each_second_then_at_the_picker_pace() {
+        use crate::soloist::{Status, Update};
+        let mut app = test_app("soloist-appearing");
+        app.backend.set_offline(true);
+        app.settings.soloist_enabled = true;
+        assert_eq!(app.devices_refresh_after(), None);
+        app.show_devices = true;
+        assert_eq!(app.devices_refresh_after(), Some(DEVICES_FRESH));
+        app.show_devices = false;
+        app.on_soloist(Update::Status(Status::Starting));
+        assert_eq!(app.devices_refresh_after(), None);
+        app.on_soloist(Update::Status(Status::Ready {
+            name: "owned".into(),
+            version: "test".into(),
+            expires: u64::MAX,
+        }));
+        assert_eq!(app.devices_refresh_after(), Some(SOLOIST_APPEARING_POLL));
+        app.soloist_status_at = Instant::now() - SOLOIST_APPEARING;
+        assert_eq!(app.devices_refresh_after(), Some(DEVICES_FRESH));
+        app.devices = vec![Device {
+            id: Some("own".into()),
+            name: "owned".into(),
+            ..Default::default()
+        }];
+        app.bind_soloist_device();
+        assert_eq!(app.devices_refresh_after(), None);
         app.backend.shutdown();
     }
 
