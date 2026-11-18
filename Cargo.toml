@@ -25,6 +25,9 @@ clap = { version = "4.5", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 log = "0.4"
+# Watches the skins folder, so a rewritten skin is read again. Already in the
+# tree through fastframe-theme, which watches the themes folder the same way.
+notify = "8"
 # One protected-store API, with only each target's native provider below.
 # Durable Spotify grants must not be copied into ordinary state JSON.
 keyring-core = "1"

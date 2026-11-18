@@ -4763,8 +4763,20 @@ impl App {
                 Some(name) => self.winamp.load(name, &self.dirs.skins_dir(), ctx),
             }
         }
+        // The skin on screen was rewritten on disk: read it again.
+        if self.settings.winamp_window && !self.winamp.is_loading() {
+            let folder = self.dirs.skins_dir();
+            if self.winamp.worn_rewritten(&folder, ctx)
+                && let Some(name) = self.winamp.worn.clone()
+            {
+                self.winamp.load(name, &folder, ctx);
+            }
+        }
         if let Some(loaded) = self.winamp.poll() {
             self.skin_loaded(loaded, ctx);
+            // This frame skipped the rewrite check while loading; one more
+            // frame runs it, even when nothing else on screen moves.
+            ctx.request_repaint();
         }
         self.run_wmp_skin(ctx);
         self.winamp.poll_choices();
@@ -5186,6 +5198,13 @@ impl App {
         {
             runtime.shut_down();
             self.save_skin_preferences(&mut runtime);
+            // The same skin read again: its new views start from what the old
+            // ones stored, up to their onclose handlers, not from the file as
+            // it was read before they closed.
+            if self.winamp.worn.as_deref() == Some(runtime.name.as_str()) {
+                self.winamp
+                    .set_skin_preferences(runtime.shared.prefs.clone());
+            }
         }
         let Some(wmp) = wearing else {
             return;
@@ -5375,7 +5394,10 @@ impl App {
             }
             Err(error) => {
                 self.toast_error(format!("{}: {error}", crate::winamp::label(&loaded.name)));
-                if !loaded.installed {
+                // Only if the setting still names this skin: one chosen
+                // while it was being read stays chosen.
+                if !loaded.installed && self.settings.skin.as_deref() == Some(loaded.name.as_str())
+                {
                     self.settings.skin = self.winamp.worn.clone();
                     self.settings_dirty = true;
                 }
