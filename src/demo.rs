@@ -4095,6 +4095,63 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// Cmd+F selects what is already in the search field, so typing
+    /// replaces the query rather than adding to it.
+    #[test]
+    fn cmd_f_selects_the_search_query() {
+        let (ctx, mut app) = accessible_app("search-select-on-focus");
+        app.open(Page::Home);
+        let id = egui::Id::new("global-search");
+        let press_cmd_f = || {
+            vec![egui::Event::Key {
+                key: egui::Key::F,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::COMMAND,
+            }]
+        };
+
+        // The shortcut becomes an action in this frame; the top bar focuses
+        // the field and sets the selection on the next.
+        accessible_frame(&ctx, &mut app, press_cmd_f());
+        accessible_frame(&ctx, &mut app, vec![]);
+        accessible_frame(&ctx, &mut app, vec![]);
+
+        let range = egui::TextEdit::load_state(&ctx, id)
+            .and_then(|state| state.cursor.char_range())
+            .expect("the search field's cursor");
+        assert_eq!(
+            (range.secondary.index.0, range.primary.index.0),
+            (0, 6),
+            "the whole query is selected"
+        );
+        assert!(
+            ctx.memory(|memory| memory.has_focus(id)),
+            "the field keeps focus"
+        );
+
+        // A character in the frame after Cmd+F must replace the query. The
+        // old order processed it before the selection, so it appended to
+        // "Bonobo" and only then selected the updated query.
+        app.search.query = "Bonobo".into();
+        let mut state = egui::TextEdit::load_state(&ctx, id).expect("the field's state");
+        state
+            .cursor
+            .set_char_range(Some(egui::text::CCursorRange::one(
+                egui::text::CCursor::new(6),
+            )));
+        state.store(&ctx, id);
+        accessible_frame(&ctx, &mut app, press_cmd_f());
+        accessible_frame(&ctx, &mut app, vec![egui::Event::Text("a".into())]);
+        assert_eq!(
+            app.search.query, "a",
+            "the first typed character replaces the query"
+        );
+
+        app.backend.shutdown();
+    }
+
     #[test]
     fn the_cross_on_a_recent_search_forgets_only_that_query() {
         use egui::accesskit::{Action as AccessibleAction, Role};
