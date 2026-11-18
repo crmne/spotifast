@@ -4774,6 +4774,9 @@ impl App {
         }
         if let Some(loaded) = self.winamp.poll() {
             self.skin_loaded(loaded, ctx);
+            // This frame skipped the rewrite check while loading; one more
+            // frame runs it, even when nothing else on screen moves.
+            ctx.request_repaint();
         }
         self.run_wmp_skin(ctx);
         self.winamp.poll_choices();
@@ -5195,6 +5198,13 @@ impl App {
         {
             runtime.shut_down();
             self.save_skin_preferences(&mut runtime);
+            // The same skin read again: its new views start from what the old
+            // ones stored, up to their onclose handlers, not from the file as
+            // it was read before they closed.
+            if self.winamp.worn.as_deref() == Some(runtime.name.as_str()) {
+                self.winamp
+                    .set_skin_preferences(runtime.shared.prefs.clone());
+            }
         }
         let Some(wmp) = wearing else {
             return;

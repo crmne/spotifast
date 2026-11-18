@@ -242,6 +242,13 @@ impl SkinWatch {
         self.folder == folder && self.failed.is_none_or(|at| at.elapsed() < SKIN_WATCH_RETRY)
     }
 
+    /// Drops what was seen of `name`: it is about to be read as it is now.
+    fn forget(&self, name: &str) {
+        if let Ok(mut written) = self.written.lock() {
+            written.remove(name);
+        }
+    }
+
     /// Whether `name` was rewritten and has since been left alone long enough
     /// to read. Asks for a frame when it is still settling.
     fn rewritten(&self, name: &str, ctx: &egui::Context) -> bool {
@@ -443,6 +450,10 @@ impl WinampState {
 
     /// Reads a skin from the folder on another thread.
     pub fn load(&mut self, name: String, folder: &Path, ctx: &egui::Context) {
+        // Watch before reading, so a rewrite during the read is not missed.
+        if let Some(watch) = self.watch(folder, ctx) {
+            watch.forget(&name);
+        }
         let path = folder.join(&name);
         let preferences = skin_preferences_path(folder, &name);
         self.spawn(ctx, move || Loaded {
@@ -456,22 +467,27 @@ impl WinampState {
     /// Whether the skin on screen was rewritten in `folder` since it was read.
     /// Starts watching the folder the first time it is asked, if it exists.
     pub fn worn_rewritten(&mut self, folder: &Path, ctx: &egui::Context) -> bool {
-        let Some(name) = self.worn.as_deref() else {
+        let Some(name) = self.worn.clone() else {
             return false;
         };
+        self.watch(folder, ctx)
+            .is_some_and(|watch| watch.rewritten(&name, ctx))
+    }
+
+    /// The watch on `folder`, started (or tried again) if needed. None while
+    /// the folder does not exist.
+    fn watch(&mut self, folder: &Path, ctx: &egui::Context) -> Option<&SkinWatch> {
         if self
             .skin_watch
             .as_ref()
             .is_none_or(|watch| !watch.serves(folder))
         {
             if !folder.is_dir() {
-                return false;
+                return None;
             }
             self.skin_watch = Some(SkinWatch::new(folder, ctx));
         }
-        self.skin_watch
-            .as_ref()
-            .is_some_and(|watch| watch.rewritten(name, ctx))
+        self.skin_watch.as_ref()
     }
 
     /// Reads a skin from anywhere and, if it is one, copies it into the
@@ -919,6 +935,20 @@ mod tests {
             (".tmp.zip", SKIN_SETTLE * 2),
         ]);
         assert!(!watch.rewritten("Skin.wsz", &ctx));
+    }
+
+    #[test]
+    fn a_write_before_the_read_is_forgotten_and_one_during_it_is_kept() {
+        let ctx = egui::Context::default();
+        let watch = watch_with(&[("Skin.wsz", SKIN_SETTLE * 2)]);
+        watch.forget("Skin.wsz");
+        assert!(!watch.rewritten("Skin.wsz", &ctx), "read as it is now");
+
+        // Written while being read: read again once the load is on screen.
+        if let Ok(mut written) = watch.written.lock() {
+            written.insert("Skin.wsz".to_owned(), Instant::now() - SKIN_SETTLE * 2);
+        }
+        assert!(watch.rewritten("Skin.wsz", &ctx));
     }
 
     #[test]
