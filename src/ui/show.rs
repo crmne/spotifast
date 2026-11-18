@@ -320,8 +320,12 @@ pub fn episode_row(
     let is_current = now_playing
         .as_ref()
         .is_some_and(|now| now.uri == episode.uri);
+    // Only the podcast's paying subscribers can play it (#1361).
+    let locked = app.is_subscriber_only(&episode.uri);
     let title_color = if is_current {
         palette.accent
+    } else if locked {
+        palette.secondary
     } else {
         palette.text
     };
@@ -368,7 +372,14 @@ pub fn episode_row(
     } else {
         Icon::PlayFilled
     };
-    if app.play_pending(&episode.uri) {
+    if locked && !is_current {
+        let (lock, response) = child.allocate_exact_size(Vec2::splat(32.0), Sense::hover());
+        Icon::Lock.image(palette.secondary, 16.0).paint_at(
+            &child,
+            Rect::from_center_size(lock.center(), Vec2::splat(16.0)),
+        );
+        response.on_hover_text(gettext(locale, "Only for the podcast's subscribers"));
+    } else if app.play_pending(&episode.uri) {
         theme::circle_spinner(
             &mut child,
             32.0,

@@ -492,6 +492,10 @@ pub fn populate(app: &mut App) {
         .episodes
         .absorb(0, page((0..15).map(|index| episode(index, 0)).collect()));
     app.show_pages.insert("sh0".into(), show_page);
+    // Two episodes only the podcast's subscribers can play (#1361), locked.
+    for index in [2, 6] {
+        app.subscriber_only_episodes.insert(episode(index, 0).uri);
+    }
 
     // Radio pages, for a song and for a playlist. A song radio starts with
     // the song it is based on; a playlist radio has no song seed.

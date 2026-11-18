@@ -1119,6 +1119,90 @@ fn audiobooks_in(response: &BatchedExtensionResponse) -> Vec<String> {
     audiobooks
 }
 
+/// Which of the given episode URIs only a podcast's paying subscribers can
+/// play, and this account does not subscribe to (#1361). librespot is refused
+/// their audio key. Spotify answers only for episodes behind a paywall, so
+/// an episode it does not answer for stays playable.
+pub async fn subscriber_only_episodes(
+    session: &Session,
+    uris: &[String],
+) -> anyhow::Result<Vec<String>> {
+    let request = episode_access_request(uris);
+    if request.entity_request.is_empty() {
+        return Ok(Vec::new());
+    }
+    let response = session.spclient().get_extended_metadata(request).await?;
+    Ok(subscriber_only_in(&response))
+}
+
+fn episode_access_request(uris: &[String]) -> BatchedEntityRequest {
+    let mut request = BatchedEntityRequest::new();
+    for uri in uris
+        .iter()
+        .filter(|uri| uri.starts_with("spotify:episode:"))
+    {
+        request.entity_request.push(EntityRequest {
+            entity_uri: uri.clone(),
+            query: vec![ExtensionQuery {
+                extension_kind: EnumOrUnknown::new(ExtensionKind::EPISODE_ACCESS),
+                ..Default::default()
+            }],
+            ..Default::default()
+        });
+    }
+    request
+}
+
+fn subscriber_only_in(response: &BatchedExtensionResponse) -> Vec<String> {
+    let mut locked = Vec::new();
+    for array in &response.extended_metadata {
+        if array.extension_kind.enum_value() != Ok(ExtensionKind::EPISODE_ACCESS) {
+            continue;
+        }
+        for data in &array.extension_data {
+            if !matches!(data.header.status_code, 0 | 200) {
+                continue;
+            }
+            if data
+                .extension_data
+                .as_ref()
+                .is_some_and(|any| locked_by_paywall(&any.value))
+            {
+                locked.push(data.entity_uri.clone());
+            }
+        }
+    }
+    locked
+}
+
+/// Reads Spotify's `spotify.podcast_paywalls.PodcastSubscription`, which
+/// librespot does not compile: `bool is_paywalled = 1; bool
+/// is_user_subscribed = 2;`. A message that does not parse leaves the
+/// episode playable.
+fn locked_by_paywall(bytes: &[u8]) -> bool {
+    use protobuf::rt::WireType;
+    let mut input = protobuf::CodedInputStream::from_bytes(bytes);
+    let mut paywalled = false;
+    let mut subscribed = false;
+    loop {
+        let tag = match input.read_raw_tag_or_eof() {
+            Ok(Some(tag)) => tag,
+            Ok(None) => break,
+            Err(_) => return false,
+        };
+        let read = match (tag >> 3, WireType::new(tag & 7)) {
+            (1, Some(WireType::Varint)) => input.read_bool().map(|value| paywalled = value),
+            (2, Some(WireType::Varint)) => input.read_bool().map(|value| subscribed = value),
+            (_, Some(wire_type)) => input.skip_field(wire_type),
+            (_, None) => return false,
+        };
+        if read.is_err() {
+            return false;
+        }
+    }
+    paywalled && !subscribed
+}
+
 /// What the profile view says about a user: their display name and avatar,
 /// each when Spotify gives it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -2938,6 +3022,57 @@ mod tests {
             "only shows are asked about"
         );
         assert_eq!(request.entity_request[0].entity_uri, book);
+    }
+
+    /// The bytes Spotify sent for a subscriber-only episode (#1361) lock
+    /// it. A subscriber, an episode outside the paywall, an episode Spotify
+    /// does not answer for, and a garbled answer all stay playable.
+    #[test]
+    fn only_paywalled_episodes_without_a_subscription_are_locked() {
+        // is_paywalled = true, field 5 = 1 (as sent by Spotify).
+        assert!(locked_by_paywall(&[0x08, 0x01, 0x28, 0x01]));
+        // ... and is_user_subscribed = true.
+        assert!(!locked_by_paywall(&[0x08, 0x01, 0x10, 0x01]));
+        assert!(!locked_by_paywall(&[0x08, 0x00]));
+        assert!(!locked_by_paywall(&[]));
+        assert!(!locked_by_paywall(&[0x08]));
+
+        let locked = "spotify:episode:locked";
+        let answers = response([
+            answer(
+                ExtensionKind::EPISODE_ACCESS,
+                locked,
+                200,
+                Some(vec![0x08, 0x01, 0x28, 0x01]),
+            ),
+            answer(
+                ExtensionKind::EPISODE_ACCESS,
+                "spotify:episode:subscribed",
+                200,
+                Some(vec![0x08, 0x01, 0x10, 0x01]),
+            ),
+            answer(
+                ExtensionKind::EPISODE_ACCESS,
+                "spotify:episode:free",
+                404,
+                None,
+            ),
+            answer(
+                ExtensionKind::SHOW_V4,
+                "spotify:episode:odd",
+                200,
+                Some(vec![0x08, 0x01]),
+            ),
+        ]);
+        assert_eq!(subscriber_only_in(&answers), vec![locked.to_string()]);
+
+        let request = episode_access_request(&[locked.into(), "spotify:track:song".into()]);
+        assert_eq!(
+            request.entity_request.len(),
+            1,
+            "only episodes are asked about"
+        );
+        assert_eq!(request.entity_request[0].entity_uri, locked);
     }
 
     fn asked(uris: &[&str]) -> BTreeSet<String> {
