@@ -369,6 +369,19 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             if app.search.focus_requested {
                 app.search.focus_requested = false;
                 response.request_focus();
+                // As in browsers, select the query on focus so typing replaces it.
+                let end = app.search.query.chars().count();
+                if end > 0
+                    && let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), id)
+                {
+                    state
+                        .cursor
+                        .set_char_range(Some(egui::text::CCursorRange::two(
+                            egui::text::CCursor::new(0),
+                            egui::text::CCursor::new(end),
+                        )));
+                    state.store(ui.ctx(), id);
+                }
             }
             // Clear empties the field and hands it focus in the same frame.
             // Neither should leave the page: only typing a query does.

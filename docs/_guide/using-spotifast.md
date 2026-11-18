@@ -304,9 +304,10 @@ the fade to the queued audio. Natural track transitions remain gapless.
 Left and right arrows adjust a focused volume slider by five percentage
 points, or the seek slider by one percent of the song. Screen readers can
 also read and set these sliders' values. `Ctrl+F` (`Cmd+F` on macOS) focuses
-search. Since 0.9.0, `Space` plays or pauses the current song even
-when a song row or control has focus. Text fields keep Space for typing.
-Unmodified letter shortcuts still yield to the focused control.
+search and selects the current query, so typing replaces it. Since 0.9.0,
+`Space` plays or pauses the current song even when a song row or control has
+focus. Text fields keep Space for typing. Unmodified letter shortcuts still
+yield to the focused control.
 
 This is the first part of screen-reader support. Windows testing with NVDA
 remains tracked in [#262](https://github.com/crmne/spotifast/issues/262).
