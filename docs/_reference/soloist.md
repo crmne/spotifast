@@ -203,7 +203,10 @@ PipeWire's own data loops, which rtkit runs at its maximum of 20. Spotifast
 starts Soloist with a 200 ms realtime CPU limit (`RLIMIT_RTTIME`), which rtkit
 requires: an audio thread that ran that long without sleeping would be stopped
 by the kernel, and Spotifast would start Soloist again, rather than let it hold
-a CPU. `spotifast.log` says when that happens.
+a CPU. `spotifast.log` says when that happens. A computer that already allows
+realtime threads less than that keeps its own limit, because only an
+administrator could raise it. Where it allows none at all, Soloist still
+starts, its audio threads stay out of realtime, and playback carries on.
 
 Spotifast checks what each thread really runs at rather than trusting rtkit's
 answer. rtkit allows only so many requests in a burst, and a browser starting

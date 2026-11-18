@@ -58,20 +58,50 @@ const RTKIT_PATH: &str = "/org/freedesktop/RealtimeKit1";
 /// Makes `command`'s process start under `RLIMIT_RTTIME`, soft and hard
 /// alike: without it rtkit refuses realtime, and with it a runaway realtime
 /// thread is killed rather than left to hold a CPU.
+///
+/// Only privilege can raise a hard limit, so a computer that already allows
+/// realtime threads less than the ceiling keeps its own, even none. Soloist
+/// still starts there; `raise` then leaves its threads out of realtime,
+/// because the kernel would end one at its first cycle.
 pub fn bound_realtime(command: &mut tokio::process::Command) {
     // SAFETY: the closure runs in the child between fork and exec, and calls
-    // setrlimit alone, which is async-signal-safe. It allocates nothing.
+    // getrlimit and setrlimit alone, which are async-signal-safe. It allocates
+    // nothing.
+    unsafe { command.pre_exec(limit_child) };
+}
+
+/// Takes the child from fork to exec under the limit `bound` allows.
+fn limit_child() -> std::io::Result<()> {
+    let mut current = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
+    // SAFETY: getrlimit and setrlimit read and write only the struct here.
     unsafe {
-        command.pre_exec(|| {
-            let limit = libc::rlimit {
-                rlim_cur: RT_TIME_LIMIT_US as libc::rlim_t,
-                rlim_max: RT_TIME_LIMIT_US as libc::rlim_t,
-            };
-            if libc::setrlimit(libc::RLIMIT_RTTIME, &limit) != 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-            Ok(())
-        });
+        if libc::getrlimit(libc::RLIMIT_RTTIME, &mut current) != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        let limit = bound(current.rlim_max);
+        if libc::setrlimit(libc::RLIMIT_RTTIME, &limit) != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+    }
+    Ok(())
+}
+
+/// The soft and hard limit a child whose hard limit is `hard` may take: the
+/// ceiling, or `hard` where that is lower. Never above `hard`, which the
+/// child could only have raised with privilege.
+fn bound(hard: libc::rlim_t) -> libc::rlimit {
+    let ceiling = RT_TIME_LIMIT_US as libc::rlim_t;
+    let hard = if hard == libc::RLIM_INFINITY {
+        ceiling
+    } else {
+        hard.min(ceiling)
+    };
+    libc::rlimit {
+        rlim_cur: hard,
+        rlim_max: hard,
     }
 }
 
@@ -335,18 +365,37 @@ fn renice(tid: u32) -> bool {
     unsafe { libc::setpriority(libc::PRIO_PROCESS as _, tid as _, NICE) == 0 }
 }
 
+/// The hard realtime time limit `/proc` shows for `pid`, in microseconds.
+/// `None` when it cannot be read, or is unlimited.
+fn realtime_time(pid: u32) -> Option<u64> {
+    realtime_time_in(&std::fs::read_to_string(format!("/proc/{pid}/limits")).ok()?)
+}
+
+/// The same, from the contents of a `limits` file.
+fn realtime_time_in(limits: &str) -> Option<u64> {
+    let line = limits
+        .lines()
+        .find(|line| line.starts_with("Max realtime timeout"))?;
+    line.split_whitespace().nth(4)?.parse().ok()
+}
+
 /// Realtime, else nice -11 through rtkit, else through RLIMIT_NICE. Whether
-/// any of it took is for `/proc` to say; the error is rtkit's.
+/// any of it took is for `/proc` to say; the error is why not.
 fn raise(bus: &mut Option<zbus::blocking::Connection>, pid: u32, tid: u32) -> Result<(), String> {
-    let refused = match realtime(bus, pid, tid) {
-        Ok(()) => return Ok(()),
-        Err(error) => error,
+    // rtkit accepts a hard limit of zero, and then the kernel ends the thread
+    // at its first cycle, with SIGXCPU, so realtime is never asked for there.
+    let refused = match realtime_time(pid) {
+        Some(0) => String::from("this computer allows a realtime thread no time at all"),
+        _ => match realtime(bus, pid, tid) {
+            Ok(()) => return Ok(()),
+            Err(error) => format!("rtkit refused realtime: {error}"),
+        },
     };
     // Spends no more of rtkit's burst on a thread that has nice already.
     if !Level::of(pid, tid).is_some_and(Level::raised) && high_priority(bus, pid, tid).is_err() {
         renice(tid);
     }
-    Err(format!("rtkit refused realtime: {refused}"))
+    Err(refused)
 }
 
 /// Keeps `child`'s audio threads raised while `playing`, until `stopped`.
@@ -585,9 +634,13 @@ mod tests {
     }
 
     /// The limit is there before Soloist runs a line, soft and hard, and its
-    /// children have it too.
+    /// children have it too: the ceiling, or this computer's own hard limit
+    /// where that is lower. PipeWire's module-rt can leave the test process
+    /// below the ceiling once any test here has made a context.
     #[tokio::test]
     async fn a_spawned_child_runs_under_the_realtime_limit() {
+        let expected = realtime_time(std::process::id())
+            .map_or(RT_TIME_LIMIT_US, |hard| hard.min(RT_TIME_LIMIT_US));
         let mut command = tokio::process::Command::new("sleep");
         command.arg("30").kill_on_drop(true);
         bound_realtime(&mut command);
@@ -600,9 +653,74 @@ mod tests {
             .find(|line| line.starts_with("Max realtime timeout"))
             .unwrap();
         let fields: Vec<&str> = line.split_whitespace().collect();
-        // This process's own limit says nothing: PipeWire's module-rt sets
-        // the same value on it once any test here has made a context.
-        assert_eq!(fields[3..], ["200000", "200000", "us"], "{line}");
+        assert_eq!(fields[3], expected.to_string(), "{line}");
+        assert_eq!(fields[4], expected.to_string(), "{line}");
+        assert_eq!(fields[5], "us", "{line}");
+    }
+
+    /// A limit cannot be raised without privilege: what the child gets is the
+    /// ceiling or the computer's own hard limit, whichever is lower.
+    #[test]
+    fn a_bound_is_never_above_the_hard_limit() {
+        let ceiling = RT_TIME_LIMIT_US as libc::rlim_t;
+        for hard in [0, 1, 50_000, ceiling, ceiling * 2, libc::RLIM_INFINITY] {
+            let limit = bound(hard);
+            assert_eq!(limit.rlim_cur, limit.rlim_max);
+            assert!(limit.rlim_max <= ceiling);
+            if hard != libc::RLIM_INFINITY {
+                assert!(limit.rlim_max <= hard, "raised a hard limit of {hard}");
+            }
+        }
+        assert_eq!(bound(0).rlim_max, 0);
+        assert_eq!(bound(libc::RLIM_INFINITY).rlim_max, ceiling);
+    }
+
+    /// A computer that forbids realtime outright can be lowered no further,
+    /// and Soloist still starts: the hard limit stays at zero instead of the
+    /// spawn failing on a limit it may not raise. This process's own limit is
+    /// unlimited in CI, so the child takes zero for itself.
+    #[test]
+    fn a_child_starts_on_a_computer_that_forbids_realtime() {
+        // SAFETY: fork, and the child calls getrlimit, setrlimit and _exit,
+        // which are async-signal-safe, before either runtime sees it.
+        let pid = unsafe { libc::fork() };
+        assert!(pid >= 0, "fork failed");
+        if pid == 0 {
+            let zero = libc::rlimit {
+                rlim_cur: 0,
+                rlim_max: 0,
+            };
+            // SAFETY: setrlimit reads only the struct above.
+            let lowered = unsafe { libc::setrlimit(libc::RLIMIT_RTTIME, &zero) } == 0;
+            // SAFETY: _exit ends the child alone, and takes an int.
+            unsafe { libc::_exit(i32::from(!lowered || limit_child().is_err())) };
+        }
+        let mut status = 0;
+        // SAFETY: waitpid takes the child above and a status to fill.
+        let waited = unsafe { libc::waitpid(pid, &mut status, 0) };
+        assert_eq!(waited, pid);
+        assert!(libc::WIFEXITED(status));
+        assert_eq!(
+            libc::WEXITSTATUS(status),
+            0,
+            "the child could not start under a hard limit of zero"
+        );
+    }
+
+    /// The guard that keeps realtime out of a computer that allows none reads
+    /// the hard limit from the child's `limits` file.
+    #[test]
+    fn the_hard_realtime_time_limit_is_read_from_the_limits_file() {
+        let limits = |hard: &str| {
+            format!(
+                "Limit                     Soft Limit           Hard Limit           Units     \n\
+                 Max realtime timeout      {hard:<20} {hard:<20} us        \n"
+            )
+        };
+        assert_eq!(realtime_time_in(&limits("200000")), Some(200_000));
+        assert_eq!(realtime_time_in(&limits("0")), Some(0));
+        assert_eq!(realtime_time_in(&limits("unlimited")), None);
+        assert_eq!(realtime_time_in("Max nice priority 0 0\n"), None);
     }
 
     #[test]
