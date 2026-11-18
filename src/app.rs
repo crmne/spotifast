@@ -10696,6 +10696,7 @@ impl App {
             // Spotify may have said the episode is for subscribers only
             // while the player was connecting.
             if self.starts_subscriber_only(&request) {
+                self.queue_start_pending = None;
                 self.clear_play_pending();
                 self.subscriber_only_notice();
                 return;
@@ -20152,11 +20153,16 @@ mod tests {
         // A play held while the player connected is dropped if Spotify
         // locks its episode meanwhile.
         app.queued_play = Some(PlayRequest::tracks(vec!["spotify:episode:late".into()]));
+        app.queue_start_pending = Some(app.target());
         app.subscriber_only_episodes
             .insert("spotify:episode:late".into());
         app.toasts.clear();
         app.replay_queued_play();
         assert!(app.queued_play.is_none());
+        assert!(
+            app.queue_start_pending.is_none(),
+            "the next song change still consumes the manual queue"
+        );
         assert!(app.backend.take_player_commands().is_empty());
         assert_eq!(app.toasts.len(), 1, "the toast says why");
 
