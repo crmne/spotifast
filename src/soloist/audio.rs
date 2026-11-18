@@ -418,10 +418,13 @@ pub fn pulse_reaches_sink(sink: &str) -> bool {
 mod pulse {
     use std::{
         ffi::OsStr,
-        io::{Read, Write},
-        os::unix::net::UnixStream,
+        io::{self, Read, Write},
+        os::{
+            fd::{AsRawFd, FromRawFd, OwnedFd},
+            unix::{ffi::OsStrExt, net::UnixStream},
+        },
         path::{Path, PathBuf},
-        time::Duration,
+        time::{Duration, Instant},
     };
 
     const PROTOCOL_VERSION: u32 = 35;
@@ -754,12 +757,73 @@ mod pulse {
         Some(u32::from_be_bytes(bytes.get(1..5)?.try_into().ok()?))
     }
 
+    fn connect_unix_with_timeout(path: &Path, timeout: Duration) -> io::Result<UnixStream> {
+        let path_bytes = path.as_os_str().as_bytes();
+        let mut address: libc::sockaddr_un = unsafe { std::mem::zeroed() };
+        if path_bytes.contains(&0) || path_bytes.len() >= address.sun_path.len() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Pulse socket path is invalid or too long",
+            ));
+        }
+        address.sun_family = libc::AF_UNIX as libc::sa_family_t;
+        for (destination, source) in address.sun_path.iter_mut().zip(path_bytes) {
+            *destination = *source as libc::c_char;
+        }
+        let address_len = (std::mem::offset_of!(libc::sockaddr_un, sun_path) + path_bytes.len() + 1)
+            as libc::socklen_t;
+
+        let raw_fd = unsafe {
+            libc::socket(
+                libc::AF_UNIX,
+                libc::SOCK_STREAM | libc::SOCK_CLOEXEC | libc::SOCK_NONBLOCK,
+                0,
+            )
+        };
+        if raw_fd < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let fd = unsafe { OwnedFd::from_raw_fd(raw_fd) };
+        let deadline = Instant::now() + timeout;
+        loop {
+            let connected = unsafe {
+                libc::connect(
+                    fd.as_raw_fd(),
+                    std::ptr::from_ref(&address).cast(),
+                    address_len,
+                )
+            };
+            if connected == 0 {
+                break;
+            }
+            let error = io::Error::last_os_error();
+            match error.raw_os_error() {
+                Some(libc::EISCONN) => break,
+                Some(libc::EINTR) => continue,
+                Some(libc::EAGAIN) | Some(libc::EINPROGRESS) | Some(libc::EALREADY) => {
+                    let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                        return Err(io::Error::new(
+                            io::ErrorKind::TimedOut,
+                            "Pulse socket connection timed out",
+                        ));
+                    };
+                    std::thread::sleep(remaining.min(Duration::from_millis(10)));
+                }
+                _ => return Err(error),
+            }
+        }
+
+        let stream: UnixStream = fd.into();
+        stream.set_nonblocking(false)?;
+        Ok(stream)
+    }
+
     pub(super) fn socket_has_sink(
         path: &Path,
         sink: &str,
         cookie: &[u8; COOKIE_LEN],
-    ) -> std::io::Result<bool> {
-        let mut stream = UnixStream::connect(path)?;
+    ) -> io::Result<bool> {
+        let mut stream = connect_unix_with_timeout(path, SOCKET_TIMEOUT)?;
         let _ = stream.set_read_timeout(Some(SOCKET_TIMEOUT));
         let _ = stream.set_write_timeout(Some(SOCKET_TIMEOUT));
         Ok(query_connected_sink(&mut stream, sink, cookie).unwrap_or(false))
@@ -1141,6 +1205,44 @@ mod tests {
         assert!(pulse::socket_has_sink(&sock_path, "spotifast.soloist.owned", &cookie).unwrap());
         assert!(!pulse::socket_has_sink(&sock_path, "spotifast.soloist.foreign", &cookie).unwrap());
         server.join().unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn pulse_socket_lookup_does_not_block_on_a_full_accept_queue() {
+        use std::{
+            os::{
+                fd::AsRawFd,
+                unix::net::{UnixListener, UnixStream},
+            },
+            time::{Duration, Instant},
+        };
+        let dir = std::env::temp_dir().join(format!(
+            "spotifast-pulse-full-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let sock_path = dir.join("native");
+        let listener = UnixListener::bind(&sock_path).unwrap();
+        assert_eq!(unsafe { libc::listen(listener.as_raw_fd(), 0) }, 0);
+        let queued = UnixStream::connect(&sock_path).unwrap();
+
+        let started = Instant::now();
+        let result = pulse::socket_has_sink(&sock_path, "spotifast.soloist.owned", &[0; 256]);
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "full Pulse accept queue blocked for {:?}",
+            started.elapsed()
+        );
+        assert!(result.is_err() || !result.unwrap());
+
+        drop(queued);
+        drop(listener);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -2336,6 +2438,8 @@ mod pipewire {
         if let Some(target) = output_target {
             output_properties.insert("target.object", target);
             output_properties.insert("node.dont-fallback", "true");
+            // An explicit target must not be replaced by follow-default metadata.
+            output_properties.insert("node.dont-move", "true");
         }
         let output = pw::stream::StreamRc::new(core, "Soloist output", output_properties)?;
         let readiness = Rc::new((Cell::new(0u8), RefCell::new(Some(ready))));
@@ -4157,9 +4261,19 @@ mod pipewire {
             let bridge = Bridge::open_on(config, Some(output), OutputVolume::default())
                 .await
                 .expect("private bridge");
+            // PipeWire readiness precedes the separate Pulse service's registry update.
+            let mut pulse_sink_ready = false;
+            for _ in 0..100 {
+                if pulse_reaches_sink(&bridge.name) {
+                    pulse_sink_ready = true;
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
             assert!(
-                pulse_reaches_sink(&bridge.name),
-                "pipewire-pulse must expose the bridge sink"
+                pulse_sink_ready,
+                "pipewire-pulse must expose the bridge sink: {:?}",
+                bridge.fault()
             );
             assert!(
                 !pulse_reaches_sink("spotifast.soloist.absent"),
