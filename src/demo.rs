@@ -492,6 +492,12 @@ pub fn populate(app: &mut App) {
         .episodes
         .absorb(0, page((0..15).map(|index| episode(index, 0)).collect()));
     app.show_pages.insert("sh0".into(), show_page);
+    // Two episodes only the podcast's subscribers can play (#1361), locked.
+    for index in [2, 6] {
+        app.subscriber_only_episodes.insert(episode(index, 0).uri);
+    }
+    // And one on Home's podcast shelf.
+    app.subscriber_only_episodes.insert(episode(3, 1).uri);
 
     // Radio pages, for a song and for a playlist. A song radio starts with
     // the song it is based on; a playlist radio has no song seed.
@@ -3286,7 +3292,8 @@ mod tests {
         };
         assert!(has(&painted, "Your podcasts"));
         assert!(has(&painted, "20 min left • Rework"));
-        assert!(has(&painted, "New • Song Exploder"));
+        // Its newest episode is for the podcast's subscribers only (#1361).
+        assert!(has(&painted, "Subscribers only • Song Exploder"));
 
         let rework = app.home.podcasts[0].0.uri.clone();
         app.audiobook_shows.insert(rework);
@@ -3294,7 +3301,7 @@ mod tests {
         app.saved.insert(exploder, false);
         let painted = view_frame(&ctx, &mut app, vec![], view);
         assert!(!has(&painted, "20 min left • Rework"));
-        assert!(!has(&painted, "New • Song Exploder"));
+        assert!(!has(&painted, "Subscribers only • Song Exploder"));
         assert!(has(&painted, "43 min left • Darknet Diaries"));
 
         app.home.podcasts.clear();

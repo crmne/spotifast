@@ -42,6 +42,8 @@ const ENGINE_CONNECT_TIMEOUT: Duration = Duration::from_secs(75);
 const MAX_PENDING_ALBUM_TYPES: usize = 50;
 // Saved shows asked about in one extended-metadata request.
 const AUDIOBOOK_BATCH: usize = 50;
+// Episodes asked about in one extended-metadata request.
+const EPISODE_ACCESS_BATCH: usize = 50;
 /// How long resolving a radio station and its songs may take.
 const RADIO_TIMEOUT: Duration = Duration::from_secs(20);
 
@@ -905,6 +907,9 @@ pub enum Command {
     AlbumTypes(Vec<String>),
     /// Ask the streaming session which saved shows are audiobooks.
     AudiobookShows(Vec<String>),
+    /// Ask the streaming session which episodes only a podcast's paying
+    /// subscribers can play.
+    EpisodeAccess(Vec<String>),
     /// Read the headers of library playlists the Web API listed blank
     /// through the streaming session.
     PlaylistHeaders(Vec<String>),
@@ -954,6 +959,12 @@ pub enum Command {
     AudiobookShowsResolved {
         session_generation: u64,
         audiobooks: Vec<String>,
+    },
+    /// Internal: an episode access lookup finished for the session it
+    /// started in.
+    EpisodeAccessResolved {
+        session_generation: u64,
+        locked: Vec<String>,
     },
     /// Internal: one playlist header read finished for the session and
     /// engine it started on. `None` when the session could not read it.
@@ -1115,6 +1126,9 @@ pub enum Event {
     /// Saved shows that Spotify's metadata marks as audiobooks. librespot
     /// cannot play them, so the Podcasts shelf leaves them out.
     AudiobookShows(Vec<String>),
+    /// Episodes only a podcast's paying subscribers can play, which this
+    /// account does not subscribe to. librespot is refused their audio key.
+    SubscriberOnlyEpisodes(Vec<String>),
     /// The header the streaming session read for a library playlist the
     /// Web API listed blank.
     PlaylistHeader(Box<crate::api::models::Playlist>),
@@ -1219,6 +1233,8 @@ pub struct Backend {
     #[cfg(test)]
     home_episode_requests: std::sync::Mutex<Vec<(Vec<String>, u64)>>,
     #[cfg(test)]
+    episode_access_requests: std::sync::Mutex<Vec<Vec<String>>>,
+    #[cfg(test)]
     library_cache_stores: std::sync::Mutex<Vec<crate::account_cache::Cache<Vec<Playlist>>>>,
     #[cfg(test)]
     playlist_row_removals: std::sync::Mutex<Vec<(String, Vec<session_reads::RemovedRow>)>>,
@@ -1322,6 +1338,8 @@ impl Backend {
             #[cfg(test)]
             home_episode_requests: std::sync::Mutex::new(Vec::new()),
             #[cfg(test)]
+            episode_access_requests: std::sync::Mutex::new(Vec::new()),
+            #[cfg(test)]
             library_cache_stores: std::sync::Mutex::new(Vec::new()),
             #[cfg(test)]
             playlist_row_removals: std::sync::Mutex::new(Vec::new()),
@@ -1345,6 +1363,13 @@ impl Backend {
     }
 
     pub fn send(&self, command: Command) {
+        #[cfg(test)]
+        if let Command::EpisodeAccess(uris) = &command {
+            self.episode_access_requests
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push(uris.clone());
+        }
         #[cfg(test)]
         if let Command::StoreLibraryCache(cache) = &command {
             self.library_cache_stores
@@ -1545,6 +1570,16 @@ impl Backend {
         std::mem::take(
             &mut *self
                 .home_cache_stores
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn take_episode_access_requests(&self) -> Vec<Vec<String>> {
+        std::mem::take(
+            &mut *self
+                .episode_access_requests
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner()),
         )
@@ -1896,6 +1931,9 @@ struct Worker {
     album_type_lookup: AlbumTypeLookup,
     /// Saved shows waiting for the streaming session to say which are audiobooks.
     audiobook_lookup: BTreeSet<String>,
+    /// Episodes waiting for the streaming session to say which are for
+    /// subscribers only.
+    episode_access_lookup: BTreeSet<String>,
     /// Library playlists the Web API listed blank, waiting for the streaming
     /// session to read their headers.
     playlist_header_lookup: PlaylistHeaderLookup,
@@ -2015,6 +2053,7 @@ impl Worker {
             rootlist_pending: false,
             album_type_lookup: AlbumTypeLookup::default(),
             audiobook_lookup: BTreeSet::new(),
+            episode_access_lookup: BTreeSet::new(),
             playlist_header_lookup: PlaylistHeaderLookup::default(),
             radio_waiting: BTreeMap::new(),
             prerelease_waiting: None,
@@ -2876,6 +2915,10 @@ impl Worker {
                     self.audiobook_lookup.extend(uris);
                     self.start_audiobook_lookup();
                 }
+                Command::EpisodeAccess(uris) => {
+                    self.episode_access_lookup.extend(uris);
+                    self.start_episode_access_lookup();
+                }
                 Command::PlaylistHeaders(ids) => {
                     self.playlist_header_lookup.enqueue(ids);
                     self.start_playlist_header_lookup();
@@ -2946,6 +2989,14 @@ impl Worker {
                 } => {
                     if self.signed_in && session_generation == *self.session.borrow() {
                         self.emit(Event::AudiobookShows(audiobooks));
+                    }
+                }
+                Command::EpisodeAccessResolved {
+                    session_generation,
+                    locked,
+                } => {
+                    if self.signed_in && session_generation == *self.session.borrow() {
+                        self.emit(Event::SubscriberOnlyEpisodes(locked));
                     }
                 }
                 Command::PlaylistHeaderResolved {
@@ -3529,6 +3580,7 @@ impl Worker {
         self.authorize_if_rejected = false;
         self.album_type_lookup.reset_session();
         self.audiobook_lookup.clear();
+        self.episode_access_lookup.clear();
         self.playlist_header_lookup.clear_engine_work();
         self.radio_waiting.clear();
         self.prerelease_waiting = None;
@@ -4118,6 +4170,7 @@ impl Worker {
                 self.emit(Event::Playback(LocalPlayback::Ready { device_id }));
                 self.start_album_type_lookup();
                 self.start_audiobook_lookup();
+                self.start_episode_access_lookup();
                 self.start_playlist_header_lookup();
                 self.start_radio();
                 self.start_prerelease();
@@ -4489,6 +4542,36 @@ impl Worker {
             let _ = commands.send(Command::AudiobookShowsResolved {
                 session_generation,
                 audiobooks,
+            });
+        });
+    }
+
+    /// Asks the streaming session which waiting episodes are for a podcast's
+    /// subscribers only. Without a session they wait; a failed answer leaves
+    /// them playable.
+    fn start_episode_access_lookup(&mut self) {
+        let Some(engine) = self.engine.clone() else {
+            return;
+        };
+        if self.episode_access_lookup.is_empty() {
+            return;
+        }
+        let uris: Vec<String> = std::mem::take(&mut self.episode_access_lookup)
+            .into_iter()
+            .collect();
+        let session_generation = *self.session.borrow();
+        let commands = self.commands.clone();
+        tokio::spawn(async move {
+            let mut locked = Vec::new();
+            for chunk in uris.chunks(EPISODE_ACCESS_BATCH) {
+                match session_reads::subscriber_only_episodes(engine.session(), chunk).await {
+                    Ok(found) => locked.extend(found),
+                    Err(error) => log::debug!("episode access lookup failed: {error:#}"),
+                }
+            }
+            let _ = commands.send(Command::EpisodeAccessResolved {
+                session_generation,
+                locked,
             });
         });
     }

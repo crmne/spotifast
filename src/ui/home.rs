@@ -691,7 +691,14 @@ fn podcasts(app: &mut App, ui: &mut egui::Ui) {
         &gettext(app.locale, "Your podcasts"),
         |ui| {
             for (show, episode, reason) in &episodes {
+                // Only the podcast's paying subscribers can play it (#1361).
+                let locked = app.is_subscriber_only(&episode.uri);
                 let subtitle = match reason {
+                    _ if locked => {
+                        // Translators: {show} is the podcast's name.
+                        gettext(app.locale, "Subscribers only • {show}")
+                            .replace("{show}", &show.name)
+                    }
                     EpisodeReason::Continue { left_ms } => {
                         // Translators: {time} is the time left in an episode, such as 12 min; {show} is the podcast's name.
                         gettext(app.locale, "{time} left • {show}")
@@ -714,7 +721,10 @@ fn podcasts(app: &mut App, ui: &mut egui::Ui) {
                         .or_else(|| pick_image(&show.images, card_art)),
                     &episode.name,
                     &subtitle,
-                    widgets::CardCover::square(false),
+                    widgets::CardCover {
+                        playable: !locked,
+                        ..widgets::CardCover::square(false)
+                    },
                 );
                 if card.play {
                     app.actions.push(Action::PlayEpisode {

@@ -132,6 +132,11 @@ clients. Spotifast uses its session for:
   by a song, playlist, album, or artist. Each resolution is a fresh mix of 50
   songs, so a radio page plays the songs it shows rather than asking again.
 - **Audiobook detection** for saved shows, which the Web API lists as podcasts.
+- **Subscriber-only episodes**, which only a podcast's paying subscribers can
+  play, from the session's `EPISODE_ACCESS` metadata, one batched read per
+  page of episodes. Spotify refuses librespot their audio key, so for an
+  account that does not subscribe they show a lock and do not start. Until
+  the read answers, or when it fails, they look like any other episode.
 - **Play counts** on album pages and an artist's popular songs, from the
   Pathfinder queries Spotify's own pages make. The Web API has none. When
   the read fails, the lists leave the counts out.

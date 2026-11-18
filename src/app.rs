@@ -617,6 +617,12 @@ pub struct App {
     pub audiobook_shows: HashSet<String>,
     /// Saved shows already asked about.
     audiobooks_requested: HashSet<String>,
+    /// Episodes only a podcast's paying subscribers can play, which this
+    /// account does not subscribe to (#1361). They show a lock and do not
+    /// start, since librespot is refused their audio key.
+    pub subscriber_only_episodes: HashSet<String>,
+    /// Episodes already asked about.
+    episode_access_requested: HashSet<String>,
     /// Headers the streaming session read for library playlists the Web API
     /// listed blank, by playlist id, so a reloaded list fills at once.
     playlist_headers: HashMap<String, Playlist>,
@@ -815,6 +821,11 @@ pub struct App {
     /// A requested start whose effect on the manual queue is already applied.
     /// Context loads keep it; explicit skips consume their rows immediately.
     queue_start_pending: Option<Target>,
+    /// Counts each time `queue_start_pending` is set, so a dropped held
+    /// play clears only the marker it set itself.
+    queue_start_mark: u64,
+    /// `queue_start_mark` when the held `queued_play` was started.
+    queued_play_mark: u64,
     pub playlist_busy: bool,
     pub quit_requested: bool,
     /// Wheel step, Linux touchpad scale and glide, and the axis a gesture
@@ -1373,6 +1384,8 @@ impl App {
             album_types_requested: HashSet::new(),
             audiobook_shows: HashSet::new(),
             audiobooks_requested: HashSet::new(),
+            subscriber_only_episodes: HashSet::new(),
+            episode_access_requested: HashSet::new(),
             playlist_headers: HashMap::new(),
             playlist_headers_requested: HashSet::new(),
             confirmed_ep_albums: HashSet::new(),
@@ -1476,6 +1489,8 @@ impl App {
             last_now_playing_uri: None,
             last_now_playing_sequence: 0,
             queue_start_pending: None,
+            queue_start_mark: 0,
+            queued_play_mark: 0,
             playlist_busy: false,
             quit_requested: false,
             scrolling: fastframe_scroll::Scrolling::default(),
@@ -3118,6 +3133,9 @@ impl App {
                 Event::AudiobookShows(uris) => {
                     self.audiobook_shows.extend(uris);
                 }
+                Event::SubscriberOnlyEpisodes(uris) => {
+                    self.subscriber_only_episodes.extend(uris);
+                }
                 Event::PlaylistHeader(header) => {
                     self.playlist_headers.insert(header.id.clone(), *header);
                     self.fill_blank_playlists();
@@ -3796,6 +3814,8 @@ impl App {
         self.album_types_requested.clear();
         self.audiobook_shows.clear();
         self.audiobooks_requested.clear();
+        self.subscriber_only_episodes.clear();
+        self.episode_access_requested.clear();
         self.playlist_headers.clear();
         self.playlist_headers_requested.clear();
         self.confirmed_ep_albums.clear();
@@ -6329,6 +6349,12 @@ impl App {
         }
         if !home.podcasts_answered && home.podcasts.is_empty() {
             home.podcasts = cached.podcasts;
+            let uris: Vec<String> = home
+                .podcasts
+                .iter()
+                .flat_map(|(_, episodes)| episodes.iter().map(|episode| episode.uri.clone()))
+                .collect();
+            self.request_episode_access(uris);
         }
         if matches!(self.page(), Page::TopSongs) {
             let idx = self.home.top_period.index();
@@ -7334,6 +7360,10 @@ impl App {
     /// rows as a fresh list instead used to take seconds, threw the
     /// context away, and left Spotify's copy of the queue to reappear.
     fn play_queue_item(&mut self, index: usize, uri: String) {
+        if self.is_subscriber_only(&uri) {
+            self.subscriber_only_notice();
+            return;
+        }
         self.resume_load = None;
         if self.resume_only() {
             // Nothing is playing anywhere, so there is no live queue to
@@ -7392,7 +7422,7 @@ impl App {
             }
         }
         self.expect_track(uri.clone(), 0);
-        self.queue_start_pending = Some(self.target());
+        self.mark_queue_start(self.target());
         self.set_play_pending(vec![uri]);
         self.optimistic_playing = Some((true, Instant::now()));
         match self.target() {
@@ -7653,7 +7683,7 @@ impl App {
             self.track_cache.entry(id.to_owned()).or_insert(track);
         }
         self.consume_manual_queue_head(&uri);
-        self.queue_start_pending = Some(self.target());
+        self.mark_queue_start(self.target());
         self.expect_track(uri, 0);
     }
 
@@ -9384,6 +9414,12 @@ impl App {
             ApiResponse::HomeEpisodes { generation, .. } if generation != self.home.generation => {}
             ApiResponse::HomeEpisodes { result, .. } => match result {
                 Ok(podcasts) => {
+                    self.request_episode_access(
+                        podcasts
+                            .iter()
+                            .flat_map(|(_, episodes)| episodes.iter().map(|e| e.uri.clone()))
+                            .collect(),
+                    );
                     self.home.podcasts = podcasts;
                     self.home.podcasts_answered = true;
                     self.store_home_cache();
@@ -9399,6 +9435,12 @@ impl App {
                     for item in &page.items {
                         self.saved.insert(item.episode.uri.clone(), true);
                     }
+                    self.request_episode_access(
+                        page.items
+                            .iter()
+                            .map(|item| item.episode.uri.clone())
+                            .collect(),
+                    );
                     self.library.episodes.absorb(offset, page);
                 }
                 Err(error) => self
@@ -9575,6 +9617,14 @@ impl App {
                             .map(|track| track.uri.clone())
                             .collect();
                         self.request_contains(uris);
+                        self.request_episode_access(
+                            results
+                                .episodes
+                                .iter()
+                                .flat_map(|page| page.items.iter())
+                                .map(|episode| episode.uri.clone())
+                                .collect(),
+                        );
                         self.remember_search(&query);
                         self.search.results = Loadable::Loaded(results);
                         self.search.results_serial = serial;
@@ -9752,6 +9802,20 @@ impl App {
                 {
                     self.tint_for(Some(image));
                 }
+                // A podcast's first episodes usually arrive inside it.
+                if let Ok(Show {
+                    episodes: Some(episodes),
+                    ..
+                }) = &result
+                {
+                    self.request_episode_access(
+                        episodes
+                            .items
+                            .iter()
+                            .map(|episode| episode.uri.clone())
+                            .collect(),
+                    );
+                }
                 if let Some(page) = self.show_pages.get_mut(&id) {
                     match result {
                         Ok(mut show) => {
@@ -9777,6 +9841,15 @@ impl App {
                 }
             }
             ApiResponse::ShowEpisodes { id, offset, result } => {
+                if let Ok(episodes) = &result {
+                    self.request_episode_access(
+                        episodes
+                            .items
+                            .iter()
+                            .map(|episode| episode.uri.clone())
+                            .collect(),
+                    );
+                }
                 if let Some(page) = self.show_pages.get_mut(&id) {
                     match result {
                         Ok(episodes) => page.episodes.absorb(offset, episodes),
@@ -10627,6 +10700,18 @@ impl App {
     /// while it waited still plays its match.
     fn replay_queued_play(&mut self) {
         if let Some(request) = self.queued_play.take() {
+            // Spotify may have said the episode is for subscribers only
+            // while the player was connecting.
+            if self.starts_subscriber_only(&request) {
+                // Its marker goes with it, unless a later start or skip
+                // set the marker since and still needs it.
+                if self.queue_start_mark == self.queued_play_mark {
+                    self.queue_start_pending = None;
+                }
+                self.clear_play_pending();
+                self.subscriber_only_notice();
+                return;
+            }
             self.start_play(request, false);
         }
     }
@@ -10720,7 +10805,8 @@ impl App {
             shuffle: shuffle.then_some(true),
             at: Instant::now(),
         });
-        self.queue_start_pending = Some(self.target());
+        self.mark_queue_start(self.target());
+        self.queued_play_mark = self.queue_start_mark;
         // Held for Soloist, never handed to the built-in player meanwhile.
         if self.soloist_waiting() {
             self.queued_play = Some(request);
@@ -11434,6 +11520,12 @@ impl App {
     /// something to play. A play-search only counts once its match plays.
     fn changes_song_by_hand(&self, action: &Action) -> bool {
         match action {
+            // A subscriber-only episode does not start, so Repeat One stays.
+            Action::PlayEpisode { uri, .. } | Action::PlayFromRow { uri, .. }
+                if self.is_subscriber_only(uri) =>
+            {
+                false
+            }
             Action::Next
             | Action::PlayContext { .. }
             | Action::PlayUris { .. }
@@ -11516,7 +11608,7 @@ impl App {
             if !self.local.is_active() {
                 // Connect transfers the active device's full playback state.
                 // A Web API snapshot may be stale and cannot recreate its queue.
-                self.queue_start_pending = Some(Target::Local);
+                self.mark_queue_start(Target::Local);
                 self.resume_load = None;
                 self.local_transfer_sequence = Some(self.local.track_sequence);
                 self.local_list = None;
@@ -12094,14 +12186,16 @@ impl App {
     /// Whether the song at `uri` can be queued. Spotify's queue refuses a
     /// `spotify:local:` URI, so a local file queues only on this computer's
     /// active player, which plays it from the local files folder, and only
-    /// when the folder holds it (#1002).
+    /// when the folder holds it (#1002). An episode only the podcast's
+    /// subscribers can play is never queued: Spotify refuses its audio key.
     pub fn can_queue(&self, uri: &str) -> bool {
-        !uri.starts_with(LOCAL_URI_PREFIX)
+        (!uri.starts_with(LOCAL_URI_PREFIX)
             || (self.queue_locally_reorderable()
                 && self
                     .local_files
                     .as_ref()
-                    .is_some_and(|(_, uris)| uris.contains_key(&local_file_key(uri))))
+                    .is_some_and(|(_, uris)| uris.contains_key(&local_file_key(uri)))))
+            && !self.is_subscriber_only(uri)
     }
 
     /// The file in the local files folder that `uri` plays from.
@@ -12133,11 +12227,61 @@ impl App {
     /// Whether `item` can start playback here: a local file only when the
     /// local files folder holds it.
     pub fn row_playable(&self, item: &PlayableItem) -> bool {
-        crate::ui::widgets::row_playable(item)
+        (crate::ui::widgets::row_playable(item)
             || self
                 .local_files
                 .as_ref()
-                .is_some_and(|(_, uris)| uris.contains_key(&local_file_key(item.uri())))
+                .is_some_and(|(_, uris)| uris.contains_key(&local_file_key(item.uri()))))
+            && !self.is_subscriber_only(item.uri())
+    }
+
+    /// Whether `uri` is an episode only the podcast's paying subscribers
+    /// can play, and this account does not subscribe (#1361).
+    pub fn is_subscriber_only(&self, uri: &str) -> bool {
+        self.subscriber_only_episodes.contains(uri)
+    }
+
+    /// Notes that a start or skip already applied its effect on the
+    /// manual queue for `target`.
+    fn mark_queue_start(&mut self, target: Target) {
+        self.queue_start_pending = Some(target);
+        self.queue_start_mark = self.queue_start_mark.wrapping_add(1);
+    }
+
+    /// Whether `request` starts on an episode only the podcast's
+    /// subscribers can play.
+    fn starts_subscriber_only(&self, request: &PlayRequest) -> bool {
+        request
+            .offset_uri
+            .as_deref()
+            .or_else(|| {
+                request
+                    .uris
+                    .get(request.offset_position.unwrap_or(0) as usize)
+                    .map(String::as_str)
+            })
+            .is_some_and(|uri| self.is_subscriber_only(uri))
+    }
+
+    /// Explains why a subscriber-only episode does not start.
+    fn subscriber_only_notice(&mut self) {
+        self.toast(gettext(
+            self.locale,
+            "This episode is only for the podcast's subscribers.",
+        ));
+    }
+
+    /// Asks the streaming session once per session which of these episodes
+    /// are for subscribers only. Until it answers they stay playable.
+    fn request_episode_access(&mut self, uris: Vec<String>) {
+        let unknown: Vec<String> = uris
+            .into_iter()
+            .filter(|uri| uri.starts_with("spotify:episode:"))
+            .filter(|uri| self.episode_access_requested.insert(uri.clone()))
+            .collect();
+        if !unknown.is_empty() {
+            self.backend.send(Command::EpisodeAccess(unknown));
+        }
     }
 
     /// The picked rows to remove one by one, when the removal includes a
@@ -12703,6 +12847,9 @@ impl App {
                 let request = PlayRequest::tracks(uris).starting_at_index(index);
                 self.play_request(request, false);
             }
+            Action::PlayEpisode { uri, .. } if self.is_subscriber_only(&uri) => {
+                self.subscriber_only_notice();
+            }
             Action::PlayEpisode { uri, resume_ms } => {
                 // A started episode continues from the place the row or card
                 // showed as time left. The playing episode is left where it
@@ -12833,7 +12980,7 @@ impl App {
                 // discard that expectation or a quick Next, Previous leaves
                 // the row marker stuck on the skipped-to song.
                 self.intent_track = None;
-                self.queue_start_pending = Some(self.target());
+                self.mark_queue_start(self.target());
                 match self.target() {
                     Target::Local => self.backend.player(PlayerCommand::Previous),
                     Target::Remote(device_id) => self.remote(RemoteAction::Previous, device_id),
@@ -19925,6 +20072,164 @@ mod tests {
             0,
             "the playing episode is not sent back to an older saved place"
         );
+    }
+
+    /// An episode only the podcast's subscribers can play (#1361) is asked
+    /// about once, is not a playable row once Spotify answers, and pressing
+    /// play explains why instead of asking the engine for an audio key
+    /// Spotify will refuse.
+    #[test]
+    fn subscriber_only_episodes_are_asked_about_once_and_do_not_start() {
+        use crate::api::models::{Episode, Page as ApiPage};
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        let episode = |id: &str| Episode {
+            id: id.into(),
+            uri: format!("spotify:episode:{id}"),
+            ..Episode::default()
+        };
+        app.show_pages.insert("show".into(), Default::default());
+        let answer = |app: &mut App| {
+            app.handle_api(ApiResponse::ShowEpisodes {
+                id: "show".into(),
+                offset: 0,
+                result: Ok(ApiPage {
+                    items: vec![episode("locked"), episode("free")],
+                    total: 2,
+                    limit: 50,
+                    offset: 0,
+                    next: None,
+                }),
+            });
+        };
+        answer(&mut app);
+        assert_eq!(
+            app.backend.take_episode_access_requests(),
+            vec![vec![
+                "spotify:episode:locked".to_string(),
+                "spotify:episode:free".to_string()
+            ]]
+        );
+        answer(&mut app);
+        assert!(
+            app.backend.take_episode_access_requests().is_empty(),
+            "each episode is asked about once a session"
+        );
+        // A podcast's first episodes usually arrive inside the podcast
+        // itself, and then the list is not asked for again.
+        app.handle_api(ApiResponse::Show {
+            id: "show".into(),
+            result: Ok(Show {
+                id: "show".into(),
+                episodes: Some(ApiPage {
+                    items: vec![episode("embedded"), episode("free")],
+                    total: 2,
+                    limit: 50,
+                    offset: 0,
+                    next: None,
+                }),
+                ..Show::default()
+            }),
+        });
+        assert_eq!(
+            app.backend.take_episode_access_requests(),
+            vec![vec!["spotify:episode:embedded".to_string()]]
+        );
+
+        let locked = PlayableItem::Episode(episode("locked"));
+        let free = PlayableItem::Episode(episode("free"));
+        assert!(app.row_playable(&locked), "playable until Spotify answers");
+        app.subscriber_only_episodes
+            .insert("spotify:episode:locked".into());
+        assert!(!app.row_playable(&locked));
+        assert!(app.row_playable(&free));
+        // Add to queue and Play next are not offered, and a queue request
+        // never reaches the player.
+        assert!(!app.can_queue("spotify:episode:locked"));
+        assert!(app.can_queue("spotify:episode:free"));
+        app.backend.take_player_commands();
+        app.queue_one("spotify:episode:locked".into(), "Locked".into(), true);
+        assert!(app.backend.take_player_commands().is_empty());
+
+        app.queued_play = None;
+        app.apply(
+            Action::PlayEpisode {
+                uri: "spotify:episode:locked".into(),
+                resume_ms: None,
+            },
+            &ctx,
+        );
+        assert!(app.queued_play.is_none(), "nothing is sent to the engine");
+        assert!(
+            app.toasts
+                .iter()
+                .any(|toast| toast.message.contains("subscribers")),
+            "the toast says why"
+        );
+        app.apply(
+            Action::PlayEpisode {
+                uri: "spotify:episode:free".into(),
+                resume_ms: None,
+            },
+            &ctx,
+        );
+        assert!(app.queued_play.is_some(), "other episodes still play");
+
+        // A play held while the player connected is dropped if Spotify
+        // locks its episode meanwhile.
+        app.queued_play = Some(PlayRequest::tracks(vec!["spotify:episode:late".into()]));
+        app.queue_start_pending = Some(app.target());
+        app.subscriber_only_episodes
+            .insert("spotify:episode:late".into());
+        app.toasts.clear();
+        app.replay_queued_play();
+        assert!(app.queued_play.is_none());
+        assert!(
+            app.queue_start_pending.is_none(),
+            "the next song change still consumes the manual queue"
+        );
+        assert!(app.backend.take_player_commands().is_empty());
+        assert_eq!(app.toasts.len(), 1, "the toast says why");
+
+        // A skip made while the play was held keeps its own marker.
+        app.start_play(
+            PlayRequest::tracks(vec!["spotify:episode:held".into()]),
+            false,
+        );
+        assert!(app.queued_play.is_some(), "the play waits for the engine");
+        app.subscriber_only_episodes
+            .insert("spotify:episode:held".into());
+        app.mark_queue_start(app.target());
+        app.replay_queued_play();
+        assert!(app.queued_play.is_none());
+        assert!(
+            app.queue_start_pending.is_some(),
+            "the later skip's marker stays"
+        );
+
+        // Choosing a locked episode is not a song change: Repeat One stays.
+        for action in [
+            Action::PlayEpisode {
+                uri: "spotify:episode:held".into(),
+                resume_ms: None,
+            },
+            Action::PlayFromRow {
+                context: RowContext::Queue,
+                uri: "spotify:episode:held".into(),
+                index: 0,
+            },
+        ] {
+            assert!(!app.changes_song_by_hand(&action));
+        }
+        assert!(app.changes_song_by_hand(&Action::PlayEpisode {
+            uri: "spotify:episode:free".into(),
+            resume_ms: None,
+        }));
+        // Jumping to a locked queue row leaves the queue alone.
+        app.toasts.clear();
+        app.play_queue_item(0, "spotify:episode:late".into());
+        assert!(app.backend.take_player_commands().is_empty());
+        assert_eq!(app.toasts.len(), 1);
     }
 
     /// A started episode resumes where Spotify left it; a finished or
