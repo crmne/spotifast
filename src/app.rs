@@ -13500,19 +13500,17 @@ impl App {
                 self.settings.sidebar_visible = !self.settings.sidebar_visible;
                 self.settings_dirty = true;
             }
-            // Queue and Lyrics open together, stacked or side by side,
-            // unless the window has room for neither: then opening one takes
-            // the other's place, and a panel hidden behind the other comes
-            // forward instead of closing (#1390).
+            // Queue and Lyrics open together, stacked or side by side. A
+            // window with room for neither shows the one in front, and the
+            // other stays open behind it: opening it, or a click on its
+            // button, brings it forward instead of closing it, and both come
+            // back once the window has room (#1390).
             Action::ToggleQueuePanel => {
                 if self.queue_panel_shown(ctx) {
                     self.show_queue_panel = false;
                 } else {
                     self.show_queue_panel = true;
                     self.lyrics_in_front = false;
-                    if crate::ui::side_panels_together(ctx, self).is_none() {
-                        self.show_lyrics_panel = false;
-                    }
                     self.show_friends_panel = false;
                     self.refresh_queue(true);
                 }
@@ -13524,9 +13522,6 @@ impl App {
                 } else {
                     self.show_lyrics_panel = true;
                     self.lyrics_in_front = true;
-                    if crate::ui::side_panels_together(ctx, self).is_none() {
-                        self.show_queue_panel = false;
-                    }
                     self.show_friends_panel = false;
                     self.lyrics_following = true;
                     self.request_lyrics();
@@ -24314,24 +24309,30 @@ mod tests {
         app.backend.shutdown();
     }
 
-    /// A window with no room for both keeps one at a time: opening one
-    /// takes the other's place, as before both could be open.
+    /// A window with no room for both shows one at a time: opening one
+    /// brings it in front of the other, which stays open behind it and
+    /// shows again when the front one closes.
     #[test]
-    fn a_small_window_keeps_one_side_panel_at_a_time() {
+    fn a_small_window_shows_one_side_panel_at_a_time() {
         let ctx = sized_context(780.0, 540.0);
         let mut app = test_app("side-panels-small");
         assert_eq!(crate::ui::side_panels_together(&ctx, &app), None);
         app.apply(Action::ToggleQueuePanel, &ctx);
         app.apply(Action::ToggleLyricsPanel, &ctx);
-        assert!(app.show_lyrics_panel && !app.show_queue_panel);
+        assert!(app.lyrics_panel_shown(&ctx) && !app.queue_panel_shown(&ctx));
+        assert!(app.show_queue_panel, "the queue stays open behind");
         app.apply(Action::ToggleQueuePanel, &ctx);
-        assert!(app.show_queue_panel && !app.show_lyrics_panel);
+        assert!(app.queue_panel_shown(&ctx) && !app.lyrics_panel_shown(&ctx));
+        assert!(app.show_lyrics_panel, "the lyrics stay open behind");
+        app.apply(Action::ToggleQueuePanel, &ctx);
+        assert!(!app.show_queue_panel, "the front panel's button closes it");
+        assert!(app.lyrics_panel_shown(&ctx), "the one behind shows again");
         app.backend.shutdown();
     }
 
     /// Both open in a window that then shrinks: the one opened last shows,
     /// the other's button brings it forward instead of closing it, and both
-    /// come back once the window has room again.
+    /// come back once the window has room again, without reopening either.
     #[test]
     fn a_window_shrunk_under_both_side_panels_shows_the_last_opened() {
         let tall = sized_context(1280.0, 900.0);
@@ -24346,15 +24347,13 @@ mod tests {
             "the hidden queue comes forward"
         );
         assert!(!app.lyrics_panel_shown(&short));
-        assert!(!app.show_lyrics_panel, "and takes the lyrics' place");
-        app.apply(Action::ToggleLyricsPanel, &tall);
-        assert!(app.lyrics_panel_shown(&short) && !app.queue_panel_shown(&short));
+        assert!(app.show_lyrics_panel, "the lyrics stay open behind it");
         assert!(app.lyrics_panel_shown(&tall) && app.queue_panel_shown(&tall));
         app.backend.shutdown();
     }
 
     /// The arrangement button flips between rows and columns, remembered
-    /// in the settings, and a window with room for only one way uses it.
+    /// in the session, and a window with room for only one way uses it.
     #[test]
     fn the_side_panel_arrangement_follows_the_choice_and_the_room() {
         use crate::ui::Together;

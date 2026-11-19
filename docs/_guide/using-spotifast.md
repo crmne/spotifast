@@ -858,8 +858,9 @@ height. With room for them side by side, the button beside the expand button
 in the lyrics' header puts the queue beside the lyrics, and back below them.
 Spotifast remembers where you left the line and which way you chose. The
 Queue or Lyrics button closes only its own panel. A window too short or too
-narrow for both shows the one you opened last, and opening the other takes its
-place, as before.
+narrow for both shows the one you opened last, with the other still open behind
+it: its button brings it to the front, closing the front one shows it again,
+and both come back once the window has room.
 
 The expand button in the lyrics panel or at the right of the player bar, or
 **F** when no text field has focus, opens lyrics in full screen. A narrow
