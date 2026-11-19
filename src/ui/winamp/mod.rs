@@ -1624,6 +1624,13 @@ fn shuffle_repeat(app: &mut App, view: &mut View, now: Option<&NowPlaying>) {
     }
 }
 
+/// Whether the Windows Media Player skin's visualisation moves right now.
+#[cfg(all(test, feature = "demo"))]
+pub(crate) fn skin_effect_moving(app: &mut App) -> bool {
+    let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(216.0, 158.0));
+    wmp::effect_shapes(app, rect, 1.0, Instant::now()).1
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
