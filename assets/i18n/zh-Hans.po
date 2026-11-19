@@ -1673,6 +1673,14 @@ msgstr "深色模式主题"
 msgid "Used while your computer is in dark mode. Only dark themes are listed."
 msgstr "电脑处于深色模式时使用。仅列出深色主题。"
 
+#: src/ui/settings.rs:1240
+msgid "Only light themes are listed."
+msgstr "仅列出浅色主题。"
+
+#: src/ui/settings.rs:1244
+msgid "Only dark themes are listed."
+msgstr "仅列出深色主题。"
+
 #: src/ui/settings.rs:1242
 msgid "Follow system uses your Omarchy colours."
 msgstr "“跟随系统”会使用你的 Omarchy 配色。"

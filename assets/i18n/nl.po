@@ -1733,6 +1733,14 @@ msgstr ""
 "Gebruikt zolang je computer in de donkere modus staat. Alleen donkere "
 "thema's worden getoond."
 
+#: src/ui/settings.rs:1240
+msgid "Only light themes are listed."
+msgstr "Alleen lichte thema's worden getoond."
+
+#: src/ui/settings.rs:1244
+msgid "Only dark themes are listed."
+msgstr "Alleen donkere thema's worden getoond."
+
 #: src/ui/settings.rs:1242
 msgid "Follow system uses your Omarchy colours."
 msgstr "“Systeem volgen” gebruikt je Omarchy-kleuren."
