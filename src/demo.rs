@@ -9461,6 +9461,25 @@ mod tests {
         app.backend.shutdown();
     }
 
+    #[cfg(feature = "demo")]
+    #[test]
+    fn soloist_drives_the_media_player_skin_visualizer() {
+        let (_ctx, mut app) = accessible_app("soloist-skin-visualizer");
+        app.backend.set_offline(true);
+        apply_flags(&mut app, None, Some("soloist-playing,devices"));
+        assert!(app.targets_own_soloist());
+        assert!(!app.now_playing().unwrap().local);
+        app.settings.vis = crate::settings::VisMode::Scope;
+        app.winamp.tap.push(&demo_sound(), 1.0);
+        // Soloist's captured sound reaches the skin like the player bar's.
+        app.soloist_audio = true;
+        assert!(crate::ui::winamp::skin_effect_moving(&mut app));
+        // Without the capture there is nothing to show.
+        app.soloist_audio = false;
+        assert!(!crate::ui::winamp::skin_effect_moving(&mut app));
+        app.backend.shutdown();
+    }
+
     #[test]
     fn soloist_keeps_spotify_feature_authorization_available() {
         use crate::backend::LocalPlayback;

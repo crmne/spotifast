@@ -637,11 +637,11 @@ fn wave_shapes(
     alpha: u8,
     unit: f32,
 ) -> (Vec<Shape>, bool) {
-    let sounding = app
-        .now_playing()
-        .is_some_and(|now| (now.playing || now.loading) && now.local);
+    let sounding = app.visualizer_sounding(app.now_playing().as_ref());
     let samples = if sounding {
-        app.winamp.tap.window(vis::SCOPE_SAMPLES, vis::LAG)
+        app.winamp
+            .tap
+            .window(vis::SCOPE_SAMPLES, app.visualizer_lag())
     } else {
         Vec::new()
     };
@@ -676,9 +676,7 @@ pub(super) fn effect_shapes(
     now: Instant,
 ) -> (Vec<Shape>, bool) {
     let now_playing = app.now_playing();
-    let sounding = now_playing
-        .as_ref()
-        .is_some_and(|now| (now.playing || now.loading) && now.local);
+    let sounding = app.visualizer_sounding(now_playing.as_ref());
     let palette = app.winamp.skin.vis_colors;
     let color = |index: usize| {
         let [r, g, b] = palette[index.min(palette.len() - 1)];
@@ -689,7 +687,9 @@ pub(super) fn effect_shapes(
         VisMode::Off => false,
         VisMode::Bars => {
             let samples = if sounding {
-                app.winamp.tap.window(vis::FFT_SAMPLES, vis::LAG)
+                app.winamp
+                    .tap
+                    .window(vis::FFT_SAMPLES, app.visualizer_lag())
             } else {
                 vec![0.0; vis::FFT_SAMPLES]
             };
@@ -718,7 +718,9 @@ pub(super) fn effect_shapes(
         }
         VisMode::Scope => {
             let samples = if sounding {
-                app.winamp.tap.window(vis::SCOPE_SAMPLES, vis::LAG)
+                app.winamp
+                    .tap
+                    .window(vis::SCOPE_SAMPLES, app.visualizer_lag())
             } else {
                 vec![0.0; vis::SCOPE_SAMPLES]
             };
