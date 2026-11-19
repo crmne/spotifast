@@ -292,7 +292,7 @@ version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40c48f72fd53cd289104fc64099abca73db4166ad86ea0b4341abe65af83dadc"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -303,7 +303,7 @@ checksum = "291e6a250ff86cd4a820112fb8898808a366d8f9f58ce16d1f538353ad55747d"
 dependencies = [
  "anstyle",
  "once_cell_polyfill",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -1481,7 +1481,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -1540,7 +1540,7 @@ checksum = "75b325c5dbd37f80359721ad39aca5a29fb04c89279657cffdda8736d0c0b9d2"
 [[package]]
 name = "dpi"
 version = "0.1.1"
-source = "git+https://github.com/crmne/winit?rev=0bed9dc0a7db02590a279fb8bac795fa39ee6948#0bed9dc0a7db02590a279fb8bac795fa39ee6948"
+source = "git+https://github.com/crmne/winit?rev=59ebfb727b8c83fcd28f8ca59c3733e32b4b4e9b#59ebfb727b8c83fcd28f8ca59c3733e32b4b4e9b"
 
 [[package]]
 name = "dpi"
@@ -1551,7 +1551,7 @@ checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 [[package]]
 name = "ecolor"
 version = "0.36.2"
-source = "git+https://github.com/crmne/egui?rev=6ce633ba5f7f64d19ef6d204f9377da560bb546b#6ce633ba5f7f64d19ef6d204f9377da560bb546b"
+source = "git+https://github.com/crmne/egui?rev=96c9740d53bb388f4dd7d8303d404a8148836909#96c9740d53bb388f4dd7d8303d404a8148836909"
 dependencies = [
  "bytemuck",
  "emath",
@@ -1561,7 +1561,7 @@ dependencies = [
 [[package]]
 name = "eframe"
 version = "0.36.2"
-source = "git+https://github.com/crmne/egui?rev=6ce633ba5f7f64d19ef6d204f9377da560bb546b#6ce633ba5f7f64d19ef6d204f9377da560bb546b"
+source = "git+https://github.com/crmne/egui?rev=96c9740d53bb388f4dd7d8303d404a8148836909#96c9740d53bb388f4dd7d8303d404a8148836909"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -1596,7 +1596,7 @@ dependencies = [
 [[package]]
 name = "egui"
 version = "0.36.2"
-source = "git+https://github.com/crmne/egui?rev=6ce633ba5f7f64d19ef6d204f9377da560bb546b#6ce633ba5f7f64d19ef6d204f9377da560bb546b"
+source = "git+https://github.com/crmne/egui?rev=96c9740d53bb388f4dd7d8303d404a8148836909#96c9740d53bb388f4dd7d8303d404a8148836909"
 dependencies = [
  "accesskit",
  "ahash",
@@ -1617,7 +1617,7 @@ dependencies = [
 [[package]]
 name = "egui-wgpu"
 version = "0.36.2"
-source = "git+https://github.com/crmne/egui?rev=6ce633ba5f7f64d19ef6d204f9377da560bb546b#6ce633ba5f7f64d19ef6d204f9377da560bb546b"
+source = "git+https://github.com/crmne/egui?rev=96c9740d53bb388f4dd7d8303d404a8148836909#96c9740d53bb388f4dd7d8303d404a8148836909"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -1636,7 +1636,7 @@ dependencies = [
 [[package]]
 name = "egui-winit"
 version = "0.36.2"
-source = "git+https://github.com/crmne/egui?rev=6ce633ba5f7f64d19ef6d204f9377da560bb546b#6ce633ba5f7f64d19ef6d204f9377da560bb546b"
+source = "git+https://github.com/crmne/egui?rev=96c9740d53bb388f4dd7d8303d404a8148836909#96c9740d53bb388f4dd7d8303d404a8148836909"
 dependencies = [
  "accesskit_winit",
  "arboard",
@@ -1658,7 +1658,7 @@ dependencies = [
 [[package]]
 name = "egui_extras"
 version = "0.36.2"
-source = "git+https://github.com/crmne/egui?rev=6ce633ba5f7f64d19ef6d204f9377da560bb546b#6ce633ba5f7f64d19ef6d204f9377da560bb546b"
+source = "git+https://github.com/crmne/egui?rev=96c9740d53bb388f4dd7d8303d404a8148836909#96c9740d53bb388f4dd7d8303d404a8148836909"
 dependencies = [
  "ahash",
  "egui",
@@ -1674,7 +1674,7 @@ dependencies = [
 [[package]]
 name = "egui_glow"
 version = "0.36.2"
-source = "git+https://github.com/crmne/egui?rev=6ce633ba5f7f64d19ef6d204f9377da560bb546b#6ce633ba5f7f64d19ef6d204f9377da560bb546b"
+source = "git+https://github.com/crmne/egui?rev=96c9740d53bb388f4dd7d8303d404a8148836909#96c9740d53bb388f4dd7d8303d404a8148836909"
 dependencies = [
  "bytemuck",
  "egui",
@@ -1693,7 +1693,7 @@ checksum = "252afb9ae5eaa683babdc6a068b3f5726eb19e05070c731f9b2a23a7c3e8ed34"
 [[package]]
 name = "emath"
 version = "0.36.2"
-source = "git+https://github.com/crmne/egui?rev=6ce633ba5f7f64d19ef6d204f9377da560bb546b#6ce633ba5f7f64d19ef6d204f9377da560bb546b"
+source = "git+https://github.com/crmne/egui?rev=96c9740d53bb388f4dd7d8303d404a8148836909#96c9740d53bb388f4dd7d8303d404a8148836909"
 dependencies = [
  "bytemuck",
  "serde",
@@ -1803,7 +1803,7 @@ dependencies = [
 [[package]]
 name = "epaint"
 version = "0.36.2"
-source = "git+https://github.com/crmne/egui?rev=6ce633ba5f7f64d19ef6d204f9377da560bb546b#6ce633ba5f7f64d19ef6d204f9377da560bb546b"
+source = "git+https://github.com/crmne/egui?rev=96c9740d53bb388f4dd7d8303d404a8148836909#96c9740d53bb388f4dd7d8303d404a8148836909"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -1829,7 +1829,7 @@ dependencies = [
 [[package]]
 name = "epaint_default_fonts"
 version = "0.36.2"
-source = "git+https://github.com/crmne/egui?rev=6ce633ba5f7f64d19ef6d204f9377da560bb546b#6ce633ba5f7f64d19ef6d204f9377da560bb546b"
+source = "git+https://github.com/crmne/egui?rev=96c9740d53bb388f4dd7d8303d404a8148836909#96c9740d53bb388f4dd7d8303d404a8148836909"
 
 [[package]]
 name = "equivalent"
@@ -1844,7 +1844,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -2907,7 +2907,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.61.2",
+ "windows-core 0.62.2",
 ]
 
 [[package]]
@@ -3449,7 +3449,7 @@ dependencies = [
 [[package]]
 name = "librespot-audio"
 version = "0.8.0"
-source = "git+https://github.com/crmne/librespot?rev=3ba977f1f918582edce566cfc16617f8eccdfb1e#3ba977f1f918582edce566cfc16617f8eccdfb1e"
+source = "git+https://github.com/crmne/librespot?rev=8ba22cd44168155b490e56aba80875771f27b75c#8ba22cd44168155b490e56aba80875771f27b75c"
 dependencies = [
  "aes 0.8.4",
  "bytes",
@@ -3468,7 +3468,7 @@ dependencies = [
 [[package]]
 name = "librespot-connect"
 version = "0.8.0"
-source = "git+https://github.com/crmne/librespot?rev=3ba977f1f918582edce566cfc16617f8eccdfb1e#3ba977f1f918582edce566cfc16617f8eccdfb1e"
+source = "git+https://github.com/crmne/librespot?rev=8ba22cd44168155b490e56aba80875771f27b75c#8ba22cd44168155b490e56aba80875771f27b75c"
 dependencies = [
  "futures-util",
  "librespot-core",
@@ -3487,7 +3487,7 @@ dependencies = [
 [[package]]
 name = "librespot-core"
 version = "0.8.0"
-source = "git+https://github.com/crmne/librespot?rev=3ba977f1f918582edce566cfc16617f8eccdfb1e#3ba977f1f918582edce566cfc16617f8eccdfb1e"
+source = "git+https://github.com/crmne/librespot?rev=8ba22cd44168155b490e56aba80875771f27b75c#8ba22cd44168155b490e56aba80875771f27b75c"
 dependencies = [
  "aes 0.8.4",
  "base64 0.22.1",
@@ -3545,7 +3545,7 @@ dependencies = [
 [[package]]
 name = "librespot-metadata"
 version = "0.8.0"
-source = "git+https://github.com/crmne/librespot?rev=3ba977f1f918582edce566cfc16617f8eccdfb1e#3ba977f1f918582edce566cfc16617f8eccdfb1e"
+source = "git+https://github.com/crmne/librespot?rev=8ba22cd44168155b490e56aba80875771f27b75c#8ba22cd44168155b490e56aba80875771f27b75c"
 dependencies = [
  "async-trait",
  "bytes",
@@ -3562,7 +3562,7 @@ dependencies = [
 [[package]]
 name = "librespot-oauth"
 version = "0.8.0"
-source = "git+https://github.com/crmne/librespot?rev=3ba977f1f918582edce566cfc16617f8eccdfb1e#3ba977f1f918582edce566cfc16617f8eccdfb1e"
+source = "git+https://github.com/crmne/librespot?rev=8ba22cd44168155b490e56aba80875771f27b75c#8ba22cd44168155b490e56aba80875771f27b75c"
 dependencies = [
  "log",
  "oauth2",
@@ -3576,7 +3576,7 @@ dependencies = [
 [[package]]
 name = "librespot-playback"
 version = "0.8.0"
-source = "git+https://github.com/crmne/librespot?rev=3ba977f1f918582edce566cfc16617f8eccdfb1e#3ba977f1f918582edce566cfc16617f8eccdfb1e"
+source = "git+https://github.com/crmne/librespot?rev=8ba22cd44168155b490e56aba80875771f27b75c#8ba22cd44168155b490e56aba80875771f27b75c"
 dependencies = [
  "form_urlencoded",
  "futures-util",
@@ -3597,7 +3597,7 @@ dependencies = [
 [[package]]
 name = "librespot-protocol"
 version = "0.8.0"
-source = "git+https://github.com/crmne/librespot?rev=3ba977f1f918582edce566cfc16617f8eccdfb1e#3ba977f1f918582edce566cfc16617f8eccdfb1e"
+source = "git+https://github.com/crmne/librespot?rev=8ba22cd44168155b490e56aba80875771f27b75c#8ba22cd44168155b490e56aba80875771f27b75c"
 dependencies = [
  "protobuf",
  "protobuf-codegen",
@@ -3867,7 +3867,7 @@ dependencies = [
  "once_cell",
  "png 0.18.1",
  "thiserror 2.0.20",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -5239,7 +5239,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -5648,7 +5648,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -6135,7 +6135,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3d1e2c7f27f8d4cb10542a02c49005dbd6e93095799d6f3be745fae9f8fedd4"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -6184,7 +6184,7 @@ dependencies = [
 
 [[package]]
 name = "spotifast"
-version = "0.17.1"
+version = "0.17.2"
 dependencies = [
  "aes 0.8.4",
  "anyhow",
@@ -6222,6 +6222,7 @@ dependencies = [
  "futures-util",
  "glutin",
  "glutin-winit",
+ "harfrust",
  "hmac 0.12.1",
  "http",
  "hyper-util",
@@ -6545,7 +6546,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.4",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -6930,7 +6931,7 @@ dependencies = [
  "once_cell",
  "png 0.18.1",
  "thiserror 2.0.20",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -6999,7 +7000,7 @@ checksum = "f2f6fb2847f6742cd76af783a2a2c49e9375d0a111c7bef6f71cd9e738c72d6e"
 dependencies = [
  "memoffset",
  "tempfile",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -7620,7 +7621,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -8076,7 +8077,7 @@ checksum = "d6bbff5f0aada427a1e5a6da5f1f98158182f26556f345ac9e04d36d0ebed650"
 [[package]]
 name = "winit"
 version = "0.30.13"
-source = "git+https://github.com/crmne/winit?rev=0bed9dc0a7db02590a279fb8bac795fa39ee6948#0bed9dc0a7db02590a279fb8bac795fa39ee6948"
+source = "git+https://github.com/crmne/winit?rev=59ebfb727b8c83fcd28f8ca59c3733e32b4b4e9b#59ebfb727b8c83fcd28f8ca59c3733e32b4b4e9b"
 dependencies = [
  "ahash",
  "android-activity",

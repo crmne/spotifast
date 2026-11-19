@@ -1066,6 +1066,7 @@ const DEMO_CLIENT_ID: &str = "0123456789abcdef0123456789abcdef";
 /// there. The demo may be pointed at a skin in someone's real folder, so it
 /// writes nothing through a link and never opens the file it would replace:
 /// the copy arrives by rename, which replaces a name, not what it points at.
+#[cfg(any(feature = "demo", all(test, unix)))]
 fn place_skin(source: &std::path::Path, folder: &std::path::Path) -> std::io::Result<String> {
     use std::io::{Error, ErrorKind};
     let name = source
@@ -1255,7 +1256,8 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
             | "soloist-playing"
             | "soloist-needs-key"
             | "soloist-reconnecting"
-            | "soloist-error" => {
+            | "soloist-error"
+            | "soloist-bad-build" => {
                 use crate::soloist::{Failure, Status};
                 if surface != "soloist-playing" {
                     app.open(Page::Settings);
@@ -1312,6 +1314,7 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                         }
                     }
                     "soloist-error" => Status::Failed(Failure::NotReady),
+                    "soloist-bad-build" => Status::Failed(Failure::BadBuild),
                     _ => Status::Off,
                 };
             }
@@ -1583,6 +1586,84 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                     version: "0.7.1".into(),
                     url: "https://spotifast.rocks/download/".into(),
                 });
+            }
+            // The update window with a download ready to install.
+            "update-ready" => {
+                let installation = crate::updates::Installation {
+                    executable: "/opt/spotifast/spotifast".into(),
+                    kind: crate::updates::Kind::Portable,
+                };
+                app.update = Some(crate::updates::Release {
+                    version: "0.18.0".into(),
+                    url: "https://github.com/crmne/spotifast/releases/tag/v0.18.0".into(),
+                });
+                app.update_support = Some(Ok(installation.clone()));
+                app.update_download = crate::updates::DownloadState::Ready(Box::new(
+                    crate::updates::Prepared::sample(installation, "0.18.0"),
+                ));
+                app.show_update = true;
+            }
+            // Settings filtered down to the automatic update switch.
+            "settings-updates" => {
+                app.winamp.demo_settings_filter = Some("Update automatically".into());
+            }
+            // The update window of a copy that can't update itself, for
+            // each way Spotifast is installed.
+            "update-aur" | "update-homebrew" | "update-copr" | "update-nixos" | "update-deb"
+            | "update-rpm" | "update-flatpak" | "update-appimage" => {
+                use crate::updates::{Manager, Notice, Route};
+                let version = "0.18.0";
+                let file = |name: &str| {
+                    format!(
+                        "https://github.com/crmne/spotifast/releases/download/v{version}/{name}"
+                    )
+                };
+                let managed = |manager, command: Option<&str>| Route::Managed {
+                    manager,
+                    command: command.map(str::to_owned),
+                };
+                let route = match surface {
+                    "update-aur" => Some(managed(Manager::Aur, Some("yay -Syu spotifast-bin"))),
+                    "update-homebrew" => Some(managed(
+                        Manager::HomebrewCask,
+                        Some("brew upgrade --cask spotifast"),
+                    )),
+                    "update-copr" => Some(Route::Copr {
+                        command: Some("sudo dnf upgrade --refresh spotifast".into()),
+                    }),
+                    "update-nixos" => Some(managed(Manager::Nix, None)),
+                    "update-deb" => Some(Route::Deb {
+                        download: file("spotifast_0.18.0_amd64.deb"),
+                        command: "sudo apt install ~/Downloads/spotifast_0.18.0_amd64.deb".into(),
+                    }),
+                    "update-rpm" => Some(Route::Rpm {
+                        command: format!(
+                            "sudo dnf install {}",
+                            file("spotifast-0.18.0-1.x86_64.rpm")
+                        ),
+                    }),
+                    "update-flatpak" => Some(Route::FlatpakBundle {
+                        download: file("spotifast-v0.18.0-x86_64.flatpak"),
+                        command:
+                            "flatpak install --user ~/Downloads/spotifast-v0.18.0-x86_64.flatpak"
+                                .into(),
+                    }),
+                    _ => None,
+                };
+                let reason = if route.is_none() {
+                    crate::updates::Unsupported::NotWritable
+                } else {
+                    crate::updates::Unsupported::NotPortable
+                };
+                app.update = Some(crate::updates::Release {
+                    version: version.into(),
+                    url: format!("https://github.com/crmne/spotifast/releases/tag/v{version}"),
+                });
+                app.update_support = Some(Err(Notice {
+                    reason: reason.to_string(),
+                    route,
+                }));
+                app.show_update = true;
             }
             "personal-app" => app.dialog = Some(Dialog::PersonalAppIntro),
             "slow-banner" => app.slow_banner = true,
@@ -4465,10 +4546,7 @@ mod tests {
             ("without a cover", "Compact track list"),
             ("Ctrl+0", "Interface zoom"),
             ("Rust", "About"),
-            (
-                "Downloads in the background",
-                "Download updates automatically",
-            ),
+            ("installs them the next time", "Update automatically"),
         ] {
             let query = if cfg!(target_os = "macos") && query == "Ctrl+0" {
                 "Cmd+0"
@@ -9314,7 +9392,7 @@ mod tests {
                 "Keep music playing when the window closes",
                 "Start with your computer",
                 "Automatic update checks",
-                "Download updates automatically",
+                "Update automatically",
             ] {
                 let text = settings_text(&ctx, &mut app, title);
                 assert!(
@@ -9963,7 +10041,12 @@ mod tests {
             return;
         }
         for &locale in crate::i18n::Locale::value_variants() {
-            for flag in ["soloist-welcome", "soloist-pairing", "soloist-error"] {
+            for flag in [
+                "soloist-welcome",
+                "soloist-pairing",
+                "soloist-error",
+                "soloist-bad-build",
+            ] {
                 let (ctx, mut app) = accessible_app("soloist-narrow");
                 app.backend.set_offline(true);
                 apply_flags(&mut app, None, Some(&format!("soloist-onboarding,{flag}")));

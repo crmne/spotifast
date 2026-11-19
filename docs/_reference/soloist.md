@@ -99,8 +99,15 @@ One short device list from Spotify does not unbind a running, signed-in Soloist.
 **Use the built-in player** stays available as a small link below each setup card.
 The saved key and pairing are retained for next time; signing out of Spotifast
 removes them. Closing Spotifast completely stops the child player. Closing to
-the tray leaves both running. If an earlier Spotifast left its player running,
-the next start stops that player first, so it cannot block the new one.
+the tray leaves both running. A polite request to end Spotifast (SIGTERM from
+`kill`, a logout or systemd, Ctrl+C in a terminal, or the terminal closing)
+quits it the same way, saving its state; a second request ends it at once.
+The player also ends with Spotifast when Spotifast is killed outright or
+crashes: on Linux the kernel stops it when its parent dies, on Windows it runs
+in a job object that closes with Spotifast, and on macOS a small watcher
+process stops it once Spotifast is gone. If an earlier Spotifast still left
+its player running, the next start stops that player first, so it cannot
+block the new one.
 
 Spotify publishes Linux x86_64, ARM64 and ARM32 builds, Apple Silicon builds
 for macOS 13 or newer, and Windows x86_64 builds. Intel Macs and native
@@ -117,6 +124,18 @@ is inactive or Spotifast restarts. A paused active session also waits, to
 preserve its queue. If Spotify has not published a usable replacement, the
 error is shown in the banner and in Settings; the built-in player remains
 available.
+
+A build Spotifast has not run here before is on trial until it plays or keeps
+running for five minutes. If it crashes twice in a row before then, after it
+has started, Spotifast stops using it on this computer and goes back to the
+build it replaced, which stays installed until the new one has proved itself.
+A clean exit, an expired build or a stop Spotifast asked for never counts. When
+there is no earlier build to go back to, as on a new installation, Soloist's
+status asks you to use the built-in player until Spotify publishes a new
+build. Spotifast never starts the crashing build again: while it runs an
+earlier build it checks daily for a newer one, and each time Soloist starts
+without a working build it checks Spotify's server, then tries any build other
+than the one that crashed.
 
 Downloads come directly from `soloist-builds.spotifycdn.com` over HTTPS.
 Spotifast does not bundle or mirror Spotify's executable. Archive extraction
@@ -176,9 +195,26 @@ The route holds about 60 ms of audio, or two graph cycles if those are longer,
 so a late wake-up in Soloist doesn't become a dropout. When that margin runs
 low it is rebuilt by playing up to 0.5% slow, too little to hear, and repeated
 dropouts raise it to at most 250 ms until things stay clean again. The clock
-and lyrics follow the delay as it changes. While Soloist plays, Spotifast asks rtkit, or failing
-that the system's nice limit, to raise the priority of its audio threads to
-nice -11. Anything that goes wrong on the route is counted and goes to
+and lyrics follow the delay as it changes.
+
+While Soloist plays, Spotifast asks rtkit to run its three audio threads
+realtime, at SCHED_RR priority 15. That puts them above the realtime threads
+browsers and other audio libraries ask rtkit for, at priority 10, and below
+PipeWire's own data loops, which rtkit runs at its maximum of 20. Spotifast
+starts Soloist with a 200 ms realtime CPU limit (`RLIMIT_RTTIME`), which rtkit
+requires: an audio thread that ran that long without sleeping would be stopped
+by the kernel, and Spotifast would start Soloist again, rather than let it hold
+a CPU. `spotifast.log` says when that happens.
+
+Spotifast checks what each thread really runs at rather than trusting rtkit's
+answer. rtkit allows only so many requests in a burst, and a browser starting
+up can use them all, so a thread that is refused is asked again, every 2
+seconds at first and then less often, up to every 30 seconds, until it runs
+realtime. A thread that rtkit demotes later is asked again at once. Until then
+it gets nice -11 where that is allowed. The log says once why a thread was
+refused, and again when all of them are raised.
+
+Anything that goes wrong on the route is counted and goes to
 `spotifast.log` at most every 10 seconds.
 
 The route uses native PipeWire streams and the system's default output. It

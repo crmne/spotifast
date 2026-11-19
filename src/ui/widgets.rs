@@ -3976,6 +3976,106 @@ mod playing_cover_tests {
     }
 }
 
+/// How [`copyable_text`] fits text wider than its row.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CopyFit {
+    /// The text wraps, and a narrow column puts the button under it, so
+    /// all of it stays readable (a redirect address to type elsewhere).
+    Wrap,
+    /// One line, cut off with an ellipsis and shown whole on hover, with
+    /// the button always beside it (a command to paste).
+    OneLine,
+}
+
+/// Text to paste somewhere else, such as a redirect address or a command,
+/// in monospace, with a Copy button that says Copied for a moment. `fit`
+/// says what happens when it is wider than the row; Copy always copies all
+/// of it.
+pub fn copyable_text(
+    ui: &mut egui::Ui,
+    palette: &Palette,
+    locale: Locale,
+    id: egui::Id,
+    text: &str,
+    size: f32,
+    fit: CopyFit,
+) {
+    const GAP: f32 = 8.0;
+    // The Frame's inner margin, on both sides.
+    const MARGIN: f32 = 20.0;
+    let now = ui.input(|input| input.time);
+    let copied = ui
+        .data(|data| data.get_temp::<f64>(id))
+        .is_some_and(|at| now - at < 2.0);
+    let copy = gettext(locale, "Copy");
+    // Translators: shown on the Copy button for a moment after it copied.
+    let copied_label = gettext(locale, "Copied");
+    let body = |ui: &mut egui::Ui, room: Option<f32>| {
+        Frame::new()
+            .fill(palette.surface)
+            .corner_radius(CornerRadius::same(6))
+            .inner_margin(Margin::symmetric(10, 6))
+            .show(ui, |ui| {
+                let label = egui::Label::new(
+                    egui::RichText::new(text)
+                        .font(egui::FontId::monospace(size))
+                        .color(palette.text),
+                )
+                .selectable(true);
+                match room {
+                    Some(room) => {
+                        ui.set_max_width(room);
+                        ui.add(label.truncate());
+                    }
+                    None => {
+                        ui.add(label);
+                    }
+                }
+            });
+        let label = if copied {
+            copied_label.clone()
+        } else {
+            copy.clone()
+        };
+        if theme::pill_button(ui, palette, &label, false).clicked() {
+            ui.ctx().copy_text(text.to_owned());
+            ui.data_mut(|data| data.insert_temp(id, now));
+        }
+    };
+    match fit {
+        CopyFit::Wrap => {
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = Vec2::new(GAP, 6.0);
+                body(ui, None);
+            });
+        }
+        CopyFit::OneLine => {
+            // Room for the wider of the two labels, so the text keeps its
+            // width when the button says Copied. pill_button pads 18 points
+            // a side.
+            let button = [&copy, &copied_label]
+                .iter()
+                .map(|label| {
+                    ui.painter()
+                        .layout_no_wrap(label.to_string(), theme::semibold(13.0), palette.text)
+                        .size()
+                        .x
+                })
+                .fold(0.0, f32::max)
+                + 36.0;
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing = Vec2::new(GAP, 6.0);
+                let room = (ui.available_width() - button - GAP - MARGIN).max(40.0);
+                body(ui, Some(room));
+            });
+        }
+    }
+    if copied {
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_millis(500));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -125,7 +125,12 @@ not consume a queue row or restore an older queue saved on this computer.
 
 5. **Playing a row from the queue skips to it.** The rows above it are
    skipped and removed, as if you had pressed Next down to it. The rows
-   below it stay, and the playlist keeps going afterwards.
+   below it stay, and the playlist keeps going afterwards. On this
+   computer the rows above leave the queue without playing, so only the
+   chosen song loads and no song in between is heard or named. Previous
+   then returns to the song that was playing, not to a skipped row. Another
+   device, Soloist included, cannot have a song taken out of its queue, so
+   it steps down to the row with one skip per row.
 
 6. **Starting a playlist or album keeps your songs.** The rows underneath
    change to the new collection; your songs stay under **Playing next**

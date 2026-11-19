@@ -480,6 +480,26 @@ pub(crate) fn run() -> eframe::Result<()> {
         log::warn!("unable to set the Dock icon: {error}");
     }
     let mut settings = settings::Settings::load(&dirs.settings_file());
+    // An update an earlier run downloaded installs now, before anything
+    // opens, when it installs on its own. The helper relaunches the new
+    // version with this launch's link and options; it shows the window,
+    // as every restart after an update does, to confirm it started.
+    if guarded {
+        let newest_run = spotifast::updates::policy::newest_run(
+            spotifast::updates::VERSION,
+            settings.newest_run.as_deref(),
+        );
+        let relaunch =
+            relaunch_arguments(cli.link.as_deref(), cli.device_name.as_deref(), cli.verbose);
+        if spotifast::updates::install_kept(
+            settings.update_automatically,
+            Some(&newest_run),
+            relaunch,
+        ) {
+            drop(instance);
+            return Ok(());
+        }
+    }
     if let Some(name) = cli.device_name {
         settings.device_name = name;
     }
@@ -528,6 +548,7 @@ pub(crate) fn run() -> eframe::Result<()> {
     #[allow(unused_mut)]
     let mut app = app::App::new(&waker, dirs, settings, options);
     if guarded {
+        app.remember_newest_run();
         app.enable_desktop_themes();
     }
     #[cfg(feature = "demo")]
@@ -609,6 +630,9 @@ pub(crate) fn run() -> eframe::Result<()> {
     let start_hidden = start_hidden(cli.start_hidden, link_given, demo, receipt_shown);
     #[cfg(not(feature = "demo"))]
     let start_hidden = start_hidden(cli.start_hidden, link_given, false, receipt_shown);
+    // From here a polite SIGTERM quits like Quit, stopping Soloist and
+    // saving the state, rather than ending the process where it stands.
+    spotifast::terminate::listen(waker.clone());
     let shell = fastframe_shell::Shell::new(app, &waker).start_hidden(start_hidden);
     // The menu-bar item answers only while AppKit's loop runs. Elsewhere
     // nothing needs the main thread between headless ticks, so the shell
@@ -764,6 +788,25 @@ impl MiniWindow {
             storage_path: app.dirs.cache.join("winamp.ron"),
         })
     }
+}
+
+/// What the new version starts with after an update installed at start:
+/// the link this launch opens and the options that change the session.
+fn relaunch_arguments(link: Option<&str>, device_name: Option<&str>, verbose: bool) -> Vec<String> {
+    let mut arguments = Vec::new();
+    if let Some(name) = device_name {
+        arguments.extend(["--device-name".to_owned(), name.to_owned()]);
+    }
+    if verbose {
+        arguments.push("--verbose".to_owned());
+    }
+    // Never after `--`: the helper adds `--update-receipt` after these, and
+    // `fastframe_update::intercept` reads no flag past `--`. A link given
+    // here already parsed as a link, so it can't be taken for a flag.
+    if let Some(link) = link {
+        arguments.push(link.to_owned());
+    }
+    arguments
 }
 
 /// The main window's remembered geometry. A demo run opens at its default
@@ -1612,6 +1655,24 @@ fn app_icon() -> egui::IconData {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An update installed at start relaunches with this launch's link and
+    /// options, and no `--` that would hide the receipt flag the helper adds.
+    #[test]
+    fn an_update_installed_at_start_relaunches_with_the_launchs_link() {
+        let link = "https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC";
+        let arguments = relaunch_arguments(Some(link), Some("Desk"), true);
+        // fastframe_update::intercept reads no flag past `--`, and the
+        // helper puts its receipt flag after these.
+        assert!(!arguments.iter().any(|argument| argument == "--"));
+        let mut relaunched = vec!["spotifast".to_owned()];
+        relaunched.extend(arguments);
+        let cli = Cli::try_parse_from(&relaunched).expect("it parses");
+        assert_eq!(cli.link.as_deref(), Some(link));
+        assert_eq!(cli.device_name.as_deref(), Some("Desk"));
+        assert!(cli.verbose);
+        assert!(relaunch_arguments(None, None, false).is_empty());
+    }
 
     /// The login entry's `--start-hidden` starts in the tray, unless the
     /// launch has something to show.

@@ -1,10 +1,12 @@
+use std::borrow::Cow;
+
 use egui::{Align, CornerRadius, Frame, Layout, Margin, RichText, Stroke};
 
 use crate::app::App;
-use crate::i18n::gettext;
+use crate::i18n::{Locale, gettext};
 use crate::model::Action;
 use crate::theme::{self, Icon};
-use crate::updates::DownloadState;
+use crate::updates::{DownloadState, Manager, Route};
 
 pub fn show(app: &mut App, ctx: &egui::Context) {
     if !app.show_update {
@@ -63,6 +65,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             ui.add_space(20.0);
             let mut action = None;
             let mut release_link = gettext(locale, "Release notes");
+            let mut release_url = release.url.clone();
             match &app.update_download {
                 DownloadState::Downloading { received, total } => {
                     let checking = *total > 0 && received == total;
@@ -119,6 +122,20 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                         )
                         .wrap(),
                     );
+                    if app.update_offer() == Some(crate::updates::Offer::Automatic) {
+                        ui.add_space(6.0);
+                        ui.add(
+                            egui::Label::new(
+                                RichText::new(gettext(
+                                    locale,
+                                    "If you don't restart now, it installs the next time Spotifast starts.",
+                                ))
+                                .font(theme::regular(14.0))
+                                .color(palette.secondary),
+                            )
+                            .wrap(),
+                        );
+                    }
                     action = Some((gettext(locale, "Restart to update"), Action::InstallUpdate));
                 }
                 DownloadState::Installing => {
@@ -148,16 +165,46 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                         None => {
                             theme::spinner(ui, 16.0, palette.accent);
                         }
-                        Some(Err(reason)) => {
+                        Some(Err(notice)) => {
+                            let how = notice
+                                .route
+                                .as_ref()
+                                .and_then(|route| how(route, locale))
+                                .unwrap_or_else(|| notice.reason.clone().into());
                             ui.add(
                                 egui::Label::new(
-                                    RichText::new(reason)
+                                    RichText::new(how.as_ref())
                                         .font(theme::regular(14.0))
                                         .color(palette.secondary),
                                 )
                                 .wrap(),
                             );
-                            release_link = gettext(locale, "Download from GitHub");
+                            let command = notice.route.as_ref().and_then(Route::command);
+                            if let Some(command) = command {
+                                ui.add_space(8.0);
+                                crate::ui::widgets::copyable_text(
+                                    ui,
+                                    &palette,
+                                    locale,
+                                    egui::Id::new("spotifast-update-command"),
+                                    command,
+                                    12.5,
+                                    crate::ui::widgets::CopyFit::OneLine,
+                                );
+                            }
+                            // A package manager's copy reads the notes; one
+                            // that needs a file, or says only why it can't
+                            // update, downloads it from GitHub.
+                            match notice.route.as_ref().and_then(Route::download) {
+                                Some(file) => {
+                                    release_link = gettext(locale, "Download from GitHub");
+                                    release_url = file.to_owned();
+                                }
+                                None if notice.route.is_none() => {
+                                    release_link = gettext(locale, "Download from GitHub");
+                                }
+                                None => {}
+                            }
                         }
                         Some(Ok(_)) => {
                             action = Some((
@@ -185,7 +232,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                         RichText::new(release_link)
                             .font(theme::medium(13.0))
                             .color(palette.secondary),
-                        &release.url,
+                        &release_url,
                     ));
                 });
             });
@@ -193,4 +240,70 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     if close {
         app.show_update = false;
     }
+}
+
+/// How a copy that can't update itself was installed, and what to do with
+/// the command below it. `None` for a package manager this window has no
+/// words for: it shows fastframe-update's reason instead.
+fn how(route: &Route, locale: Locale) -> Option<Cow<'static, str>> {
+    let managed = |name: &str, command: bool| {
+        if command {
+            gettext(
+                locale,
+                // Translators: {manager} is a package manager such as Homebrew, dnf or Nix. A command to copy follows.
+                "Installed with {manager}. Update it with this command:",
+            )
+        } else {
+            gettext(
+                locale,
+                // Translators: {manager} is a package manager such as Nix.
+                "Installed with {manager}. Update it the way you installed it.",
+            )
+        }
+        .replace("{manager}", name)
+        .into()
+    };
+    Some(match route {
+        Route::Managed { manager, command } => {
+            let name = match manager {
+                Manager::Aur if command.is_some() => {
+                    return Some(gettext(
+                        locale,
+                        // Translators: the AUR is the Arch User Repository. A command to copy follows.
+                        "Installed from the AUR. Update it with this command:",
+                    ));
+                }
+                Manager::Aur | Manager::Pacman => "pacman",
+                Manager::Dnf => "dnf",
+                Manager::Zypper => "zypper",
+                Manager::Homebrew | Manager::HomebrewCask => "Homebrew",
+                Manager::Snap => "Snap",
+                Manager::Nix => "Nix",
+                Manager::Cargo => "Cargo",
+                _ => return None,
+            };
+            managed(name, command.is_some())
+        }
+        Route::Copr { command: Some(_) } => gettext(
+            locale,
+            // Translators: COPR is Fedora's community package service. A command to copy follows.
+            "Installed from the Fedora COPR. Update it with this command:",
+        ),
+        Route::Copr { command: None } => managed("dnf", false),
+        Route::Deb { .. } => gettext(
+            locale,
+            // Translators: a command to copy follows.
+            "Installed from a DEB package. Download the new one, then install it with this command:",
+        ),
+        Route::Rpm { .. } => gettext(
+            locale,
+            // Translators: a command to copy follows.
+            "Installed from an RPM package. Install the new one with this command:",
+        ),
+        Route::FlatpakBundle { .. } => gettext(
+            locale,
+            // Translators: a command to copy follows.
+            "Installed from a Flatpak bundle. Download the new one, then install it with this command:",
+        ),
+    })
 }

@@ -53,9 +53,119 @@ impl Build {
             && self.digest.len() == 64
             && self.digest.bytes().all(|b| b.is_ascii_hexdigit())
     }
-    pub fn due(&self, at: u64) -> bool {
-        at.saturating_sub(self.built) >= 60 * DAY && at.saturating_sub(self.checked) >= DAY
+    /// Whether to look for a new build: daily in the build's last 30 days,
+    /// or daily at any age while a newer build that kept crashing here
+    /// (`waiting`) holds it back.
+    pub fn due(&self, at: u64, waiting: bool) -> bool {
+        (waiting || at.saturating_sub(self.built) >= 60 * DAY)
+            && at.saturating_sub(self.checked) >= DAY
     }
+    /// A short name for logs: the version and the start of the digest.
+    pub fn label(&self) -> String {
+        format!(
+            "{} ({})",
+            self.version,
+            self.digest.get(..12).unwrap_or(&self.digest)
+        )
+    }
+}
+
+/// How long an unproven build has to play or keep running before it counts
+/// as working on this computer.
+pub const TRIAL: Duration = Duration::from_secs(5 * 60);
+/// Early crashes in a row that make an unproven build bad here.
+pub const CRASH_LIMIT: u32 = 2;
+/// Bad builds remembered: Spotify serves one build at a time, so a few cover
+/// any build it could still be serving.
+const BAD_LIMIT: usize = 8;
+
+/// What Spotifast has learned about builds on this computer, in `trial.json`.
+/// A build is on trial until it plays or keeps running for `TRIAL`; one that
+/// crashes early `CRASH_LIMIT` times in a row is bad, and never used again.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+pub struct Trial {
+    /// The last build that played, or ran for `TRIAL`, here.
+    #[serde(default)]
+    pub proven: Option<String>,
+    /// The unproven build that crashed early, and how often in a row.
+    #[serde(default)]
+    pub crashed: Option<String>,
+    #[serde(default)]
+    pub crashes: u32,
+    #[serde(default)]
+    pub bad: Vec<Bad>,
+}
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct Bad {
+    pub digest: String,
+    pub version: String,
+    pub built: u64,
+}
+impl Trial {
+    pub fn on_trial(&self, digest: &str) -> bool {
+        self.proven.as_deref() != Some(digest)
+    }
+    pub fn is_bad(&self, digest: &str) -> bool {
+        self.bad.iter().any(|bad| bad.digest == digest)
+    }
+    /// Whether a build newer than `build` turned out bad here, so `build`
+    /// only stands in until Spotify publishes another.
+    pub fn waiting(&self, build: &Build) -> bool {
+        self.bad.iter().any(|bad| bad.built > build.built)
+    }
+    /// Records a run of `build` that played or kept running. Returns whether
+    /// that ended its trial.
+    pub fn proved(&mut self, build: &Build) -> bool {
+        if self.crashed.as_deref() == Some(build.digest.as_str()) {
+            self.crashed = None;
+            self.crashes = 0;
+        }
+        let ended = self.on_trial(&build.digest);
+        self.proven = Some(build.digest.clone());
+        ended
+    }
+    /// Records an early crash of `build`. Returns whether that made it bad:
+    /// it was on trial and crashed early `CRASH_LIMIT` times in a row. A
+    /// proven build's crash is not held against it.
+    pub fn crashed(&mut self, build: &Build) -> bool {
+        if !self.on_trial(&build.digest) {
+            return false;
+        }
+        if self.crashed.as_deref() == Some(build.digest.as_str()) {
+            self.crashes += 1;
+        } else {
+            self.crashed = Some(build.digest.clone());
+            self.crashes = 1;
+        }
+        if self.crashes < CRASH_LIMIT {
+            return false;
+        }
+        self.crashed = None;
+        self.crashes = 0;
+        if !self.is_bad(&build.digest) {
+            self.bad.push(Bad {
+                digest: build.digest.clone(),
+                version: build.version.clone(),
+                built: build.built,
+            });
+            let extra = self.bad.len().saturating_sub(BAD_LIMIT);
+            self.bad.drain(..extra);
+        }
+        true
+    }
+}
+pub async fn trial(root: &Path) -> Trial {
+    tokio::fs::read(root.join("trial.json"))
+        .await
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+pub async fn record(root: &Path, trial: &Trial) -> Result<()> {
+    let path = root.join("trial.json");
+    let bytes = serde_json::to_vec(trial)?;
+    tokio::task::spawn_blocking(move || fastframe_file::write_private(&path, bytes)).await??;
+    Ok(())
 }
 fn executable() -> &'static str {
     if cfg!(windows) {
@@ -115,8 +225,53 @@ pub async fn remember(root: &Path, name: &str, build: &Build) -> Result<()> {
     Ok(())
 }
 
-/// Keep the current build, its pending replacement and any rollback build
-/// selected by the caller. Abandoned staging folders are collected next day.
+/// A pointer as written, without checking the build it names: enough to
+/// decide what to keep or replace.
+async fn pointer(root: &Path, name: &str) -> Option<Build> {
+    serde_json::from_slice(&tokio::fs::read(root.join(name)).await.ok()?).ok()
+}
+
+/// Makes `build` the current one, once it has started. The build it
+/// replaces becomes `previous.json`, to go back to if the new one keeps
+/// crashing, unless it is bad itself.
+pub async fn adopt(root: &Path, build: &Build) -> Result<()> {
+    if let Some(current) = pointer(root, "current.json").await
+        && current.digest != build.digest
+    {
+        if trial(root).await.is_bad(&current.digest) {
+            let _ = tokio::fs::remove_file(root.join("previous.json")).await;
+        } else {
+            log::info!(
+                "Soloist {} replaces {}, which stays installed to go back to",
+                build.label(),
+                current.label()
+            );
+            remember(root, "previous.json", &current).await?;
+        }
+    }
+    remember(root, "current.json", build).await?;
+    let _ = tokio::fs::remove_file(root.join("pending.json")).await;
+    Ok(())
+}
+
+/// The builds to keep on disk: the running one, and the current, pending and
+/// previous builds the pointers name, except any that turned out bad.
+pub async fn kept(root: &Path, running: &Build) -> Vec<String> {
+    let trial = trial(root).await;
+    let mut keep = vec![running.digest.clone()];
+    for name in ["current.json", "pending.json", "previous.json"] {
+        if let Some(build) = pointer(root, name).await
+            && !trial.is_bad(&build.digest)
+            && !keep.contains(&build.digest)
+        {
+            keep.push(build.digest);
+        }
+    }
+    keep
+}
+
+/// Keep the builds in `keep` (see `kept`) and remove every other one.
+/// Abandoned staging folders are collected next day.
 pub async fn collect(root: &Path, keep: &[String]) -> Result<()> {
     let mut entries = tokio::fs::read_dir(root).await?;
     while let Some(entry) = entries.next_entry().await? {
@@ -486,6 +641,153 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
         result.unwrap();
     }
+    fn build(name: &str, built: u64) -> Build {
+        Build {
+            version: name.into(),
+            built,
+            checked: built,
+            digest: format!("{:x}", Sha256::digest(name.as_bytes())),
+        }
+    }
+    /// The 1.3.10.42 report: a new build that crashes soon after every start
+    /// is bad after its second crash in a row, and never adopted again.
+    #[test]
+    fn an_unproven_build_that_crashes_twice_in_a_row_is_bad() {
+        let at = 1_800_000_000;
+        let old = build("1.3.10.31", at - 30 * DAY);
+        let new = build("1.3.10.42", at);
+        let mut trial = Trial::default();
+        assert!(trial.proved(&old), "the first good run ends the trial");
+        assert!(!trial.proved(&old), "and only the first");
+        assert!(trial.on_trial(&new.digest));
+        assert!(!trial.crashed(&new), "one crash is not a pattern");
+        assert!(trial.crashed(&new), "the second in a row is");
+        assert!(trial.is_bad(&new.digest));
+        assert!(!trial.is_bad(&old.digest));
+        assert_eq!(trial.crashes, 0);
+        // The working build now stands in, and looks for another daily.
+        assert!(trial.waiting(&old));
+        let mut old = old;
+        old.checked = at;
+        assert!(old.due(at + DAY, true));
+        assert!(!old.due(at + DAY, false), "31 days old: not otherwise due");
+        assert!(!old.due(at + DAY - 1, true), "still once a day");
+        // The next build Spotify publishes is a different digest, on trial.
+        let next = build("1.3.10.50", at + 2 * DAY);
+        assert!(!trial.is_bad(&next.digest) && trial.on_trial(&next.digest));
+        assert!(!trial.waiting(&next));
+        // Remembered across restarts.
+        let json = serde_json::to_vec(&trial).unwrap();
+        assert_eq!(serde_json::from_slice::<Trial>(&json).unwrap(), trial);
+        assert_eq!(
+            serde_json::from_slice::<Trial>(b"{}").unwrap(),
+            Trial::default()
+        );
+    }
+    #[test]
+    fn crashes_count_in_a_row_and_never_against_a_proven_build() {
+        let (first, second) = (build("first", 1), build("second", 2));
+        let mut trial = Trial::default();
+        assert!(!trial.crashed(&first));
+        trial.proved(&first);
+        assert_eq!(trial.crashed, None, "a good run clears the count");
+        assert!(!trial.crashed(&first) && !trial.crashed(&first));
+        assert!(
+            !trial.is_bad(&first.digest),
+            "a proven build's crashes are its own business"
+        );
+        assert!(!trial.crashed(&second));
+        let mut other = Trial::default();
+        assert!(!other.crashed(&first));
+        assert!(
+            !other.crashed(&second),
+            "another build's crash breaks the row"
+        );
+        assert!(other.crashed(&second));
+        assert!(!other.is_bad(&first.digest));
+        for index in 0..BAD_LIMIT as u64 + 3 {
+            let bad = build(&format!("bad-{index}"), 10 + index);
+            other.crashed(&bad);
+            assert!(other.crashed(&bad));
+        }
+        assert_eq!(other.bad.len(), BAD_LIMIT, "only the latest are kept");
+        assert!(other.is_bad(&build(&format!("bad-{}", BAD_LIMIT + 2), 0).digest));
+    }
+    #[tokio::test]
+    async fn adopting_keeps_the_replaced_build_to_go_back_to() {
+        let root = scratch();
+        private_dir(&root).unwrap();
+        let (old, new, newer) = (build("old", 1), build("new", 2), build("newer", 3));
+        adopt(&root, &old).await.unwrap();
+        assert!(pointer(&root, "previous.json").await.is_none());
+        remember(&root, "pending.json", &new).await.unwrap();
+        adopt(&root, &new).await.unwrap();
+        assert_eq!(
+            pointer(&root, "current.json").await.unwrap().digest,
+            new.digest
+        );
+        assert_eq!(
+            pointer(&root, "previous.json").await.unwrap().digest,
+            old.digest
+        );
+        assert!(pointer(&root, "pending.json").await.is_none());
+        adopt(&root, &new).await.unwrap();
+        assert_eq!(
+            pointer(&root, "previous.json").await.unwrap().digest,
+            old.digest
+        );
+        // A bad build is never one to go back to.
+        let mut trial = Trial::default();
+        trial.crashed(&new);
+        trial.crashed(&new);
+        record(&root, &trial).await.unwrap();
+        adopt(&root, &newer).await.unwrap();
+        assert!(pointer(&root, "previous.json").await.is_none());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    /// Collecting at start must leave the build a crashing new one replaced.
+    #[tokio::test]
+    async fn collect_keeps_the_previous_build_and_drops_bad_and_old_ones() {
+        let root = scratch();
+        private_dir(&root).unwrap();
+        let [old, previous, current, pending, bad] =
+            ["old", "previous", "current", "pending", "bad"].map(|name| build(name, 1));
+        for build in [&old, &previous, &current, &pending, &bad] {
+            private_dir(&root.join(&build.digest)).unwrap();
+        }
+        private_dir(&root.join("staging-0000000000000001")).unwrap();
+        remember(&root, "previous.json", &previous).await.unwrap();
+        remember(&root, "current.json", &current).await.unwrap();
+        remember(&root, "pending.json", &bad).await.unwrap();
+        let mut trial = Trial::default();
+        trial.crashed(&bad);
+        trial.crashed(&bad);
+        record(&root, &trial).await.unwrap();
+        let keep = kept(&root, &pending).await;
+        assert_eq!(
+            keep,
+            vec![
+                pending.digest.clone(),
+                current.digest.clone(),
+                previous.digest.clone()
+            ]
+        );
+        collect(&root, &keep).await.unwrap();
+        for (build, kept) in [
+            (&old, false),
+            (&previous, true),
+            (&current, true),
+            (&pending, true),
+            (&bad, false),
+        ] {
+            assert_eq!(root.join(&build.digest).exists(), kept, "{}", build.version);
+        }
+        assert!(
+            root.join("staging-0000000000000001").exists(),
+            "a fresh stage may be in use"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
     #[tokio::test]
     async fn corrupted_build_is_never_restored_and_updates_are_due_before_expiry() {
         let root = scratch();
@@ -496,7 +798,7 @@ mod tests {
             checked: now() - 2 * DAY,
             digest: format!("{:x}", Sha256::digest(bytes)),
         };
-        assert!(build.due(now()));
+        assert!(build.due(now(), false));
         assert!(build.usable(now()));
         private_dir(build.path(&root).parent().unwrap()).unwrap();
         std::fs::write(build.path(&root), bytes).unwrap();

@@ -404,11 +404,21 @@ random token). Use the command rather than the channel itself.
 ## Updates
 
 The Windows installer, Mac app, AppImage, and portable Windows and Linux
-downloads update from inside Spotifast. Click the green update button to download a
-release, then choose when to restart and install it. Settings can enable
-automatic background downloads; restarting always waits for your click.
-Closing the update window keeps a download running. You can also check for a
-new release from Settings, or on macOS from the application menu.
+downloads update themselves. When Spotifast finds a new release, it
+downloads it in the background (not on a metered connection or without
+internet) and the green button at the top reads **Update ready**. Click it
+and choose **Restart to update** to install it now; otherwise it installs
+the next time Spotifast starts, before its window opens, and the new
+version opens in its place. Nothing restarts while you listen.
+
+Turn **Update automatically** off under **Settings > Updates** to decide each time: the green
+update button then downloads a release when you click it. A new major
+version always asks first. So does going back: if you install an older
+version than one you ran before, Spotifast still shows the newer releases
+but installs none of them on its own until one newer than the version you
+left comes out. Closing the update window keeps a download running. You can
+also check for a new release from Settings, or on macOS from the
+application menu.
 **Release notes** in **Settings > About** opens the GitHub release page of
 the version you are running, to read what changed.
 
@@ -418,7 +428,24 @@ previous installation. Updates keep your settings and sign-ins. On macOS,
 move Spotifast to Applications before updating it.
 
 Package-managed installations update through their package manager,
-including Homebrew, Flatpak, apt, dnf, pacman, Nix, and Cargo. Other
+including Homebrew, Flatpak, apt, dnf, pacman, Nix, and Cargo. They still
+show the green update button when a new release is out, once Spotifast has
+checked the release's signature. Its window says how this copy was
+installed and shows the command that updates it, with a **Copy** button;
+Spotifast never runs it for you:
+
+| Installed from | Command shown |
+| --- | --- |
+| AUR | `yay -Syu` (or `paru -Syu`) with the package you installed, such as `spotifast-bin` |
+| Homebrew | `brew upgrade --cask spotifast` |
+| Fedora COPR | `sudo dnf upgrade --refresh spotifast` |
+| The release's RPM package | `sudo dnf install` with the new package's address |
+| The release's DEB package | `sudo apt install` with the new package, after **Download from GitHub** |
+| The release's Flatpak | `flatpak install --user` with the new bundle, after **Download from GitHub** |
+| Nix profile | `nix profile upgrade` with its element |
+| Cargo | `cargo install` with the crate, or with its repository address |
+
+On NixOS or with Home Manager, update it the way you installed it. Other
 installations use the [Download page](/download/). Portable archives
 identify themselves with `spotifast-portable.txt`. On Windows, a portable
 copy keeps its settings, state and caches in the `spotifast-data` folder

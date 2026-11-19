@@ -430,6 +430,8 @@ main fields are:
 | `mac_notch_widget` | `false` | Show interactive Now Playing widget when hovering over the MacBook notch (macOS only) |
 | `mac_show_in_dock` | `true` | macOS only: show Spotifast in the Dock and Cmd+Tab. `false` keeps it in the menu bar only; the menu-bar icon always stays |
 | `check_for_updates` | `true` | Ask GitHub once a day for a newer release |
+| `update_automatically` | `true` | Download a newer release on the same major version in the background and install it at the next start. Replaces `download_updates_automatically` (off by default, downloads only), which is no longer read |
+| `newest_run` | none | The newest version that ran on this computer, so a person who went back to an older one is not updated past it on its own. Kept by the app, not a preference |
 | `web_client_id` | none | The Client ID you got by registering Spotifast, which it signs in with |
 | `personal_app_nudge_at` | none | Legacy daily-reminder timestamp, retained for older releases |
 | `personal_app_intro_seen` | `false` | Whether the Premium personal-app introduction was dismissed or followed (available since 0.8.0) |
@@ -483,7 +485,11 @@ and `--demo-show` adds surfaces on top of it: a comma separated list of
 a normal, narrow, or wide sidebar and collapsed artwork for matching captures.
 `shuffle-selected` and `shuffle-started` capture the selected-mode and
 playback-started outcomes of a collection Shuffle click. `update` shows a sample
-update badge for checking its layout. `personal-app` shows the introduction to
+update badge for checking its layout. `update-aur`, `update-homebrew`,
+`update-copr`, `update-nixos`, `update-deb`, `update-rpm`, `update-flatpak` and
+`update-appimage` open the update window of a copy that can't update itself,
+installed that way. `update-ready` opens it with a download ready to install,
+and `settings-updates` filters Settings down to **Update automatically**. `personal-app` shows the introduction to
 registering Spotifast for a listener on a shared grant, and `slow-banner` the
 banner suggesting it when Spotify slows the shared sign-in down. `audio-key-banner` shows the banner for a song
 whose audio key Spotify refused. `audio-outputs` opens the device picker with sample audio

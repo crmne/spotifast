@@ -285,8 +285,6 @@ impl PendingPaste {
 /// internet, taken once the connection is neither.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum HeldUpdate {
-    /// Look at how this copy was installed, to see if it can update itself.
-    Inspect,
     /// Download the release.
     Download,
 }
@@ -915,7 +913,9 @@ pub struct App {
     pub show_update: bool,
     pub update_download: crate::updates::DownloadState,
     pub update_source: crate::updates::Source,
-    pub update_support: Option<Result<crate::updates::Installation, String>>,
+    /// Whether this copy can install [`App::update`], from the check that
+    /// found it, or how it gets it instead.
+    pub update_support: Option<crate::updates::Support>,
     pub update_restart_arguments: Vec<String>,
     pub update_receipt: Option<fastframe_update::Receipt>,
     held_update: Option<HeldUpdate>,
@@ -3148,11 +3148,24 @@ impl App {
                 Event::WebApp { client_id } => self.web_app = client_id,
                 Event::SharedGrant(signed_in) => self.shared_grant = signed_in,
                 Event::UpdateSupport(result) => {
+                    // A release that installs on its own downloads in the
+                    // background; a new major version, the setting off or a
+                    // person who went back waits for the update window.
                     if result.is_ok()
-                        && self.settings.download_updates_automatically
+                        && self.update_offer() == Some(crate::updates::Offer::Automatic)
                         && matches!(self.update_download, crate::updates::DownloadState::Idle)
                     {
                         self.take_update_step(HeldUpdate::Download);
+                    }
+                    // A download the release turned out not to sign for this
+                    // copy is no failure: the window says how to update.
+                    if result.is_err()
+                        && matches!(
+                            self.update_download,
+                            crate::updates::DownloadState::Downloading { .. }
+                        )
+                    {
+                        self.update_download = crate::updates::DownloadState::Idle;
                     }
                     self.update_support = Some(result);
                 }
@@ -3163,6 +3176,15 @@ impl App {
                 Event::UpdateDownloaded(result) => {
                     self.update_download = match result {
                         Ok(prepared) => crate::updates::DownloadState::Ready(prepared),
+                        // UpdateSupport already turned it into the notice.
+                        Err(_)
+                            if matches!(
+                                self.update_download,
+                                crate::updates::DownloadState::Idle
+                            ) && matches!(self.update_support, Some(Err(_))) =>
+                        {
+                            crate::updates::DownloadState::Idle
+                        }
                         Err(error) => crate::updates::DownloadState::Failed(error),
                     };
                 }
@@ -3183,15 +3205,9 @@ impl App {
                                         .replace("{version}", &notice.version.to_string()),
                                 );
                             }
+                            // Whether it can be downloaded follows in
+                            // UpdateSupport, from the same check.
                             self.update = Some(notice);
-                            if self.settings.download_updates_automatically
-                                && matches!(
-                                    self.update_download,
-                                    crate::updates::DownloadState::Idle
-                                )
-                            {
-                                self.take_update_step(HeldUpdate::Inspect);
-                            }
                         }
                         Ok(None) => {
                             self.update = None;
@@ -3279,6 +3295,7 @@ impl App {
             }
             Update::UpdateReady(version) => self.soloist_update = Some(version),
             Update::UpdateFailed => self.toast_error(gettext(self.locale, "Soloist could not download its renewal. It will retry tomorrow; the current build is still installed.")),
+            Update::RolledBack => self.toast(gettext(self.locale, "Spotify's new Soloist build kept crashing on this computer, so Spotifast went back to the previous one.")),
         }
     }
 
@@ -4567,10 +4584,10 @@ impl App {
         {
             self.check_for_updates(false);
         }
-        // The step stays held while automatic downloads are off, so turning
+        // The step stays held while automatic updates are off, so turning
         // them back on picks it up.
         if !self.downloads_wait()
-            && self.settings.download_updates_automatically
+            && self.update_offer() == Some(crate::updates::Offer::Automatic)
             && matches!(self.update_download, crate::updates::DownloadState::Idle)
             && let Some(step) = self.held_update.take()
         {
@@ -5730,6 +5747,14 @@ impl App {
             if let Some(action) = action {
                 self.actions.push(action);
             }
+        }
+    }
+
+    /// A SIGTERM, SIGINT or SIGHUP quits as the Quit command does, so the
+    /// shutdown stops Soloist and saves the state (`crate::terminate`).
+    fn quit_when_asked(&mut self, asked: bool) {
+        if asked && !self.quit_requested {
+            self.actions.push(Action::Quit);
         }
     }
 
@@ -7331,26 +7356,36 @@ impl App {
             self.play_request(PlayRequest::tracks(uris).starting_at_index(index), false);
             return;
         }
-        let mut skips = index + 1;
-        let mut consumed: Vec<String> = Vec::new();
-        if let Loadable::Loaded(queue) = &mut self.queue {
-            // The click names a song; if the rows shifted under the
-            // pointer, the song wins over the row number.
-            let position = match queue.queue.get(index) {
-                Some(item) if item.uri() == uri => Some(index),
-                _ => queue.queue.iter().position(|item| item.uri() == uri),
-            };
-            let Some(position) = position else {
-                self.refresh_queue(true);
-                return;
-            };
-            skips = position + 1;
-            let mut items: Vec<_> = queue.queue.drain(..=position).collect();
-            let chosen = items.pop().expect("the chosen row was just drained");
-            consumed = items.iter().map(|item| item.uri().to_string()).collect();
-            consumed.push(chosen.uri().to_string());
-            queue.currently_playing = Some(chosen);
+        let local = matches!(self.target(), Target::Local);
+        let current = self.current_track_uri();
+        let Loadable::Loaded(queue) = &mut self.queue else {
+            self.refresh_queue(true);
+            return;
+        };
+        // The engine drops rows by their place in its own queue, so the
+        // shown rows must start at the song it is playing. A restored or
+        // stale queue does not: fetch the live one instead of guessing.
+        if local && current.as_deref() != queue.currently_playing.as_ref().map(PlayableItem::uri) {
+            self.refresh_queue(true);
+            return;
         }
+        // The click names a song; if the rows shifted under the pointer,
+        // the song wins over the row number.
+        let position = match queue.queue.get(index) {
+            Some(item) if item.uri() == uri => Some(index),
+            _ => queue.queue.iter().position(|item| item.uri() == uri),
+        };
+        let Some(position) = position else {
+            self.refresh_queue(true);
+            return;
+        };
+        let skips = position + 1;
+        let mut items: Vec<_> = queue.queue.drain(..=position).collect();
+        let chosen = items.pop().expect("the chosen row was just drained");
+        let skipped: Vec<String> = items.iter().map(|item| item.uri().to_string()).collect();
+        let mut consumed = skipped.clone();
+        consumed.push(chosen.uri().to_string());
+        queue.currently_playing = Some(chosen);
         for gone in &consumed {
             if let Some(at) = self.manual_queue.iter().position(|queued| queued == gone) {
                 self.remove_manual_queue_row(at);
@@ -7362,11 +7397,19 @@ impl App {
         self.optimistic_playing = Some((true, Instant::now()));
         match self.target() {
             Target::Local => {
-                for _ in 0..skips {
-                    self.backend.player(PlayerCommand::Next);
+                // Every Next loads and starts the next song, so a skip per
+                // row played each song in between. The engine drops the
+                // rows above the chosen one from its own queue instead, and
+                // one skip starts the chosen song.
+                for uri in skipped {
+                    self.backend
+                        .player(PlayerCommand::RemoveNextTrack { index: 0, uri });
                 }
+                self.backend.player(PlayerCommand::Next);
             }
             Target::Remote(device_id) => {
+                // The Web API and Soloist cannot take a song out of a live
+                // queue, so another device steps down to the row.
                 // With nothing to act on, one call earns the "pick
                 // something first" toast; a skip per row would repeat it.
                 if device_id.is_none() && self.remote_fresh().is_none() {
@@ -7421,10 +7464,10 @@ impl App {
         self.queue_locally_reorderable() && index < self.queued_rows_len()
     }
 
-    /// Takes the chosen rows out of Playing next. Neither the Web API nor
-    /// librespot can remove one queued song, so like a move this rewrites
-    /// the local engine's queue, and only that one. A row whose index no
-    /// longer holds its song is left alone.
+    /// Takes the chosen rows out of Playing next. The Web API cannot remove
+    /// one queued song, so like a move this rewrites the local engine's
+    /// queue by clearing it and re-adding the rest, and only that one. A
+    /// row whose index no longer holds its song is left alone.
     fn remove_from_queue(&mut self, rows: Vec<(usize, String)>) {
         if !self.queue_locally_reorderable() {
             return;
@@ -11713,8 +11756,8 @@ impl App {
     }
 
     /// Replays the manually queued songs on the local engine in their
-    /// current order. librespot can only append to or clear a live queue,
-    /// so a move or positional insert clears it and re-adds every song.
+    /// current order. A move or positional insert clears the queue and
+    /// re-adds every song.
     fn resync_local_queue(&mut self) {
         self.backend.player(PlayerCommand::ClearQueue);
         for uri in self.manual_queue.clone() {
@@ -13510,8 +13553,10 @@ impl App {
             Action::CheckForUpdates => self.check_for_updates(true),
             Action::ShowUpdate => {
                 self.show_update = true;
+                // The check that finds a release says whether this copy can
+                // install it; one that didn't (a demo badge) checks again.
                 if self.update_support.is_none() {
-                    self.backend.send(Command::InspectUpdate);
+                    self.check_for_updates(false);
                 }
             }
             Action::DownloadUpdate => {
@@ -14503,6 +14548,7 @@ impl App {
             self.scrolling.stop();
         }
         self.handle_control_commands();
+        self.quit_when_asked(crate::terminate::requested());
         self.handle_events();
         self.open_pending_link();
         self.handle_media_commands();
@@ -14578,6 +14624,32 @@ impl App {
         conditions.metered || (self.follows_reachability && !conditions.online)
     }
 
+    /// How the release [`App::update`] names reaches this copy, if it can
+    /// install it: on its own, or when the person asks.
+    pub fn update_offer(&self) -> Option<crate::updates::Offer> {
+        self.update.as_ref().map(|release| {
+            crate::updates::offer(
+                &release.version,
+                self.settings.update_automatically,
+                self.settings.newest_run.as_deref(),
+            )
+        })
+    }
+
+    /// Remembers the newest version that ran here, for
+    /// [`crate::updates::policy`]: a person who went back to an older
+    /// version is not updated past the one they left on its own.
+    pub fn remember_newest_run(&mut self) {
+        let newest = crate::updates::policy::newest_run(
+            crate::updates::VERSION,
+            self.settings.newest_run.as_deref(),
+        );
+        if self.settings.newest_run.as_deref() != Some(newest.as_str()) {
+            self.settings.newest_run = Some(newest);
+            self.mark_settings_dirty();
+        }
+    }
+
     /// Takes an automatic update step now, or holds it until the connection
     /// is neither metered nor down.
     fn take_update_step(&mut self, step: HeldUpdate) {
@@ -14586,7 +14658,6 @@ impl App {
             return;
         }
         match step {
-            HeldUpdate::Inspect => self.backend.send(Command::InspectUpdate),
             HeldUpdate::Download => self.actions.push(Action::DownloadUpdate),
         }
     }
@@ -20612,6 +20683,81 @@ mod tests {
         assert!(app.play_pending("spotify:track:c"));
     }
 
+    /// Every Next loads and starts the next song, so a skip per row played
+    /// each song in between. The engine drops the rows above the chosen
+    /// one from its own queue and skips once.
+    #[test]
+    fn a_chosen_queue_row_on_this_computer_starts_one_song_not_every_one_above_it() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:a".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        app.queue = loaded_queue(
+            "spotify:track:a",
+            &["spotify:track:b", "spotify:track:c", "spotify:track:d"],
+        );
+        app.backend.take_player_commands();
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Queue,
+                uri: "spotify:track:d".into(),
+                index: 2,
+            },
+            &ctx,
+        );
+        let commands = app.backend.take_player_commands();
+        assert!(
+            matches!(
+                commands.as_slice(),
+                [
+                    PlayerCommand::RemoveNextTrack { index: 0, uri: first },
+                    PlayerCommand::RemoveNextTrack { index: 0, uri: second },
+                    PlayerCommand::Next,
+                ] if first == "spotify:track:b" && second == "spotify:track:c"
+            ),
+            "the rows above leave the queue, then one skip: {commands:?}"
+        );
+        app.backend.shutdown();
+    }
+
+    /// A queue that does not start at the playing song, such as the saved
+    /// rows restored at startup, is not the engine's queue: a click on it
+    /// fetches the live queue and sends the engine nothing.
+    #[test]
+    fn a_queue_click_on_rows_that_do_not_follow_the_playing_song_sends_nothing() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:x".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        app.auth = AuthStatus::Connected {
+            username: "test".into(),
+        };
+        app.manual_queue = vec!["spotify:track:b".into()];
+        app.queue = loaded_queue("spotify:track:a", &["spotify:track:b", "spotify:track:c"]);
+        app.backend.take_player_commands();
+        let seq = app.queue_seq;
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Queue,
+                uri: "spotify:track:c".into(),
+                index: 1,
+            },
+            &ctx,
+        );
+        assert!(app.backend.take_player_commands().is_empty());
+        // refresh_queue counts a request when it sends one.
+        assert_eq!(app.queue_seq, seq + 1, "the live queue was asked for");
+        assert_eq!(app.manual_queue, vec!["spotify:track:b".to_string()]);
+        assert_eq!(queue_uris(&app).1.len(), 2, "no row was dropped");
+        app.backend.shutdown();
+    }
+
     /// The click names a song: when the rows have shifted under the
     /// pointer, the song wins over the row number.
     #[test]
@@ -23658,6 +23804,7 @@ mod tests {
             Failure::AudioLost,
             Failure::KeyStore,
             Failure::Expired,
+            Failure::BadBuild,
         ] {
             app.on_soloist(Update::Status(Status::Failed(failure)));
             assert_eq!(app.soloist_view(), SoloistView::App);
@@ -23705,7 +23852,12 @@ mod tests {
     fn soloist_failures_that_need_the_listener_do_not_restart() {
         use crate::soloist::{Failure, Status, Update};
         let (_ctx, mut app) = listening_on_soloist("soloist-no-restart");
-        for failure in [Failure::KeyStore, Failure::InvalidKey, Failure::Expired] {
+        for failure in [
+            Failure::KeyStore,
+            Failure::InvalidKey,
+            Failure::Expired,
+            Failure::BadBuild,
+        ] {
             app.on_soloist(Update::Status(Status::Failed(failure)));
             assert!(app.soloist_retry_at.is_none());
         }
@@ -24802,6 +24954,26 @@ mod tests {
         app.quit_requested = true;
         app.note_close_request(true, true);
         assert_eq!(app.closed(), Closed::Quit, "Quit from the tray wins");
+    }
+
+    /// A SIGTERM quits the way the Quit command does, so the shutdown stops
+    /// Soloist and saves the state, from the window or the tray alike.
+    #[test]
+    fn a_request_to_end_the_process_quits_once() {
+        use fastframe_shell::{Headless, Resident};
+        let mut app = headless_app();
+        app.quit_when_asked(false);
+        assert!(app.actions.is_empty());
+        app.quit_when_asked(true);
+        assert!(matches!(app.actions.as_slice(), [Action::Quit]));
+        let ctx = egui::Context::default();
+        Resident::window_gone(&mut app);
+        assert_eq!(app.headless_frame(&ctx), Headless::Quit);
+        app.quit_when_asked(true);
+        assert!(
+            app.actions.is_empty(),
+            "a quit under way is not asked again"
+        );
     }
 
     /// In the tray the app sleeps as long as nothing is due: until the next
@@ -27186,12 +27358,12 @@ mod tests {
     fn an_update_held_on_a_metered_connection_downloads_when_it_is_not() {
         use crate::updates::{DownloadState, Installation, Kind};
         let mut app = headless_app();
-        app.settings.download_updates_automatically = true;
+        app.settings.update_automatically = true;
         app.settings.check_for_updates = false;
         // Where the app follows the system's word on reaching the internet.
         app.follows_reachability = true;
         app.update = Some(crate::updates::Release {
-            version: "9.9.9".into(),
+            version: "0.999.0".into(),
             url: "https://example.invalid/release".into(),
         });
         change_power(&app, |conditions| conditions.metered = true);
@@ -27232,16 +27404,71 @@ mod tests {
         ));
     }
 
+    /// Only a release that installs on its own downloads in the background:
+    /// not a new major version, not with Update automatically off, and not
+    /// the version a person went back from. Those wait for the window.
+    #[test]
+    fn only_a_release_that_installs_on_its_own_downloads_by_itself() {
+        use crate::updates::{DownloadState, Installation, Kind, Offer, VERSION, policy};
+        let major: u64 = VERSION.split('.').next().unwrap().parse().unwrap();
+        let next = format!("{major}.999.0");
+        let left = format!("{major}.998.0");
+        let cases = [
+            ("same major", next.clone(), true, None, true),
+            ("new major", format!("{}.0.0", major + 1), true, None, false),
+            ("switched off", next.clone(), false, None, false),
+            // Went back from `left`: it is offered, never installed on its own.
+            ("went back", left.clone(), true, Some(left.clone()), false),
+            // A release newer than the one they left is automatic again.
+            ("past it", next.clone(), true, Some(left.clone()), true),
+        ];
+        for (why, version, automatic, newest_run, downloads) in cases {
+            let mut app = headless_app();
+            app.settings.update_automatically = automatic;
+            app.settings.newest_run = newest_run;
+            app.update = Some(crate::updates::Release {
+                version,
+                url: "https://example.invalid/release".into(),
+            });
+            app.handle_backend_events(vec![Event::UpdateSupport(Ok(Installation {
+                executable: "/test/spotifast".into(),
+                kind: Kind::Portable,
+            }))]);
+            app.apply_actions(&egui::Context::default());
+            assert_eq!(
+                matches!(app.update_download, DownloadState::Downloading { .. }),
+                downloads,
+                "{why}"
+            );
+            assert_eq!(
+                app.update_offer() == Some(Offer::Automatic),
+                downloads,
+                "{why}"
+            );
+        }
+        // The newest version that ran only moves forward.
+        let mut app = headless_app();
+        app.settings.newest_run = Some(format!("{major}.998.0"));
+        app.remember_newest_run();
+        assert_eq!(
+            app.settings.newest_run,
+            Some(policy::newest_run(VERSION, Some(&left)))
+        );
+        app.settings.newest_run = Some("0.0.1".into());
+        app.remember_newest_run();
+        assert_eq!(app.settings.newest_run.as_deref(), Some(VERSION));
+    }
+
     /// A step held while automatic downloads are off waits for them to be
     /// turned back on, rather than being dropped when the network comes back.
     #[test]
     fn a_held_update_waits_for_automatic_downloads_to_be_turned_on() {
         use crate::updates::{DownloadState, Installation, Kind};
         let mut app = headless_app();
-        app.settings.download_updates_automatically = true;
+        app.settings.update_automatically = true;
         app.settings.check_for_updates = false;
         app.update = Some(crate::updates::Release {
-            version: "9.9.9".into(),
+            version: "0.999.0".into(),
             url: "https://example.invalid/release".into(),
         });
         change_power(&app, |conditions| conditions.metered = true);
@@ -27259,13 +27486,13 @@ mod tests {
         pass(&mut app);
         assert!(app.held_update.is_some());
 
-        app.settings.download_updates_automatically = false;
+        app.settings.update_automatically = false;
         change_power(&app, |conditions| conditions.metered = false);
         pass(&mut app);
         assert!(matches!(app.update_download, DownloadState::Idle));
         assert!(app.held_update.is_some(), "dropped while turned off");
 
-        app.settings.download_updates_automatically = true;
+        app.settings.update_automatically = true;
         pass(&mut app);
         assert!(matches!(
             app.update_download,
@@ -29148,6 +29375,43 @@ mod tests {
             app.apply(Action::ShowUpdate, &ctx);
             assert!(app.show_update);
         }
+    }
+
+    /// A release that turns out not to sign this copy's download is out all
+    /// the same: the window says how to get it, not that the download broke.
+    #[test]
+    fn a_download_the_release_does_not_sign_becomes_the_notice() {
+        use crate::updates::{DownloadState, Manager, Notice, Route};
+        let mut app = headless_app();
+        app.update = Some(crate::updates::Release {
+            version: "1.2.3".into(),
+            url: "https://github.com/crmne/spotifast/releases/tag/v1.2.3".into(),
+        });
+        app.update_download = DownloadState::Downloading {
+            received: 0,
+            total: 0,
+        };
+        let notice = Notice {
+            reason: "The release has no signed download".into(),
+            route: Some(Route::Managed {
+                manager: Manager::Aur,
+                command: Some("yay -Syu spotifast-bin".into()),
+            }),
+        };
+        app.handle_backend_events(vec![
+            Event::UpdateSupport(Err(notice.clone())),
+            Event::UpdateDownloaded(Err("missing asset".into())),
+        ]);
+        assert!(matches!(app.update_download, DownloadState::Idle));
+        assert_eq!(app.update_support, Some(Err(notice)));
+        // A download that breaks for any other reason still says so.
+        app.update_support = None;
+        app.update_download = DownloadState::Downloading {
+            received: 0,
+            total: 0,
+        };
+        app.handle_backend_events(vec![Event::UpdateDownloaded(Err("reset".into()))]);
+        assert!(matches!(app.update_download, DownloadState::Failed(_)));
     }
 
     #[test]

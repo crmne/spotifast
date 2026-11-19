@@ -523,46 +523,16 @@ fn setup_steps(app: &mut App, ui: &mut egui::Ui, width: f32) {
 
 /// The redirect URI to paste, with a button that copies it.
 fn redirect_uri_row(app: &mut App, ui: &mut egui::Ui) {
-    let palette = app.palette;
-    let locale = app.locale;
     let uri = crate::auth::personal_redirect_uri();
-    let copied_id = egui::Id::new("login-redirect-copied");
-    let now = ui.input(|input| input.time);
-    let copied = ui
-        .data(|data| data.get_temp::<f64>(copied_id))
-        .is_some_and(|at| now - at < 2.0);
-    // A narrow column puts the button under the address.
-    ui.horizontal_wrapped(|ui| {
-        ui.spacing_mut().item_spacing = Vec2::new(8.0, 6.0);
-        Frame::new()
-            .fill(palette.surface)
-            .corner_radius(CornerRadius::same(6))
-            .inner_margin(Margin::symmetric(10, 6))
-            .show(ui, |ui| {
-                ui.add(
-                    egui::Label::new(
-                        egui::RichText::new(&uri)
-                            .font(egui::FontId::monospace(12.5))
-                            .color(palette.text),
-                    )
-                    .selectable(true),
-                );
-            });
-        let label = if copied {
-            // Translators: shown on the Copy button for a moment after it copied.
-            gettext(locale, "Copied")
-        } else {
-            gettext(locale, "Copy")
-        };
-        if theme::pill_button(ui, &palette, &label, false).clicked() {
-            ui.ctx().copy_text(uri.clone());
-            ui.data_mut(|data| data.insert_temp(copied_id, now));
-        }
-    });
-    if copied {
-        ui.ctx()
-            .request_repaint_after(std::time::Duration::from_millis(500));
-    }
+    crate::ui::widgets::copyable_text(
+        ui,
+        &app.palette,
+        app.locale,
+        egui::Id::new("login-redirect-copied"),
+        &uri,
+        12.5,
+        crate::ui::widgets::CopyFit::Wrap,
+    );
 }
 
 /// The card: `base` tall around the window's centre, as it has always been,
