@@ -1059,7 +1059,7 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_
     if devices.clicked() {
         app.actions.push(Action::ToggleDevicesPopup);
     }
-    let queue_open = app.show_queue_panel || matches!(app.page(), Page::Queue);
+    let queue_open = app.queue_panel_shown(ui.ctx()) || matches!(app.page(), Page::Queue);
     let queue_button = theme::icon_button(
         ui,
         Icon::ListVideo,
@@ -1090,7 +1090,7 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_
         ui,
         Icon::Mic,
         18.0,
-        if app.show_lyrics_panel {
+        if app.lyrics_panel_shown(ui.ctx()) {
             palette.accent
         } else {
             palette.secondary

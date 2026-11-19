@@ -1354,6 +1354,8 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 app.library.filter = "No matching playlist".into();
             }
             "queue" => app.show_queue_panel = true,
+            // With `lyrics` and `queue`, the two side by side.
+            "side-panels-beside" => app.side_panels_beside = true,
             "friends" => {
                 app.show_friends_panel = true;
                 app.friends = Loadable::Loaded(demo_friends());
@@ -2080,9 +2082,16 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
             _ => {}
         }
     }
-    // Fixtures assign panel flags directly, bypassing the toggles' mutual
-    // exclusion: the queue wins, so staged states never show both panels.
-    if app.show_queue_panel {
+    // Fixtures assign panel flags directly, bypassing the toggles. Entering
+    // full screen with the queue open leaves the lyrics panel off, so staged
+    // full screen states keep that too; the normal window shows both
+    // together (#1390).
+    let fullscreen = app.lyrics_fullscreen.is_some()
+        || app
+            .actions
+            .iter()
+            .any(|action| matches!(action, Action::SetLyricsFullscreen(true)));
+    if fullscreen && app.show_queue_panel {
         app.show_lyrics_panel = false;
     }
 }
@@ -9110,25 +9119,27 @@ mod tests {
         app.backend.shutdown();
     }
 
-    /// Staged fixture combinations never leave both side panels open,
-    /// no matter the surface order: the queue wins.
+    /// Staged full screen lyrics with the queue keep the lyrics panel off,
+    /// as entering full screen does, no matter the surface order; the
+    /// normal window stages both side panels together (#1390).
     #[cfg(feature = "demo")]
     #[test]
-    fn demo_surfaces_keep_a_single_panel() {
-        for (i, show) in [
-            "lyrics,queue",
-            "queue,lyrics",
-            "lyrics-fullscreen-view,queue",
-            "queue,lyrics-fullscreen-view",
+    fn demo_surfaces_stage_side_panels_like_the_toggles() {
+        for (i, (show, both)) in [
+            ("lyrics,queue", true),
+            ("queue,lyrics", true),
+            ("lyrics-fullscreen-view,queue", false),
+            ("queue,lyrics-fullscreen-view", false),
         ]
         .iter()
         .enumerate()
         {
             let (_ctx, mut app) = accessible_app(&format!("single-panel-{i}"));
             apply_flags(&mut app, None, Some(show));
-            assert!(
-                !(app.show_queue_panel && app.show_lyrics_panel),
-                "{show} leaves both panels open"
+            assert_eq!(
+                app.show_queue_panel && app.show_lyrics_panel,
+                *both,
+                "{show} stages both panels: {both}"
             );
             assert!(app.show_queue_panel, "{show} keeps the queue");
         }
@@ -13470,6 +13481,87 @@ mod tests {
             }
             app.backend.shutdown();
         }
+    }
+
+    /// Lyrics and Queue open together: one above the other in the lyrics
+    /// panel, split by a divider that drags, or side by side in their own
+    /// panels, the queue outermost (#1390).
+    #[test]
+    fn lyrics_and_queue_share_the_side_area() {
+        let frame = |ctx: &egui::Context, app: &mut App, size: egui::Vec2, events| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
+                    events,
+                    ..Default::default()
+                },
+                |ui| app.frame_ui(ui),
+            );
+            output.textures_delta.clear();
+        };
+        let panel = |ctx: &egui::Context, name: &str| {
+            egui::containers::panel::PanelState::load(ctx, egui::Id::new(name))
+                .map(|state| state.outer_rect)
+        };
+
+        let (ctx, mut app) = accessible_app("side-area-rows");
+        app.open(Page::Playlist("pl1".into()));
+        app.show_lyrics_panel = true;
+        app.show_queue_panel = true;
+        let size = egui::vec2(1240.0, 800.0);
+        for _ in 0..3 {
+            frame(&ctx, &mut app, size, vec![]);
+        }
+        let lyrics = panel(&ctx, "lyrics-panel").expect("the lyrics panel holds both");
+        assert!(panel(&ctx, "queue-panel").is_none(), "no second panel");
+        let divider = ctx
+            .read_response(egui::Id::new("side-stack-divider"))
+            .expect("a divider between the two")
+            .rect;
+        assert!(lyrics.x_range().contains(divider.center().x));
+        let middle = (lyrics.top() + lyrics.bottom()) / 2.0;
+        assert!((divider.center().y - middle).abs() < 20.0, "split in half");
+        let start = divider.center();
+        let end = start - egui::vec2(0.0, 100.0);
+        let pointer = |pos, pressed| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        frame(&ctx, &mut app, size, vec![egui::Event::PointerMoved(start)]);
+        frame(&ctx, &mut app, size, vec![pointer(start, true)]);
+        frame(&ctx, &mut app, size, vec![egui::Event::PointerMoved(end)]);
+        frame(&ctx, &mut app, size, vec![pointer(end, false)]);
+        assert!(
+            app.lyrics_share < 0.45,
+            "dragging the divider up gives the queue more: {}",
+            app.lyrics_share
+        );
+        app.backend.shutdown();
+
+        let (ctx, mut app) = accessible_app("side-area-columns");
+        app.open(Page::Playlist("pl1".into()));
+        app.show_lyrics_panel = true;
+        app.show_queue_panel = true;
+        app.side_panels_beside = true;
+        let size = egui::vec2(1600.0, 900.0);
+        for _ in 0..3 {
+            frame(&ctx, &mut app, size, vec![]);
+        }
+        let lyrics = panel(&ctx, "lyrics-panel").expect("the lyrics' own panel");
+        let queue = panel(&ctx, "queue-panel").expect("the queue's own panel");
+        assert!(
+            lyrics.right() <= queue.left() + 0.5,
+            "{lyrics:?} beside {queue:?}"
+        );
+        assert_eq!(queue.right(), size.x, "the queue is outermost");
+        assert_eq!(lyrics.top(), queue.top());
+        assert!(
+            ctx.read_response(egui::Id::new("side-stack-divider"))
+                .is_none()
+        );
+        app.backend.shutdown();
     }
 
     /// #644: Go to song radio from a list names the radio after the song
