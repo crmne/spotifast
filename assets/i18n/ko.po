@@ -3102,6 +3102,10 @@ msgstr "커버 업로드 중…"
 msgid "Choosing cover…"
 msgstr "커버 선택 중…"
 
+#: src/ui/dialogs.rs:387
+msgid "Choose cover"
+msgstr "커버 선택"
+
 #: src/ui/dialogs.rs:498
 msgid "Change cover"
 msgstr "커버 변경"

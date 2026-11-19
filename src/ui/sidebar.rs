@@ -1121,11 +1121,10 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
             )
             .clicked()
             {
-                app.actions.push(Action::ShowDialog(Dialog::CreatePlaylist {
-                    name: String::new(),
-                    public: false,
-                    add_uris: Vec::new(),
-                }));
+                app.actions.push(Action::ShowDialog(Dialog::new_playlist(
+                    String::new(),
+                    Vec::new(),
+                )));
             }
             if theme::icon_button(
                 ui,

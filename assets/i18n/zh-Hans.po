@@ -3026,6 +3026,10 @@ msgstr "正在上传封面…"
 msgid "Choosing cover…"
 msgstr "正在选择封面…"
 
+#: src/ui/dialogs.rs:387
+msgid "Choose cover"
+msgstr "选择封面"
+
 #: src/ui/dialogs.rs:498
 msgid "Change cover"
 msgstr "更换封面"

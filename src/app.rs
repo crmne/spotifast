@@ -816,6 +816,7 @@ pub struct App {
     /// Context loads keep it; explicit skips consume their rows immediately.
     queue_start_pending: Option<Target>,
     pub playlist_busy: bool,
+    creating_playlist: Option<(Vec<String>, Option<crate::playlist_cover::Cover>)>,
     pub quit_requested: bool,
     /// Wheel step, Linux touchpad scale and glide, and the axis a gesture
     /// holds, for the window on screen.
@@ -1477,6 +1478,7 @@ impl App {
             last_now_playing_sequence: 0,
             queue_start_pending: None,
             playlist_busy: false,
+            creating_playlist: None,
             quit_requested: false,
             scrolling: fastframe_scroll::Scrolling::default(),
             autoscroll: crate::autoscroll::Autoscroll::default(),
@@ -7617,11 +7619,8 @@ impl App {
             return;
         }
         let name = self.queue_playlist_name();
-        self.actions.push(Action::CreatePlaylist {
-            name,
-            public: false,
-            add_uris: uris,
-        });
+        self.actions
+            .push(Action::ShowDialog(Dialog::new_playlist(name, uris)));
     }
 
     /// Shows the head of Next up as playing before the engine confirms it.
@@ -8020,10 +8019,10 @@ impl App {
         request: u64,
         result: Result<Option<crate::playlist_cover::Cover>, String>,
     ) {
-        if let Some(Dialog::EditPlaylist {
-            id: current, cover, ..
-        }) = &mut self.dialog
-            && current == id
+        if let Some(cover) = self
+            .dialog
+            .as_mut()
+            .and_then(|dialog| dialog.cover_draft(id))
             && cover.request == Some(request)
         {
             cover.request = None;
@@ -9041,6 +9040,7 @@ impl App {
                 self.request_user_names(adders);
             }
             ApiResponse::PlaylistCreated(result) => {
+                let creation = self.creating_playlist.take();
                 self.playlist_busy = false;
                 match result {
                     Ok(playlist) => {
@@ -9057,15 +9057,34 @@ impl App {
                         });
                         self.saved.insert(playlist.uri.clone(), true);
                         self.store_library_cache();
-                        if let Some(Dialog::CreatePlaylist { add_uris, .. }) = self.dialog.take()
-                            && !add_uris.is_empty()
-                        {
-                            self.backend.api(ApiRequest::AddToPlaylist {
-                                playlist_id: playlist.id.clone(),
-                                playlist_name: playlist.name.clone(),
-                                uris: add_uris,
-                                position: None,
-                            });
+                        if matches!(self.dialog, Some(Dialog::CreatePlaylist { .. })) {
+                            self.dialog = None;
+                        }
+                        if let Some((uris, selected)) = creation {
+                            if !uris.is_empty() {
+                                self.backend.api(ApiRequest::AddToPlaylist {
+                                    playlist_id: playlist.id.clone(),
+                                    playlist_name: playlist.name.clone(),
+                                    uris,
+                                    position: None,
+                                });
+                            }
+                            if let Some(cover) = selected {
+                                self.cover_request = self.cover_request.wrapping_add(1);
+                                self.cover_uploads
+                                    .insert(playlist.id.clone(), self.cover_request);
+                                let previous_urls = playlist
+                                    .images
+                                    .iter()
+                                    .map(|image| image.url.clone())
+                                    .collect();
+                                self.backend.api(ApiRequest::UploadPlaylistCover {
+                                    id: playlist.id.clone(),
+                                    request: self.cover_request,
+                                    previous_urls,
+                                    cover,
+                                });
+                            }
                         }
                         self.open(Page::Playlist(playlist.id));
                     }
@@ -13130,10 +13149,10 @@ impl App {
                 if self.cover_uploads.contains_key(&id) {
                     return;
                 }
-                if let Some(Dialog::EditPlaylist {
-                    id: current, cover, ..
-                }) = &mut self.dialog
-                    && *current == id
+                if let Some(cover) = self
+                    .dialog
+                    .as_mut()
+                    .and_then(|dialog| dialog.cover_draft(&id))
                     && cover.request.is_none()
                     && cover.uploading.is_none()
                 {
@@ -13223,16 +13242,26 @@ impl App {
                 public,
                 add_uris,
             } => {
+                if self.creating_playlist.is_some() {
+                    return;
+                }
+                let (description, cover) = match self.dialog.as_ref() {
+                    Some(Dialog::CreatePlaylist {
+                        description, cover, ..
+                    }) => {
+                        if cover.request.is_some() {
+                            return;
+                        }
+                        (description.clone(), cover.selection.clone())
+                    }
+                    _ => (String::new(), None),
+                };
+                self.creating_playlist = Some((add_uris, cover));
                 self.playlist_busy = true;
-                self.dialog = Some(Dialog::CreatePlaylist {
-                    name: name.clone(),
-                    public,
-                    add_uris,
-                });
                 self.backend.api(ApiRequest::CreatePlaylist {
                     name,
                     public,
-                    description: String::new(),
+                    description,
                 });
             }
             Action::UpdatePlaylist {
@@ -26687,6 +26716,7 @@ mod tests {
                 name,
                 public: false,
                 add_uris,
+                ..
             }) => {
                 assert_eq!(name, "Song 3JA9Jsuxr4xgHXEawAdCp4 Radio");
                 assert_eq!(add_uris, &expected);
@@ -26961,7 +26991,7 @@ mod tests {
         assert!(
             app.actions.iter().any(|action| matches!(
                 action,
-                Action::CreatePlaylist { name, public: false, add_uris }
+                Action::ShowDialog(Dialog::CreatePlaylist { name, public: false, add_uris, .. })
                     if name == "Wish You Were Here Radio"
                         && add_uris == &["spotify:track:b".to_string(), "spotify:track:a".into()]
             )),
@@ -31002,11 +31032,10 @@ mod tests {
             .playable()
             .unwrap()
             .clone();
-        app.dialog = Some(Dialog::CreatePlaylist {
-            name: "Road trip".into(),
-            public: false,
-            add_uris: vec!["spotify:track:new".into()],
-        });
+        app.dialog = Some(Dialog::new_playlist(
+            "Road trip".into(),
+            vec!["spotify:track:new".into()],
+        ));
 
         app.handle_api(ApiResponse::PlaylistDuplicatesChecked {
             position: None,

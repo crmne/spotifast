@@ -3157,6 +3157,10 @@ msgstr "Enviando capa…"
 msgid "Choosing cover…"
 msgstr "Escolhendo capa…"
 
+#: src/ui/dialogs.rs:387
+msgid "Choose cover"
+msgstr "Escolher capa"
+
 #: src/ui/dialogs.rs:498
 msgid "Change cover"
 msgstr "Alterar capa"

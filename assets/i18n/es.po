@@ -3167,6 +3167,10 @@ msgstr "Subiendo la portada…"
 msgid "Choosing cover…"
 msgstr "Eligiendo la portada…"
 
+#: src/ui/dialogs.rs:387
+msgid "Choose cover"
+msgstr "Elegir portada"
+
 #: src/ui/dialogs.rs:498
 msgid "Change cover"
 msgstr "Cambiar portada"

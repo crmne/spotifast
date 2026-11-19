@@ -3162,6 +3162,10 @@ msgstr "Cover uploaden…"
 msgid "Choosing cover…"
 msgstr "Cover kiezen…"
 
+#: src/ui/dialogs.rs:387
+msgid "Choose cover"
+msgstr "Cover kiezen"
+
 #: src/ui/dialogs.rs:498
 msgid "Change cover"
 msgstr "Cover wijzigen"

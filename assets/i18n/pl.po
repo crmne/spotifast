@@ -3175,6 +3175,10 @@ msgstr "Przesyłanie okładki…"
 msgid "Choosing cover…"
 msgstr "Wybieranie okładki…"
 
+#: src/ui/dialogs.rs:387
+msgid "Choose cover"
+msgstr "Wybierz okładkę"
+
 #: src/ui/dialogs.rs:498
 msgid "Change cover"
 msgstr "Zmień okładkę"

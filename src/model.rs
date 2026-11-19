@@ -1081,6 +1081,8 @@ pub enum Dialog {
         name: String,
         public: bool,
         add_uris: Vec<String>,
+        cover: crate::playlist_cover::Draft,
+        description: String,
     },
     EditPlaylist {
         cover: crate::playlist_cover::Draft,
@@ -1108,6 +1110,30 @@ pub enum Dialog {
     PremiumNeeded,
     /// Introduce personal Spotify apps to eligible listeners once.
     PersonalAppIntro,
+}
+
+impl Dialog {
+    /// New playlist, private and without a cover or description yet.
+    pub fn new_playlist(name: String, add_uris: Vec<String>) -> Self {
+        Self::CreatePlaylist {
+            name,
+            public: false,
+            add_uris,
+            cover: Default::default(),
+            description: String::new(),
+        }
+    }
+
+    /// The cover being picked for playlist `id`; New playlist's has no id yet.
+    pub fn cover_draft(&mut self, id: &str) -> Option<&mut crate::playlist_cover::Draft> {
+        match self {
+            Self::CreatePlaylist { cover, .. } if id.is_empty() => Some(cover),
+            Self::EditPlaylist {
+                id: current, cover, ..
+            } if current == id => Some(cover),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

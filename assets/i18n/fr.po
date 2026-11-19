@@ -3193,6 +3193,10 @@ msgstr "Envoi de la couverture…"
 msgid "Choosing cover…"
 msgstr "Choix de la couverture…"
 
+#: src/ui/dialogs.rs:387
+msgid "Choose cover"
+msgstr "Choisir une couverture"
+
 #: src/ui/dialogs.rs:498
 msgid "Change cover"
 msgstr "Changer la couverture"

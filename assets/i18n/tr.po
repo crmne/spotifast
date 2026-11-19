@@ -3158,6 +3158,10 @@ msgstr "Kapak yükleniyor…"
 msgid "Choosing cover…"
 msgstr "Kapak seçiliyor…"
 
+#: src/ui/dialogs.rs:387
+msgid "Choose cover"
+msgstr "Kapak seç"
+
 #: src/ui/dialogs.rs:498
 msgid "Change cover"
 msgstr "Kapağı değiştir"
