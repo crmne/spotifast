@@ -939,6 +939,9 @@ mod pulse {
         cookie: &[u8; COOKIE_LEN],
         sink: &str,
     ) -> PulseReachability {
+        if endpoints.is_empty() {
+            return PulseReachability::Unavailable;
+        }
         for endpoint in endpoints {
             match endpoint {
                 Endpoint::NonUnix => return PulseReachability::Unavailable,
@@ -1453,6 +1456,15 @@ mod tests {
             PulseReachability::Retry
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn pulse_review_regression_empty_endpoint_list_is_terminal() {
+        assert_eq!(
+            pulse::reaches_sink_on(Vec::new(), &[0; 256], "spotifast.soloist.owned"),
+            PulseReachability::Unavailable
+        );
     }
 
     #[cfg(target_os = "linux")]
