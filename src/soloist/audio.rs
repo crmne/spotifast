@@ -960,7 +960,7 @@ mod pulse {
                 },
             }
         }
-        PulseReachability::Unavailable
+        PulseReachability::Retry
     }
 
     pub(super) fn reaches_sink(sink: &str) -> PulseReachability {
@@ -1431,7 +1431,7 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
-    fn pulse_review_regression_all_unreachable_endpoints_are_terminal() {
+    fn pulse_review_regression_all_absent_endpoints_remain_retryable() {
         let dir = std::env::temp_dir().join(format!(
             "spotifast-pulse-unreachable-{}-{}",
             std::process::id(),
@@ -1450,7 +1450,7 @@ mod tests {
                 &[0; 256],
                 "spotifast.soloist.owned",
             ),
-            PulseReachability::Unavailable
+            PulseReachability::Retry
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
