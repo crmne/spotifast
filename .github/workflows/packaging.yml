@@ -58,7 +58,7 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: native-packages
           path: dist/native-packages
@@ -161,7 +161,7 @@ jobs:
         image: ['ubuntu:24.04', 'debian:13-slim', 'fedora:41', 'fedora:latest']
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: native-packages
           path: dist/native-packages
@@ -191,7 +191,7 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
         run: bash packaging/rpm/build-srpm.sh "$VERSION" dist/srpm
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: copr-srpm
           path: dist/srpm/
