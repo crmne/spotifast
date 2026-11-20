@@ -768,19 +768,25 @@ mod pulse {
         stream.write_all(payload)
     }
 
-    fn recv_packet(stream: &mut UnixStream) -> Option<(u32, u32, Vec<u8>)> {
+    fn protocol_error(message: &'static str) -> io::Error {
+        io::Error::new(io::ErrorKind::InvalidData, message)
+    }
+
+    fn recv_packet(stream: &mut UnixStream) -> io::Result<(u32, u32, Vec<u8>)> {
         let mut header = [0u8; DESCRIPTOR_LEN];
-        stream.read_exact(&mut header).ok()?;
-        let len = u32::from_be_bytes(header[0..4].try_into().ok()?) as usize;
-        let channel = u32::from_be_bytes(header[4..8].try_into().ok()?);
+        stream.read_exact(&mut header)?;
+        let len = u32::from_be_bytes(header[0..4].try_into().unwrap()) as usize;
+        let channel = u32::from_be_bytes(header[4..8].try_into().unwrap());
         if channel != CONTROL_CHANNEL || len > MAX_FRAME_LEN {
-            return None;
+            return Err(protocol_error("invalid Pulse packet header"));
         }
         let mut body = vec![0u8; len];
-        stream.read_exact(&mut body).ok()?;
-        let cmd = read_u32_tag(body.get(0..5)?)?;
-        let seq = read_u32_tag(body.get(5..10)?)?;
-        Some((cmd, seq, body.split_off(10)))
+        stream.read_exact(&mut body)?;
+        let cmd = read_u32_tag(body.get(0..5).unwrap_or_default())
+            .ok_or_else(|| protocol_error("invalid Pulse command tag"))?;
+        let seq = read_u32_tag(body.get(5..10).unwrap_or_default())
+            .ok_or_else(|| protocol_error("invalid Pulse sequence tag"))?;
+        Ok((cmd, seq, body.split_off(10)))
     }
 
     fn read_u32_tag(bytes: &[u8]) -> Option<u32> {
@@ -859,14 +865,14 @@ mod pulse {
         let mut stream = connect_unix_with_timeout(path, SOCKET_TIMEOUT)?;
         let _ = stream.set_read_timeout(Some(SOCKET_TIMEOUT));
         let _ = stream.set_write_timeout(Some(SOCKET_TIMEOUT));
-        Ok(query_connected_sink(&mut stream, sink, cookie).unwrap_or(false))
+        query_connected_sink(&mut stream, sink, cookie)
     }
 
     fn query_connected_sink(
         stream: &mut UnixStream,
         sink: &str,
         cookie: &[u8; COOKIE_LEN],
-    ) -> Option<bool> {
+    ) -> io::Result<bool> {
         let mut auth = Vec::with_capacity(20 + COOKIE_LEN);
         push_u32_tag(&mut auth, CMD_AUTH);
         push_u32_tag(&mut auth, 0);
@@ -874,10 +880,10 @@ mod pulse {
         auth.push(TAG_ARBITRARY);
         auth.extend_from_slice(&(COOKIE_LEN as u32).to_be_bytes());
         auth.extend_from_slice(cookie);
-        send_packet(stream, &auth).ok()?;
+        send_packet(stream, &auth)?;
         let (cmd, seq, _) = recv_packet(stream)?;
         if cmd != CMD_REPLY || seq != 0 {
-            return None;
+            return Err(protocol_error("Pulse server rejected authentication"));
         }
 
         let mut set_name = Vec::with_capacity(12);
@@ -885,10 +891,10 @@ mod pulse {
         push_u32_tag(&mut set_name, 1);
         set_name.push(TAG_PROPLIST);
         set_name.push(TAG_STRING_NULL);
-        send_packet(stream, &set_name).ok()?;
+        send_packet(stream, &set_name)?;
         let (cmd, seq, _) = recv_packet(stream)?;
         if cmd != CMD_REPLY || seq != 1 {
-            return None;
+            return Err(protocol_error("Pulse server rejected client setup"));
         }
 
         for attempt in 0..4u32 {
@@ -899,28 +905,33 @@ mod pulse {
             lookup.push(TAG_STRING);
             lookup.extend_from_slice(sink.as_bytes());
             lookup.push(0);
-            send_packet(stream, &lookup).ok()?;
+            send_packet(stream, &lookup)?;
             let (cmd, seq, rest) = recv_packet(stream)?;
             if seq != req_seq {
-                return None;
+                return Err(protocol_error("Pulse server returned the wrong sequence"));
             }
             match cmd {
                 CMD_REPLY => {
-                    let index = read_u32_tag(rest.get(0..5)?)?;
-                    return Some(index != u32::MAX);
+                    let index = read_u32_tag(rest.get(0..5).unwrap_or_default())
+                        .ok_or_else(|| protocol_error("invalid sink reply"))?;
+                    return Ok(index != u32::MAX);
                 }
                 CMD_ERROR => {
-                    let code = read_u32_tag(rest.get(0..5)?)?;
+                    let code = read_u32_tag(rest.get(0..5).unwrap_or_default())
+                        .ok_or_else(|| protocol_error("invalid Pulse error reply"))?;
                     if code == PA_ERR_NOENTITY && attempt < 3 {
                         std::thread::sleep(Duration::from_millis(20));
                         continue;
                     }
-                    return Some(false);
+                    if code == PA_ERR_NOENTITY {
+                        return Ok(false);
+                    }
+                    return Err(protocol_error("Pulse server rejected sink lookup"));
                 }
-                _ => return Some(false),
+                _ => return Err(protocol_error("unexpected Pulse sink reply")),
             }
         }
-        Some(false)
+        Ok(false)
     }
 
     pub(super) fn reaches_sink_on(
@@ -937,11 +948,19 @@ mod pulse {
                     Err(error) if error.kind() == io::ErrorKind::TimedOut => {
                         return PulseReachability::Unavailable;
                     }
-                    Err(_) => continue,
+                    Err(error)
+                        if matches!(
+                            error.kind(),
+                            io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
+                        ) =>
+                    {
+                        continue;
+                    }
+                    Err(_) => return PulseReachability::Unavailable,
                 },
             }
         }
-        PulseReachability::Retry
+        PulseReachability::Unavailable
     }
 
     pub(super) fn reaches_sink(sink: &str) -> PulseReachability {
@@ -1311,6 +1330,74 @@ mod tests {
     }
 
     #[cfg(target_os = "linux")]
+    fn pulse_error_server(
+        listener: std::os::unix::net::UnixListener,
+        auth_error: Option<u32>,
+        lookup_error: Option<u32>,
+    ) -> std::thread::JoinHandle<bool> {
+        use std::io::{Read, Write};
+        listener.set_nonblocking(true).unwrap();
+        std::thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(1);
+            let mut conn = loop {
+                match listener.accept() {
+                    Ok((conn, _)) => break Some(conn),
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        if Instant::now() >= deadline {
+                            break None;
+                        }
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(error) => panic!("error server accept failed: {error}"),
+                }
+            };
+            let Some(ref mut conn) = conn else {
+                return false;
+            };
+            conn.set_nonblocking(false).unwrap();
+            let read_packet = |stream: &mut std::os::unix::net::UnixStream| {
+                let mut header = [0u8; 20];
+                stream.read_exact(&mut header).unwrap();
+                let len = u32::from_be_bytes(header[0..4].try_into().unwrap()) as usize;
+                let mut body = vec![0u8; len];
+                stream.read_exact(&mut body).unwrap();
+                body
+            };
+            let reply = |cmd: u32, seq: u32, value: u32| {
+                let mut body = Vec::with_capacity(15);
+                for n in [cmd, seq, value] {
+                    body.push(b'L');
+                    body.extend_from_slice(&n.to_be_bytes());
+                }
+                let mut frame = Vec::with_capacity(20 + body.len());
+                frame.extend_from_slice(&(body.len() as u32).to_be_bytes());
+                frame.extend_from_slice(&u32::MAX.to_be_bytes());
+                frame.extend_from_slice(&0u64.to_be_bytes());
+                frame.extend_from_slice(&0u32.to_be_bytes());
+                frame.extend_from_slice(&body);
+                frame
+            };
+
+            let _ = read_packet(conn);
+            if let Some(code) = auth_error {
+                conn.write_all(&reply(0, 0, code)).unwrap();
+                return true;
+            }
+            conn.write_all(&reply(2, 0, 35)).unwrap();
+            let _ = read_packet(conn);
+            conn.write_all(&reply(2, 1, 1)).unwrap();
+            let code = lookup_error.unwrap();
+            let attempts = if code == 5 { 4 } else { 1 };
+            for _ in 0..attempts {
+                let lookup = read_packet(conn);
+                let seq = u32::from_be_bytes(lookup[6..10].try_into().unwrap());
+                conn.write_all(&reply(0, seq, code)).unwrap();
+            }
+            true
+        })
+    }
+
+    #[cfg(target_os = "linux")]
     #[test]
     fn pulse_review_regression_retries_readiness_until_sink_appears() {
         let attempts = std::cell::Cell::new(0);
@@ -1332,25 +1419,121 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn pulse_review_regression_nonlocal_selection_returns_without_retry() {
-        let previous = std::env::var_os("PULSE_SERVER");
-        // SAFETY: this test runs with --test-threads=1 while it temporarily
-        // exercises libpulse's process-wide server selection.
-        unsafe { std::env::set_var("PULSE_SERVER", "tcp:192.0.2.1:4713") };
-        let started = Instant::now();
-        let reaches = pulse_reaches_sink("spotifast.soloist.owned");
-        let elapsed = started.elapsed();
-        // SAFETY: restore the process environment after the single-threaded call.
-        unsafe {
-            match previous {
-                Some(value) => std::env::set_var("PULSE_SERVER", value),
-                None => std::env::remove_var("PULSE_SERVER"),
-            }
-        }
-        assert!(!reaches);
-        assert!(
-            elapsed < Duration::from_secs(1),
-            "a definitively nonlocal selection must not retry for five seconds: {elapsed:?}"
+        assert_eq!(
+            pulse::reaches_sink_on(
+                vec![pulse::Endpoint::NonUnix],
+                &[0; 256],
+                "spotifast.soloist.owned",
+            ),
+            PulseReachability::Unavailable
         );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn pulse_review_regression_all_unreachable_endpoints_are_terminal() {
+        let dir = std::env::temp_dir().join(format!(
+            "spotifast-pulse-unreachable-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(
+            pulse::reaches_sink_on(
+                vec![
+                    pulse::Endpoint::Unix(dir.join("missing-a")),
+                    pulse::Endpoint::Unix(dir.join("missing-b")),
+                ],
+                &[0; 256],
+                "spotifast.soloist.owned",
+            ),
+            PulseReachability::Unavailable
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn pulse_review_regression_auth_failure_is_not_an_absent_sink() {
+        use std::os::unix::net::UnixListener;
+        let dir = std::env::temp_dir().join(format!(
+            "spotifast-pulse-auth-error-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("native");
+        let server = pulse_error_server(UnixListener::bind(&path).unwrap(), Some(2), None);
+        assert_eq!(
+            pulse::reaches_sink_on(
+                vec![pulse::Endpoint::Unix(path)],
+                &[0; 256],
+                "spotifast.soloist.owned",
+            ),
+            PulseReachability::Unavailable
+        );
+        assert!(server.join().unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn pulse_review_regression_protocol_failure_is_not_an_absent_sink() {
+        use std::os::unix::net::UnixListener;
+        let dir = std::env::temp_dir().join(format!(
+            "spotifast-pulse-protocol-error-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("native");
+        let server = pulse_error_server(UnixListener::bind(&path).unwrap(), None, Some(1));
+        assert_eq!(
+            pulse::reaches_sink_on(
+                vec![pulse::Endpoint::Unix(path)],
+                &[0; 256],
+                "spotifast.soloist.owned",
+            ),
+            PulseReachability::Unavailable
+        );
+        assert!(server.join().unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn pulse_review_regression_an_absent_sink_still_waits_for_registration() {
+        use std::os::unix::net::UnixListener;
+        let dir = std::env::temp_dir().join(format!(
+            "spotifast-pulse-missing-sink-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("native");
+        let server = pulse_error_server(UnixListener::bind(&path).unwrap(), None, Some(5));
+        assert_eq!(
+            pulse::reaches_sink_on(
+                vec![pulse::Endpoint::Unix(path)],
+                &[0; 256],
+                "spotifast.soloist.owned",
+            ),
+            PulseReachability::Retry
+        );
+        assert!(server.join().unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[cfg(target_os = "linux")]
