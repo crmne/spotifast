@@ -410,15 +410,25 @@ pub fn pulse_props(existing: &str) -> String {
 /// True when libpulse's configured local UNIX server exposes `sink`, proving
 /// that a libpulse Soloist child reaches the same PipeWire graph as `Bridge`.
 #[cfg(target_os = "linux")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PulseReachability {
+    Found,
+    Retry,
+    Unavailable,
+}
+
+#[cfg(target_os = "linux")]
 fn pulse_reaches_sink_with(
-    mut probe: impl FnMut() -> bool,
+    mut probe: impl FnMut() -> PulseReachability,
     timeout: Duration,
     retry_interval: Duration,
 ) -> bool {
     let deadline = Instant::now() + timeout;
     loop {
-        if probe() {
-            return true;
+        match probe() {
+            PulseReachability::Found => return true,
+            PulseReachability::Unavailable => return false,
+            PulseReachability::Retry => {}
         }
         let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
             return false;
@@ -438,6 +448,7 @@ pub fn pulse_reaches_sink(sink: &str) -> bool {
 
 #[cfg(target_os = "linux")]
 mod pulse {
+    use super::PulseReachability;
     use std::{
         ffi::OsStr,
         io::{self, Read, Write},
@@ -916,23 +927,26 @@ mod pulse {
         endpoints: Vec<Endpoint>,
         cookie: &[u8; COOKIE_LEN],
         sink: &str,
-    ) -> bool {
+    ) -> PulseReachability {
         for endpoint in endpoints {
             match endpoint {
-                Endpoint::NonUnix => return false,
+                Endpoint::NonUnix => return PulseReachability::Unavailable,
                 Endpoint::Unix(path) => match socket_has_sink(&path, sink, cookie) {
-                    Ok(found) => return found,
-                    Err(error) if error.kind() == io::ErrorKind::TimedOut => return false,
+                    Ok(true) => return PulseReachability::Found,
+                    Ok(false) => return PulseReachability::Retry,
+                    Err(error) if error.kind() == io::ErrorKind::TimedOut => {
+                        return PulseReachability::Unavailable;
+                    }
                     Err(_) => continue,
                 },
             }
         }
-        false
+        PulseReachability::Retry
     }
 
-    pub(super) fn reaches_sink(sink: &str) -> bool {
+    pub(super) fn reaches_sink(sink: &str) -> PulseReachability {
         if sink.is_empty() || sink.as_bytes().contains(&0) {
-            return false;
+            return PulseReachability::Unavailable;
         }
         let (endpoints, cookie) = configured_endpoints_and_cookie();
         reaches_sink_on(endpoints, &cookie, sink)
@@ -1303,12 +1317,40 @@ mod tests {
         assert!(pulse_reaches_sink_with(
             || {
                 attempts.set(attempts.get() + 1);
-                attempts.get() >= 3
+                if attempts.get() >= 3 {
+                    PulseReachability::Found
+                } else {
+                    PulseReachability::Retry
+                }
             },
             Duration::from_secs(1),
             Duration::ZERO,
         ));
         assert_eq!(attempts.get(), 3);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn pulse_review_regression_nonlocal_selection_returns_without_retry() {
+        let previous = std::env::var_os("PULSE_SERVER");
+        // SAFETY: this test runs with --test-threads=1 while it temporarily
+        // exercises libpulse's process-wide server selection.
+        unsafe { std::env::set_var("PULSE_SERVER", "tcp:192.0.2.1:4713") };
+        let started = Instant::now();
+        let reaches = pulse_reaches_sink("spotifast.soloist.owned");
+        let elapsed = started.elapsed();
+        // SAFETY: restore the process environment after the single-threaded call.
+        unsafe {
+            match previous {
+                Some(value) => std::env::set_var("PULSE_SERVER", value),
+                None => std::env::remove_var("PULSE_SERVER"),
+            }
+        }
+        assert!(!reaches);
+        assert!(
+            elapsed < Duration::from_secs(1),
+            "a definitively nonlocal selection must not retry for five seconds: {elapsed:?}"
+        );
     }
 
     #[cfg(target_os = "linux")]
@@ -1346,7 +1388,7 @@ mod tests {
             !server.join().unwrap(),
             "a timed-out selected server must not probe a different Pulse server"
         );
-        assert!(!found);
+        assert_eq!(found, PulseReachability::Unavailable);
         drop(queued);
         drop(stalled);
         let _ = std::fs::remove_dir_all(&dir);
@@ -1367,14 +1409,17 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let fallback_path = dir.join("fallback");
         let server = pulse_sink_server(UnixListener::bind(&fallback_path).unwrap());
-        assert!(pulse::reaches_sink_on(
-            vec![
-                pulse::Endpoint::Unix(dir.join("missing")),
-                pulse::Endpoint::Unix(fallback_path),
-            ],
-            &[0; 256],
-            "spotifast.soloist.owned",
-        ));
+        assert_eq!(
+            pulse::reaches_sink_on(
+                vec![
+                    pulse::Endpoint::Unix(dir.join("missing")),
+                    pulse::Endpoint::Unix(fallback_path),
+                ],
+                &[0; 256],
+                "spotifast.soloist.owned",
+            ),
+            PulseReachability::Found
+        );
         assert!(
             server.join().unwrap(),
             "a missing selected server must try the next Pulse server"
@@ -4528,9 +4573,10 @@ mod pipewire {
                 "pipewire-pulse must expose the bridge sink: {:?}",
                 bridge.fault()
             );
-            assert!(
-                !pulse::reaches_sink("spotifast.soloist.absent"),
-                "missing sink must not match"
+            assert_eq!(
+                pulse::reaches_sink("spotifast.soloist.absent"),
+                PulseReachability::Retry,
+                "a reachable server without the sink must remain retryable"
             );
 
             let mut source = tokio::process::Command::new("pacat")
