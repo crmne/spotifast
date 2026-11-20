@@ -393,6 +393,588 @@ pub fn child_props(existing: &str) -> String {
     )
 }
 
+/// The same stream properties in libpulse's `PULSE_PROP` form, for a Soloist
+/// build that plays through `pipewire-pulse` instead of native PipeWire.
+#[cfg(target_os = "linux")]
+pub fn pulse_props(existing: &str) -> String {
+    let existing = existing.trim();
+    const PROPS: &str =
+        "channelmix.lock-volumes=true node.dont-fallback=true node.dont-move=true node.linger=true";
+    if existing.is_empty() {
+        PROPS.into()
+    } else {
+        format!("{existing} {PROPS}")
+    }
+}
+
+/// True when libpulse's configured local UNIX server exposes `sink`, proving
+/// that a libpulse Soloist child reaches the same PipeWire graph as `Bridge`.
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PulseReachability {
+    Found,
+    Retry,
+    Unavailable,
+}
+
+#[cfg(target_os = "linux")]
+fn pulse_reaches_sink_with(
+    mut probe: impl FnMut() -> PulseReachability,
+    timeout: Duration,
+    retry_interval: Duration,
+) -> bool {
+    let deadline = Instant::now() + timeout;
+    loop {
+        match probe() {
+            PulseReachability::Found => return true,
+            PulseReachability::Unavailable => return false,
+            PulseReachability::Retry => {}
+        }
+        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+            return false;
+        };
+        std::thread::sleep(remaining.min(retry_interval));
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub fn pulse_reaches_sink(sink: &str) -> bool {
+    pulse_reaches_sink_with(
+        || pulse::reaches_sink(sink),
+        Duration::from_secs(5),
+        Duration::from_millis(50),
+    )
+}
+
+#[cfg(target_os = "linux")]
+mod pulse {
+    use super::PulseReachability;
+    use std::{
+        ffi::OsStr,
+        io::{self, Read, Write},
+        os::{
+            fd::{AsRawFd, FromRawFd, OwnedFd},
+            unix::{ffi::OsStrExt, net::UnixStream},
+        },
+        path::{Path, PathBuf},
+        time::{Duration, Instant},
+    };
+
+    const PROTOCOL_VERSION: u32 = 35;
+    const COOKIE_LEN: usize = 256;
+    const DESCRIPTOR_LEN: usize = 20;
+    const CONTROL_CHANNEL: u32 = u32::MAX;
+    const MAX_FRAME_LEN: usize = 4096;
+    const MAX_INCLUDE_DEPTH: usize = 16;
+    const CMD_ERROR: u32 = 0;
+    const CMD_REPLY: u32 = 2;
+    const CMD_AUTH: u32 = 8;
+    const CMD_SET_CLIENT_NAME: u32 = 9;
+    const CMD_LOOKUP_SINK: u32 = 10;
+    const PA_ERR_NOENTITY: u32 = 5;
+    const TAG_STRING: u8 = b't';
+    const TAG_STRING_NULL: u8 = b'N';
+    const TAG_U32: u8 = b'L';
+    const TAG_ARBITRARY: u8 = b'x';
+    const TAG_PROPLIST: u8 = b'P';
+    const SOCKET_TIMEOUT: Duration = Duration::from_millis(200);
+
+    #[derive(Debug, PartialEq, Eq)]
+    pub(super) enum Endpoint {
+        Unix(PathBuf),
+        NonUnix,
+    }
+
+    #[derive(Debug, Default, PartialEq, Eq)]
+    pub(super) struct ClientConf {
+        pub(super) default_server: Option<String>,
+        pub(super) cookie_file: Option<PathBuf>,
+    }
+
+    pub(super) fn parse_server_list(list: &str, local_machine_id: Option<&str>) -> Vec<Endpoint> {
+        let mut out = Vec::new();
+        for entry in list.split_ascii_whitespace() {
+            let rest = if let Some(after_open) = entry.strip_prefix('{') {
+                let Some(local_id) = local_machine_id.filter(|id| !id.is_empty()) else {
+                    continue;
+                };
+                let Some((id, after_close)) = after_open.split_once('}') else {
+                    continue;
+                };
+                if id != local_id {
+                    continue;
+                }
+                after_close
+            } else {
+                entry
+            };
+            if rest.starts_with('/') {
+                out.push(Endpoint::Unix(PathBuf::from(rest)));
+            } else if let Some(path) = rest.strip_prefix("unix:") {
+                if !path.is_empty() {
+                    out.push(Endpoint::Unix(PathBuf::from(path)));
+                }
+            } else if !rest.is_empty() {
+                out.push(Endpoint::NonUnix);
+                break;
+            }
+        }
+        out
+    }
+
+    fn open_conf_file(path: &Path) -> Result<(), std::io::ErrorKind> {
+        let file = std::fs::File::open(path).map_err(|err| err.kind())?;
+        let meta = file.metadata().map_err(|err| err.kind())?;
+        if meta.is_dir() {
+            return Err(std::io::ErrorKind::InvalidInput);
+        }
+        Ok(())
+    }
+
+    pub(super) fn select_client_conf_file(
+        pulse_clientconfig: Option<&OsStr>,
+        pulse_config_path: Option<&OsStr>,
+        home: Option<&Path>,
+        system_conf: &Path,
+    ) -> Option<PathBuf> {
+        if let Some(custom) = pulse_clientconfig {
+            let path = PathBuf::from(custom);
+            return open_conf_file(&path).ok().map(|()| path);
+        }
+        if let Some(config_dir) = pulse_config_path {
+            let path = PathBuf::from(config_dir).join("client.conf");
+            match open_conf_file(&path) {
+                Ok(()) => return Some(path),
+                Err(std::io::ErrorKind::NotFound) => {}
+                Err(_) => return None,
+            }
+        } else {
+            let home = home.filter(|dir| !dir.as_os_str().is_empty())?;
+            let dot_pulse = home.join(".pulse/client.conf");
+            if open_conf_file(&dot_pulse).is_ok() {
+                return Some(dot_pulse);
+            }
+            let dot_config = home.join(".config/pulse/client.conf");
+            match open_conf_file(&dot_config) {
+                Ok(()) => return Some(dot_config),
+                Err(std::io::ErrorKind::NotFound) => {}
+                Err(_) => return None,
+            }
+        }
+        open_conf_file(system_conf)
+            .ok()
+            .map(|()| system_conf.to_path_buf())
+    }
+
+    pub(super) fn load_client_conf(path: &Path) -> ClientConf {
+        let mut conf = ClientConf::default();
+        let _ = parse_conf_file(path, &mut conf, true, 0);
+        conf
+    }
+
+    fn parse_conf_file(
+        path: &Path,
+        conf: &mut ClientConf,
+        use_dot_d: bool,
+        depth: usize,
+    ) -> Result<(), ()> {
+        if depth > MAX_INCLUDE_DEPTH {
+            return Err(());
+        }
+        let result = match std::fs::read_to_string(path) {
+            Ok(contents) => parse_conf_contents(path, &contents, conf, depth),
+            Err(err) if !use_dot_d && err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(_) => Err(()),
+        };
+        if use_dot_d {
+            let mut dot_d = path.as_os_str().to_os_string();
+            dot_d.push(".d");
+            if let Ok(entries) = std::fs::read_dir(PathBuf::from(dot_d)) {
+                let mut drop_ins: Vec<PathBuf> = entries
+                    .filter_map(Result::ok)
+                    .map(|entry| entry.path())
+                    .filter(|entry_path| {
+                        entry_path
+                            .file_name()
+                            .is_some_and(|name| name.as_encoded_bytes().ends_with(b".conf"))
+                    })
+                    .collect();
+                drop_ins.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
+                for drop_in in drop_ins {
+                    let _ = parse_conf_file(&drop_in, conf, false, depth + 1);
+                }
+            }
+        }
+        result
+    }
+
+    fn parse_conf_contents(
+        filename: &Path,
+        contents: &str,
+        conf: &mut ClientConf,
+        depth: usize,
+    ) -> Result<(), ()> {
+        const TRIM: [char; 3] = [' ', '\t', '\r'];
+        for raw_line in contents.lines() {
+            let line = raw_line.trim_start_matches(TRIM);
+            let line = line.split(['#', ';']).next().unwrap_or("");
+            if line.is_empty() {
+                continue;
+            }
+            if let Some(rest) = line.strip_prefix(".include ") {
+                let target = rest.trim_matches(TRIM);
+                let include_path = if Path::new(target).is_absolute() {
+                    PathBuf::from(target)
+                } else if let Some(parent) =
+                    filename.parent().filter(|dir| !dir.as_os_str().is_empty())
+                {
+                    parent.join(target)
+                } else {
+                    PathBuf::from(target)
+                };
+                parse_conf_file(&include_path, conf, false, depth + 1)?;
+                continue;
+            }
+            if line.starts_with('[') {
+                let section = line.trim_end_matches(TRIM);
+                if !section.ends_with(']') || section == "[Properties]" {
+                    return Err(());
+                }
+                continue;
+            }
+            let Some((raw_key, raw_value)) = line.split_once('=') else {
+                return Err(());
+            };
+            let key = raw_key.trim_matches(TRIM);
+            let value = raw_value.trim_matches(TRIM);
+            match key {
+                "default-server" => {
+                    conf.default_server = (!value.is_empty()).then(|| value.to_owned());
+                }
+                "cookie-file" => {
+                    conf.cookie_file = (!value.is_empty()).then(|| PathBuf::from(value));
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    fn local_machine_id() -> Option<String> {
+        [
+            "/etc/machine-id",
+            "/var/lib/dbus/machine-id",
+            "/proc/sys/kernel/hostname",
+        ]
+        .into_iter()
+        .find_map(|path| {
+            let text = std::fs::read_to_string(path).ok()?;
+            let first = text.lines().next().unwrap_or("").trim();
+            (!first.is_empty()).then(|| first.to_owned())
+        })
+    }
+
+    fn cookie_config_dir(home: Option<&Path>) -> Option<PathBuf> {
+        if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty()) {
+            return Some(PathBuf::from(xdg).join("pulse"));
+        }
+        home.map(|dir| dir.join(".config/pulse"))
+    }
+
+    fn configured_endpoints_and_cookie() -> (Vec<Endpoint>, [u8; COOKIE_LEN]) {
+        let runtime_dir = std::env::var_os("PULSE_RUNTIME_PATH")
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+            .or_else(|| {
+                std::env::var_os("XDG_RUNTIME_DIR")
+                    .filter(|v| !v.is_empty())
+                    .map(|dir| PathBuf::from(dir).join("pulse"))
+            });
+        let home = std::env::var_os("HOME")
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from);
+        let conf = select_client_conf_file(
+            std::env::var_os("PULSE_CLIENTCONFIG").as_deref(),
+            std::env::var_os("PULSE_CONFIG_PATH").as_deref(),
+            home.as_deref(),
+            Path::new("/etc/pulse/client.conf"),
+        )
+        .as_deref()
+        .map(load_client_conf)
+        .unwrap_or_default();
+
+        let local_id = local_machine_id();
+        let endpoints = if let Some(env_server) = std::env::var_os("PULSE_SERVER") {
+            match env_server.to_str() {
+                Some(server) if !server.trim().is_empty() => {
+                    parse_server_list(server, local_id.as_deref())
+                }
+                _ => Vec::new(),
+            }
+        } else if let Some(server) = conf.default_server.as_deref() {
+            parse_server_list(server, local_id.as_deref())
+        } else {
+            let mut defaults = Vec::new();
+            if let Some(dir) = runtime_dir {
+                defaults.push(Endpoint::Unix(dir.join("native")));
+            }
+            defaults.push(Endpoint::Unix(PathBuf::from("/var/run/pulse/native")));
+            defaults
+        };
+
+        let cookie_dir = cookie_config_dir(home.as_deref());
+        let resolve_cookie = |path: PathBuf| -> Option<PathBuf> {
+            if path.is_absolute() {
+                Some(path)
+            } else {
+                cookie_dir.as_ref().map(|dir| dir.join(path))
+            }
+        };
+        let mut cookie = [0u8; COOKIE_LEN];
+        let cookie_candidates = [
+            std::env::var_os("PULSE_COOKIE")
+                .filter(|v| !v.is_empty())
+                .map(PathBuf::from)
+                .and_then(&resolve_cookie),
+            conf.cookie_file.and_then(&resolve_cookie),
+            cookie_dir.map(|dir| dir.join("cookie")),
+            home.map(|dir| dir.join(".pulse-cookie")),
+        ];
+        for candidate in cookie_candidates.into_iter().flatten() {
+            if let Ok(bytes) = std::fs::read(candidate)
+                && bytes.len() == COOKIE_LEN
+            {
+                cookie.copy_from_slice(&bytes);
+                break;
+            }
+        }
+
+        (endpoints, cookie)
+    }
+
+    fn push_u32_tag(buf: &mut Vec<u8>, value: u32) {
+        buf.push(TAG_U32);
+        buf.extend_from_slice(&value.to_be_bytes());
+    }
+
+    fn send_packet(stream: &mut UnixStream, payload: &[u8]) -> std::io::Result<()> {
+        let len = u32::try_from(payload.len()).map_err(|_| {
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, "packet too large")
+        })?;
+        let mut header = [0u8; DESCRIPTOR_LEN];
+        header[0..4].copy_from_slice(&len.to_be_bytes());
+        header[4..8].copy_from_slice(&CONTROL_CHANNEL.to_be_bytes());
+        stream.write_all(&header)?;
+        stream.write_all(payload)
+    }
+
+    fn protocol_error(message: &'static str) -> io::Error {
+        io::Error::new(io::ErrorKind::InvalidData, message)
+    }
+
+    fn recv_packet(stream: &mut UnixStream) -> io::Result<(u32, u32, Vec<u8>)> {
+        let mut header = [0u8; DESCRIPTOR_LEN];
+        stream.read_exact(&mut header)?;
+        let len = u32::from_be_bytes(header[0..4].try_into().unwrap()) as usize;
+        let channel = u32::from_be_bytes(header[4..8].try_into().unwrap());
+        if channel != CONTROL_CHANNEL || len > MAX_FRAME_LEN {
+            return Err(protocol_error("invalid Pulse packet header"));
+        }
+        let mut body = vec![0u8; len];
+        stream.read_exact(&mut body)?;
+        let cmd = read_u32_tag(body.get(0..5).unwrap_or_default())
+            .ok_or_else(|| protocol_error("invalid Pulse command tag"))?;
+        let seq = read_u32_tag(body.get(5..10).unwrap_or_default())
+            .ok_or_else(|| protocol_error("invalid Pulse sequence tag"))?;
+        Ok((cmd, seq, body.split_off(10)))
+    }
+
+    fn read_u32_tag(bytes: &[u8]) -> Option<u32> {
+        if *bytes.first()? != TAG_U32 {
+            return None;
+        }
+        Some(u32::from_be_bytes(bytes.get(1..5)?.try_into().ok()?))
+    }
+
+    fn connect_unix_with_timeout(path: &Path, timeout: Duration) -> io::Result<UnixStream> {
+        let path_bytes = path.as_os_str().as_bytes();
+        let mut address: libc::sockaddr_un = unsafe { std::mem::zeroed() };
+        if path_bytes.contains(&0) || path_bytes.len() >= address.sun_path.len() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Pulse socket path is invalid or too long",
+            ));
+        }
+        address.sun_family = libc::AF_UNIX as libc::sa_family_t;
+        for (destination, source) in address.sun_path.iter_mut().zip(path_bytes) {
+            *destination = *source as libc::c_char;
+        }
+        let address_len = (std::mem::offset_of!(libc::sockaddr_un, sun_path) + path_bytes.len() + 1)
+            as libc::socklen_t;
+
+        let raw_fd = unsafe {
+            libc::socket(
+                libc::AF_UNIX,
+                libc::SOCK_STREAM | libc::SOCK_CLOEXEC | libc::SOCK_NONBLOCK,
+                0,
+            )
+        };
+        if raw_fd < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let fd = unsafe { OwnedFd::from_raw_fd(raw_fd) };
+        let deadline = Instant::now() + timeout;
+        loop {
+            let connected = unsafe {
+                libc::connect(
+                    fd.as_raw_fd(),
+                    std::ptr::from_ref(&address).cast(),
+                    address_len,
+                )
+            };
+            if connected == 0 {
+                break;
+            }
+            let error = io::Error::last_os_error();
+            match error.raw_os_error() {
+                Some(libc::EISCONN) => break,
+                Some(libc::EINTR) => continue,
+                Some(libc::EAGAIN) | Some(libc::EINPROGRESS) | Some(libc::EALREADY) => {
+                    let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                        return Err(io::Error::new(
+                            io::ErrorKind::TimedOut,
+                            "Pulse socket connection timed out",
+                        ));
+                    };
+                    std::thread::sleep(remaining.min(Duration::from_millis(10)));
+                }
+                _ => return Err(error),
+            }
+        }
+
+        let stream: UnixStream = fd.into();
+        stream.set_nonblocking(false)?;
+        Ok(stream)
+    }
+
+    pub(super) fn socket_has_sink(
+        path: &Path,
+        sink: &str,
+        cookie: &[u8; COOKIE_LEN],
+    ) -> io::Result<bool> {
+        let mut stream = connect_unix_with_timeout(path, SOCKET_TIMEOUT)?;
+        let _ = stream.set_read_timeout(Some(SOCKET_TIMEOUT));
+        let _ = stream.set_write_timeout(Some(SOCKET_TIMEOUT));
+        query_connected_sink(&mut stream, sink, cookie)
+    }
+
+    fn query_connected_sink(
+        stream: &mut UnixStream,
+        sink: &str,
+        cookie: &[u8; COOKIE_LEN],
+    ) -> io::Result<bool> {
+        let mut auth = Vec::with_capacity(20 + COOKIE_LEN);
+        push_u32_tag(&mut auth, CMD_AUTH);
+        push_u32_tag(&mut auth, 0);
+        push_u32_tag(&mut auth, PROTOCOL_VERSION);
+        auth.push(TAG_ARBITRARY);
+        auth.extend_from_slice(&(COOKIE_LEN as u32).to_be_bytes());
+        auth.extend_from_slice(cookie);
+        send_packet(stream, &auth)?;
+        let (cmd, seq, _) = recv_packet(stream)?;
+        if cmd != CMD_REPLY || seq != 0 {
+            return Err(protocol_error("Pulse server rejected authentication"));
+        }
+
+        let mut set_name = Vec::with_capacity(12);
+        push_u32_tag(&mut set_name, CMD_SET_CLIENT_NAME);
+        push_u32_tag(&mut set_name, 1);
+        set_name.push(TAG_PROPLIST);
+        set_name.push(TAG_STRING_NULL);
+        send_packet(stream, &set_name)?;
+        let (cmd, seq, _) = recv_packet(stream)?;
+        if cmd != CMD_REPLY || seq != 1 {
+            return Err(protocol_error("Pulse server rejected client setup"));
+        }
+
+        for attempt in 0..4u32 {
+            let req_seq = 2 + attempt;
+            let mut lookup = Vec::with_capacity(12 + sink.len());
+            push_u32_tag(&mut lookup, CMD_LOOKUP_SINK);
+            push_u32_tag(&mut lookup, req_seq);
+            lookup.push(TAG_STRING);
+            lookup.extend_from_slice(sink.as_bytes());
+            lookup.push(0);
+            send_packet(stream, &lookup)?;
+            let (cmd, seq, rest) = recv_packet(stream)?;
+            if seq != req_seq {
+                return Err(protocol_error("Pulse server returned the wrong sequence"));
+            }
+            match cmd {
+                CMD_REPLY => {
+                    let index = read_u32_tag(rest.get(0..5).unwrap_or_default())
+                        .ok_or_else(|| protocol_error("invalid sink reply"))?;
+                    return Ok(index != u32::MAX);
+                }
+                CMD_ERROR => {
+                    let code = read_u32_tag(rest.get(0..5).unwrap_or_default())
+                        .ok_or_else(|| protocol_error("invalid Pulse error reply"))?;
+                    if code == PA_ERR_NOENTITY && attempt < 3 {
+                        std::thread::sleep(Duration::from_millis(20));
+                        continue;
+                    }
+                    if code == PA_ERR_NOENTITY {
+                        return Ok(false);
+                    }
+                    return Err(protocol_error("Pulse server rejected sink lookup"));
+                }
+                _ => return Err(protocol_error("unexpected Pulse sink reply")),
+            }
+        }
+        Ok(false)
+    }
+
+    pub(super) fn reaches_sink_on(
+        endpoints: Vec<Endpoint>,
+        cookie: &[u8; COOKIE_LEN],
+        sink: &str,
+    ) -> PulseReachability {
+        if endpoints.is_empty() {
+            return PulseReachability::Unavailable;
+        }
+        for endpoint in endpoints {
+            match endpoint {
+                Endpoint::NonUnix => return PulseReachability::Unavailable,
+                Endpoint::Unix(path) => match socket_has_sink(&path, sink, cookie) {
+                    Ok(true) => return PulseReachability::Found,
+                    Ok(false) => return PulseReachability::Retry,
+                    Err(error) if error.kind() == io::ErrorKind::TimedOut => {
+                        return PulseReachability::Unavailable;
+                    }
+                    Err(error)
+                        if matches!(
+                            error.kind(),
+                            io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
+                        ) =>
+                    {
+                        continue;
+                    }
+                    Err(_) => return PulseReachability::Unavailable,
+                },
+            }
+        }
+        PulseReachability::Retry
+    }
+
+    pub(super) fn reaches_sink(sink: &str) -> PulseReachability {
+        if sink.is_empty() || sink.as_bytes().contains(&0) {
+            return PulseReachability::Unavailable;
+        }
+        let (endpoints, cookie) = configured_endpoints_and_cookie();
+        reaches_sink_on(endpoints, &cookie, sink)
+    }
+}
+
 #[cfg(all(
     test,
     any(
@@ -457,6 +1039,625 @@ mod tests {
         ] {
             assert!(props.contains(wanted), "{props}");
         }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn pulse_props_locks_volume_and_keeps_the_user_s_props() {
+        let empty = pulse_props("   ");
+        assert!(!empty.starts_with(' '), "{empty}");
+        let props = pulse_props(" media.role=music ");
+        assert!(props.starts_with("media.role=music "), "{props}");
+        for wanted in [
+            "channelmix.lock-volumes=true",
+            "node.dont-fallback=true",
+            "node.dont-move=true",
+            "node.linger=true",
+        ] {
+            assert!(empty.contains(wanted), "{empty}");
+            assert!(props.contains(wanted), "{props}");
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn pulse_server_list_distinguishes_local_sockets_from_remote_servers() {
+        use pulse::{Endpoint, parse_server_list};
+        assert_eq!(
+            parse_server_list("unix:/tmp/pulse/native", None),
+            vec![Endpoint::Unix("/tmp/pulse/native".into())]
+        );
+        assert_eq!(
+            parse_server_list("unix:native", None),
+            vec![Endpoint::Unix("native".into())]
+        );
+        assert_eq!(
+            parse_server_list(
+                "{other-host}unix:/wrong/socket {my-host}/tmp/right/socket",
+                Some("my-host"),
+            ),
+            vec![Endpoint::Unix("/tmp/right/socket".into())]
+        );
+        assert_eq!(
+            parse_server_list("tcp:192.168.1.20:4713", Some("my-host")),
+            vec![Endpoint::NonUnix]
+        );
+        assert_eq!(
+            parse_server_list("remote-pulse-host", Some("my-host")),
+            vec![Endpoint::NonUnix]
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn pulse_client_conf_selection_does_not_merge_user_and_system_files() {
+        use pulse::{load_client_conf, select_client_conf_file};
+        let dir = std::env::temp_dir().join(format!(
+            "spotifast-pulse-select-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let home = dir.join("home");
+        let user_conf = home.join(".config/pulse/client.conf");
+        let system_conf = dir.join("etc/pulse/client.conf");
+        std::fs::create_dir_all(user_conf.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(system_conf.parent().unwrap()).unwrap();
+        std::fs::write(&system_conf, "default-server = /tmp/system/native\n").unwrap();
+
+        assert_eq!(
+            select_client_conf_file(None, None, Some(&home), &system_conf),
+            Some(system_conf.clone())
+        );
+
+        std::fs::write(&user_conf, "cookie-file = /custom/cookie\n").unwrap();
+        let chosen = select_client_conf_file(None, None, Some(&home), &system_conf).unwrap();
+        assert_eq!(chosen, user_conf);
+        let parsed = load_client_conf(&chosen);
+        assert_eq!(parsed.default_server, None);
+        assert_eq!(parsed.cookie_file, Some("/custom/cookie".into()));
+
+        let dot_pulse = home.join(".pulse/client.conf");
+        std::fs::create_dir_all(dot_pulse.parent().unwrap()).unwrap();
+        std::fs::write(&dot_pulse, "default-server = /tmp/dot-pulse/native\n").unwrap();
+        assert_eq!(
+            select_client_conf_file(None, None, Some(&home), &system_conf),
+            Some(dot_pulse)
+        );
+
+        assert_eq!(
+            select_client_conf_file(
+                Some(dir.join("missing.conf").as_os_str()),
+                None,
+                Some(&home),
+                &system_conf,
+            ),
+            None
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn pulse_client_conf_applies_includes_and_ordered_drop_ins() {
+        use pulse::load_client_conf;
+        let dir = std::env::temp_dir().join(format!(
+            "spotifast-pulse-conf-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let conf_dir = dir.join("pulse");
+        let drop_in_dir = conf_dir.join("client.conf.d");
+        std::fs::create_dir_all(&drop_in_dir).unwrap();
+
+        let main_conf = conf_dir.join("client.conf");
+        std::fs::write(
+            conf_dir.join("included.conf"),
+            "default-server = unix:/included/native ; inline comment\ncookie-file = custom-cookie\n",
+        )
+        .unwrap();
+        std::fs::write(
+            &main_conf,
+            "# header comment\ndefault-server = unix:/main/native\n.include missing.conf\n.include included.conf\n",
+        )
+        .unwrap();
+        std::fs::write(
+            drop_in_dir.join("10-first.conf"),
+            "default-server = unix:/dropin-10/native # comment\n",
+        )
+        .unwrap();
+        std::fs::write(
+            drop_in_dir.join("20-second.conf"),
+            "default-server = unix:/dropin-20/native\n",
+        )
+        .unwrap();
+        std::fs::write(
+            drop_in_dir.join("99-ignored.txt"),
+            "default-server = unix:/ignored/native\n",
+        )
+        .unwrap();
+
+        let parsed = load_client_conf(&main_conf);
+        assert_eq!(
+            parsed.default_server.as_deref(),
+            Some("unix:/dropin-20/native")
+        );
+        assert_eq!(parsed.cookie_file, Some("custom-cookie".into()));
+
+        std::fs::write(drop_in_dir.join("30-clear.conf"), "default-server =\n").unwrap();
+        assert_eq!(load_client_conf(&main_conf).default_server, None);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn pulse_socket_lookup_matches_only_the_bridge_s_sink() {
+        use std::{
+            io::{Read, Write},
+            os::unix::net::UnixListener,
+        };
+        let dir = std::env::temp_dir().join(format!(
+            "spotifast-pulse-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let sock_path = dir.join("native");
+        let listener = UnixListener::bind(&sock_path).unwrap();
+
+        let reply_frame = |cmd: u32, seq: u32, val: u32| -> Vec<u8> {
+            let mut body = Vec::with_capacity(15);
+            for n in [cmd, seq, val] {
+                body.push(b'L');
+                body.extend_from_slice(&n.to_be_bytes());
+            }
+            let mut frame = Vec::with_capacity(20 + body.len());
+            frame.extend_from_slice(&(body.len() as u32).to_be_bytes());
+            frame.extend_from_slice(&u32::MAX.to_be_bytes());
+            frame.extend_from_slice(&0u64.to_be_bytes());
+            frame.extend_from_slice(&0u32.to_be_bytes());
+            frame.extend_from_slice(&body);
+            frame
+        };
+
+        let server = std::thread::spawn(move || {
+            for _ in 0..2 {
+                let (mut conn, _) = listener.accept().unwrap();
+                let read_pkt = |c: &mut std::os::unix::net::UnixStream| -> Vec<u8> {
+                    let mut hdr = [0u8; 20];
+                    c.read_exact(&mut hdr).unwrap();
+                    let len = u32::from_be_bytes(hdr[0..4].try_into().unwrap()) as usize;
+                    let mut buf = vec![0u8; len];
+                    c.read_exact(&mut buf).unwrap();
+                    buf
+                };
+                // AUTH
+                let _ = read_pkt(&mut conn);
+                conn.write_all(&reply_frame(2, 0, 35)).unwrap();
+                // SET_CLIENT_NAME
+                let _ = read_pkt(&mut conn);
+                conn.write_all(&reply_frame(2, 1, 1)).unwrap();
+                // LOOKUP_SINK (up to 4 retries when missing)
+                loop {
+                    let mut hdr = [0u8; 20];
+                    if conn.read_exact(&mut hdr).is_err() {
+                        break;
+                    }
+                    let len = u32::from_be_bytes(hdr[0..4].try_into().unwrap()) as usize;
+                    let mut pkt = vec![0u8; len];
+                    conn.read_exact(&mut pkt).unwrap();
+                    let seq = u32::from_be_bytes(pkt[6..10].try_into().unwrap());
+                    let name_bytes = &pkt[11..pkt.len() - 1];
+                    if name_bytes == b"spotifast.soloist.owned" {
+                        conn.write_all(&reply_frame(2, seq, 42)).unwrap();
+                        break;
+                    } else {
+                        conn.write_all(&reply_frame(0, seq, 5)).unwrap();
+                    }
+                }
+            }
+        });
+
+        let cookie = [0u8; 256];
+        assert!(pulse::socket_has_sink(&sock_path, "spotifast.soloist.owned", &cookie).unwrap());
+        assert!(!pulse::socket_has_sink(&sock_path, "spotifast.soloist.foreign", &cookie).unwrap());
+        server.join().unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(target_os = "linux")]
+    fn pulse_sink_server(
+        listener: std::os::unix::net::UnixListener,
+    ) -> std::thread::JoinHandle<bool> {
+        use std::io::{Read, Write};
+        listener.set_nonblocking(true).unwrap();
+        std::thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(1);
+            let mut conn = loop {
+                match listener.accept() {
+                    Ok((conn, _)) => break Some(conn),
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        if Instant::now() >= deadline {
+                            break None;
+                        }
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(error) => panic!("fallback accept failed: {error}"),
+                }
+            };
+            let Some(ref mut conn) = conn else {
+                return false;
+            };
+            conn.set_nonblocking(false).unwrap();
+            let read_packet = |stream: &mut std::os::unix::net::UnixStream| {
+                let mut header = [0u8; 20];
+                stream.read_exact(&mut header).unwrap();
+                let len = u32::from_be_bytes(header[0..4].try_into().unwrap()) as usize;
+                let mut body = vec![0u8; len];
+                stream.read_exact(&mut body).unwrap();
+                body
+            };
+            let reply = |cmd: u32, seq: u32, value: u32| {
+                let mut body = Vec::with_capacity(15);
+                for n in [cmd, seq, value] {
+                    body.push(b'L');
+                    body.extend_from_slice(&n.to_be_bytes());
+                }
+                let mut frame = Vec::with_capacity(20 + body.len());
+                frame.extend_from_slice(&(body.len() as u32).to_be_bytes());
+                frame.extend_from_slice(&u32::MAX.to_be_bytes());
+                frame.extend_from_slice(&0u64.to_be_bytes());
+                frame.extend_from_slice(&0u32.to_be_bytes());
+                frame.extend_from_slice(&body);
+                frame
+            };
+            let _ = read_packet(conn);
+            conn.write_all(&reply(2, 0, 35)).unwrap();
+            let _ = read_packet(conn);
+            conn.write_all(&reply(2, 1, 1)).unwrap();
+            let lookup = read_packet(conn);
+            let seq = u32::from_be_bytes(lookup[6..10].try_into().unwrap());
+            conn.write_all(&reply(2, seq, 42)).unwrap();
+            true
+        })
+    }
+
+    #[cfg(target_os = "linux")]
+    fn pulse_error_server(
+        listener: std::os::unix::net::UnixListener,
+        auth_error: Option<u32>,
+        lookup_error: Option<u32>,
+    ) -> std::thread::JoinHandle<bool> {
+        use std::io::{Read, Write};
+        listener.set_nonblocking(true).unwrap();
+        std::thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(1);
+            let mut conn = loop {
+                match listener.accept() {
+                    Ok((conn, _)) => break Some(conn),
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        if Instant::now() >= deadline {
+                            break None;
+                        }
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(error) => panic!("error server accept failed: {error}"),
+                }
+            };
+            let Some(ref mut conn) = conn else {
+                return false;
+            };
+            conn.set_nonblocking(false).unwrap();
+            let read_packet = |stream: &mut std::os::unix::net::UnixStream| {
+                let mut header = [0u8; 20];
+                stream.read_exact(&mut header).unwrap();
+                let len = u32::from_be_bytes(header[0..4].try_into().unwrap()) as usize;
+                let mut body = vec![0u8; len];
+                stream.read_exact(&mut body).unwrap();
+                body
+            };
+            let reply = |cmd: u32, seq: u32, value: u32| {
+                let mut body = Vec::with_capacity(15);
+                for n in [cmd, seq, value] {
+                    body.push(b'L');
+                    body.extend_from_slice(&n.to_be_bytes());
+                }
+                let mut frame = Vec::with_capacity(20 + body.len());
+                frame.extend_from_slice(&(body.len() as u32).to_be_bytes());
+                frame.extend_from_slice(&u32::MAX.to_be_bytes());
+                frame.extend_from_slice(&0u64.to_be_bytes());
+                frame.extend_from_slice(&0u32.to_be_bytes());
+                frame.extend_from_slice(&body);
+                frame
+            };
+
+            let _ = read_packet(conn);
+            if let Some(code) = auth_error {
+                conn.write_all(&reply(0, 0, code)).unwrap();
+                return true;
+            }
+            conn.write_all(&reply(2, 0, 35)).unwrap();
+            let _ = read_packet(conn);
+            conn.write_all(&reply(2, 1, 1)).unwrap();
+            let code = lookup_error.unwrap();
+            let attempts = if code == 5 { 4 } else { 1 };
+            for _ in 0..attempts {
+                let lookup = read_packet(conn);
+                let seq = u32::from_be_bytes(lookup[6..10].try_into().unwrap());
+                conn.write_all(&reply(0, seq, code)).unwrap();
+            }
+            true
+        })
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn pulse_review_regression_retries_readiness_until_sink_appears() {
+        let attempts = std::cell::Cell::new(0);
+        assert!(pulse_reaches_sink_with(
+            || {
+                attempts.set(attempts.get() + 1);
+                if attempts.get() >= 3 {
+                    PulseReachability::Found
+                } else {
+                    PulseReachability::Retry
+                }
+            },
+            Duration::from_secs(1),
+            Duration::ZERO,
+        ));
+        assert_eq!(attempts.get(), 3);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn pulse_review_regression_nonlocal_selection_returns_without_retry() {
+        assert_eq!(
+            pulse::reaches_sink_on(
+                vec![pulse::Endpoint::NonUnix],
+                &[0; 256],
+                "spotifast.soloist.owned",
+            ),
+            PulseReachability::Unavailable
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn pulse_review_regression_all_absent_endpoints_remain_retryable() {
+        let dir = std::env::temp_dir().join(format!(
+            "spotifast-pulse-unreachable-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(
+            pulse::reaches_sink_on(
+                vec![
+                    pulse::Endpoint::Unix(dir.join("missing-a")),
+                    pulse::Endpoint::Unix(dir.join("missing-b")),
+                ],
+                &[0; 256],
+                "spotifast.soloist.owned",
+            ),
+            PulseReachability::Retry
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn pulse_review_regression_empty_endpoint_list_is_terminal() {
+        assert_eq!(
+            pulse::reaches_sink_on(Vec::new(), &[0; 256], "spotifast.soloist.owned"),
+            PulseReachability::Unavailable
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn pulse_review_regression_auth_failure_is_not_an_absent_sink() {
+        use std::os::unix::net::UnixListener;
+        let dir = std::env::temp_dir().join(format!(
+            "spotifast-pulse-auth-error-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("native");
+        let server = pulse_error_server(UnixListener::bind(&path).unwrap(), Some(2), None);
+        assert_eq!(
+            pulse::reaches_sink_on(
+                vec![pulse::Endpoint::Unix(path)],
+                &[0; 256],
+                "spotifast.soloist.owned",
+            ),
+            PulseReachability::Unavailable
+        );
+        assert!(server.join().unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn pulse_review_regression_protocol_failure_is_not_an_absent_sink() {
+        use std::os::unix::net::UnixListener;
+        let dir = std::env::temp_dir().join(format!(
+            "spotifast-pulse-protocol-error-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("native");
+        let server = pulse_error_server(UnixListener::bind(&path).unwrap(), None, Some(1));
+        assert_eq!(
+            pulse::reaches_sink_on(
+                vec![pulse::Endpoint::Unix(path)],
+                &[0; 256],
+                "spotifast.soloist.owned",
+            ),
+            PulseReachability::Unavailable
+        );
+        assert!(server.join().unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn pulse_review_regression_an_absent_sink_still_waits_for_registration() {
+        use std::os::unix::net::UnixListener;
+        let dir = std::env::temp_dir().join(format!(
+            "spotifast-pulse-missing-sink-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("native");
+        let server = pulse_error_server(UnixListener::bind(&path).unwrap(), None, Some(5));
+        assert_eq!(
+            pulse::reaches_sink_on(
+                vec![pulse::Endpoint::Unix(path)],
+                &[0; 256],
+                "spotifast.soloist.owned",
+            ),
+            PulseReachability::Retry
+        );
+        assert!(server.join().unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn pulse_review_regression_stops_after_selected_endpoint_times_out() {
+        use std::os::{
+            fd::AsRawFd,
+            unix::net::{UnixListener, UnixStream},
+        };
+        let dir = std::env::temp_dir().join(format!(
+            "spotifast-pulse-endpoints-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let stalled_path = dir.join("stalled");
+        let stalled = UnixListener::bind(&stalled_path).unwrap();
+        assert_eq!(unsafe { libc::listen(stalled.as_raw_fd(), 0) }, 0);
+        let queued = UnixStream::connect(&stalled_path).unwrap();
+
+        let fallback_path = dir.join("fallback");
+        let server = pulse_sink_server(UnixListener::bind(&fallback_path).unwrap());
+        let found = pulse::reaches_sink_on(
+            vec![
+                pulse::Endpoint::Unix(stalled_path),
+                pulse::Endpoint::Unix(fallback_path),
+            ],
+            &[0; 256],
+            "spotifast.soloist.owned",
+        );
+        assert!(
+            !server.join().unwrap(),
+            "a timed-out selected server must not probe a different Pulse server"
+        );
+        assert_eq!(found, PulseReachability::Unavailable);
+        drop(queued);
+        drop(stalled);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn pulse_review_regression_missing_endpoint_uses_the_next_server() {
+        use std::os::unix::net::UnixListener;
+        let dir = std::env::temp_dir().join(format!(
+            "spotifast-pulse-missing-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fallback_path = dir.join("fallback");
+        let server = pulse_sink_server(UnixListener::bind(&fallback_path).unwrap());
+        assert_eq!(
+            pulse::reaches_sink_on(
+                vec![
+                    pulse::Endpoint::Unix(dir.join("missing")),
+                    pulse::Endpoint::Unix(fallback_path),
+                ],
+                &[0; 256],
+                "spotifast.soloist.owned",
+            ),
+            PulseReachability::Found
+        );
+        assert!(
+            server.join().unwrap(),
+            "a missing selected server must try the next Pulse server"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn pulse_socket_lookup_does_not_block_on_a_full_accept_queue() {
+        use std::{
+            os::{
+                fd::AsRawFd,
+                unix::net::{UnixListener, UnixStream},
+            },
+            time::{Duration, Instant},
+        };
+        let dir = std::env::temp_dir().join(format!(
+            "spotifast-pulse-full-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let sock_path = dir.join("native");
+        let listener = UnixListener::bind(&sock_path).unwrap();
+        assert_eq!(unsafe { libc::listen(listener.as_raw_fd(), 0) }, 0);
+        let queued = UnixStream::connect(&sock_path).unwrap();
+
+        let started = Instant::now();
+        let result = pulse::socket_has_sink(&sock_path, "spotifast.soloist.owned", &[0; 256]);
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "full Pulse accept queue blocked for {:?}",
+            started.elapsed()
+        );
+        assert!(result.is_err() || !result.unwrap());
+
+        drop(queued);
+        drop(listener);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// One bad moment rebuilds at once, a few more wait, and a route that
@@ -1651,6 +2852,8 @@ mod pipewire {
         if let Some(target) = output_target {
             output_properties.insert("target.object", target);
             output_properties.insert("node.dont-fallback", "true");
+            // An explicit target must not be replaced by follow-default metadata.
+            output_properties.insert("node.dont-move", "true");
         }
         let output = pw::stream::StreamRc::new(core, "Soloist output", output_properties)?;
         let readiness = Rc::new((Cell::new(0u8), RefCell::new(Some(ready))));
@@ -3517,6 +4720,175 @@ mod pipewire {
             tokio::time::sleep(Duration::from_millis(150)).await;
             assert!(state.stop.load(Ordering::Acquire));
             assert!(tap.window(512, 0).iter().all(|v| *v == 0.0));
+        }
+
+        /// A Soloist binary linked against libpulse (`pipewire-pulse`) ignores
+        /// `--pipewire-device` and `PIPEWIRE_PROPS`, so it needs `PULSE_SINK`
+        /// and `PULSE_PROP` to reach the private processing sink at unity gain.
+        #[tokio::test]
+        #[ignore = "requires PipeWire, pipewire-pulse, WirePlumber, pacat, pw-dump and SOLOIST_AUDIO_TEST_OUTPUT naming a private null sink"]
+        async fn pulse_client_routes_and_locks_volume() {
+            use std::process::Stdio;
+            use tokio::io::AsyncWriteExt;
+            let output =
+                std::env::var("SOLOIST_AUDIO_TEST_OUTPUT").expect("private null sink required");
+            assert!(output.starts_with("spotifast_test_"));
+            assert!(
+                std::env::var("PIPEWIRE_RUNTIME_DIR").is_ok(),
+                "these tests start and stop clients: private instance only"
+            );
+            let tap = crate::vis::AudioTap::new();
+            let eq = crate::eq::shared();
+            {
+                let mut eq = eq.lock().unwrap();
+                eq.on = true;
+                eq.preamp_db = 6.0;
+            }
+            let dirs = crate::paths::AppDirs {
+                config: std::path::PathBuf::new(),
+                state: std::path::PathBuf::new(),
+                cache: std::path::PathBuf::new(),
+            };
+            let config = crate::app::engine_config(
+                &dirs,
+                &crate::settings::Settings::default(),
+                crate::settings::ProxyConfig::Off,
+                tap.clone(),
+                eq,
+            );
+            let other = Bridge::open(config.clone(), OutputVolume::default())
+                .await
+                .expect("second private bridge");
+            let bridge = Bridge::open_on(config, Some(output), OutputVolume::default())
+                .await
+                .expect("private bridge");
+            // Production waits for the separate Pulse service's registry to catch up.
+            assert!(
+                pulse_reaches_sink(&bridge.name),
+                "pipewire-pulse must expose the bridge sink: {:?}",
+                bridge.fault()
+            );
+            assert_eq!(
+                pulse::reaches_sink("spotifast.soloist.absent"),
+                PulseReachability::Retry,
+                "a reachable server without the sink must remain retryable"
+            );
+
+            let mut source = tokio::process::Command::new("pacat")
+                .args([
+                    "--volume=0",
+                    "--raw",
+                    "--format=float32le",
+                    "--rate=48000",
+                    "--channels=2",
+                ])
+                .env("PIPEWIRE_PROPS", child_props(""))
+                .env("PULSE_SINK", &bridge.name)
+                .env("PULSE_PROP", pulse_props("media.role=Music"))
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .kill_on_drop(true)
+                .spawn()
+                .unwrap();
+            let child_pid = source.id().unwrap();
+            bridge.child(child_pid);
+            let mut stdin = source.stdin.take().unwrap();
+            let feed = tokio::spawn(async move {
+                let bytes = tone(48_000, 4800);
+                while stdin.write_all(&bytes).await.is_ok() {}
+            });
+            for _ in 0..40 {
+                if bridge.routed() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            assert!(
+                bridge.routed(),
+                "PULSE_SINK must route the owned libpulse child"
+            );
+            assert!(
+                !other.routed(),
+                "PULSE_SINK must target only its own bridge"
+            );
+
+            let dump = tokio::process::Command::new("pw-dump")
+                .output()
+                .await
+                .unwrap();
+            let graph: serde_json::Value = serde_json::from_slice(&dump.stdout).unwrap();
+            let stream = graph
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|node| {
+                    node["info"]["props"]["application.process.id"].as_u64()
+                        == Some(u64::from(child_pid))
+                        && node["info"]["props"]["media.class"] == "Stream/Output/Audio"
+                })
+                .expect("pipewire-pulse stream node registered");
+            let props = &stream["info"]["props"];
+            assert_eq!(props["client.api"], "pipewire-pulse");
+            assert_eq!(props["target.object"], bridge.name);
+            assert_eq!(props["media.role"], "Music");
+            for key in [
+                "channelmix.lock-volumes",
+                "node.dont-fallback",
+                "node.dont-move",
+                "node.linger",
+            ] {
+                assert_eq!(props[key], true, "{key} missing on {props}");
+            }
+
+            bridge.update(&json!({"status":"playing", "volume":0, "is_active":true}));
+            tokio::time::sleep(Duration::from_millis(800)).await;
+            assert!(!bridge.failed());
+            assert!(!other.failed());
+            let tap_peak = tap
+                .window(512, 0)
+                .iter()
+                .copied()
+                .map(f32::abs)
+                .fold(0.0, f32::max);
+            assert!(
+                (tap_peak - 0.2).abs() < 0.02,
+                "zero-volume post-EQ tap through pipewire-pulse: {tap_peak}"
+            );
+            bridge.update(&json!({"status":"paused"}));
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            assert!(tap.window(512, 0).iter().all(|v| *v == 0.0));
+
+            bridge.state.fail("a test wanted a rebuild");
+            assert!(bridge.rebuild().await, "the route came back up");
+            assert!(!bridge.routed());
+            bridge.update(&json!({"status":"playing", "volume":0, "is_active":true}));
+            for _ in 0..100 {
+                if bridge.routed() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            assert!(
+                bridge.routed(),
+                "running libpulse child must reconnect to rebuilt route"
+            );
+            tokio::time::sleep(Duration::from_millis(800)).await;
+            assert!(!bridge.failed());
+            let rebuilt_peak = tap
+                .window(512, 0)
+                .iter()
+                .copied()
+                .map(f32::abs)
+                .fold(0.0, f32::max);
+            assert!(
+                (rebuilt_peak - 0.2).abs() < 0.02,
+                "post-EQ tap after rebuilding route under running libpulse child: {rebuilt_peak}"
+            );
+
+            let _ = source.kill().await;
+            let _ = source.wait().await;
+            let _ = feed.await;
         }
     }
 }

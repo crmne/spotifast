@@ -182,7 +182,8 @@ queue-write mechanisms may offer a future route, but have not been verified
 for Soloist's queue identities and concurrent updates.
 
 On Linux with PipeWire, Spotifast routes its own Soloist process through a
-private audio input, using Soloist's documented `--pipewire-device` option.
+private audio input, using Soloist's documented `--pipewire-device` option
+and `PULSE_SINK` when Soloist plays through `pipewire-pulse`.
 The existing equalizer, spectrum, oscilloscope and MilkDrop work on this route.
 The equalizer runs at the output's negotiated sample rate; the visualization
 copy is converted to 44.1 kHz. Visualizers receive audio after EQ and before

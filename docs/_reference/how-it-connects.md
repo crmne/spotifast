@@ -850,7 +850,8 @@ key and pairing data. Soloist's own streaming traffic is not routed by
 Spotifast's proxy settings.
 
 On Linux with PipeWire, the managed child is given a private input through
-`--pipewire-device`. Native PipeWire streams apply the existing equalizer and
+`--pipewire-device`, and through `PULSE_SINK` when Soloist uses libpulse on
+`pipewire-pulse`. Native PipeWire streams apply the existing equalizer and
 feed the visualizers before volume, then play through the default output.
 Only that child's stream is held at unity gain; its documented volume events
 set the final processed gain. The route is temporary and local, and writes no
