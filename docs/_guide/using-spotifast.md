@@ -734,7 +734,8 @@ volume for Spotifast alone.
 
 The people button in the player bar, beside Queue and Lyrics, opens what the
 people you follow on Spotify are listening to. It takes the place of the
-Queue or Lyrics panel on the right, and they take its place in turn. While
+Queue and Lyrics panels on the right, and either of them takes its place in
+turn. While
 it is open it refreshes every 15 seconds.
 
 A blue dot on the avatar and bars in place of the time mean the person is
@@ -850,6 +851,16 @@ beside it, or in its own tags, and the cover in its tags; otherwise lyrics come
 from LRCLIB by its artist, title, album and length.
 Synced lyrics follow the playing line automatically. Scroll to pause following,
 choose **Follow** to resume it, or choose a line to jump to that part of the song.
+
+Lyrics and Queue can be open at the same time: open one, then the other, and
+the lyrics sit above the queue. Drag the line between them to give either more
+height. With room for them side by side, the button beside the expand button
+in the lyrics' header puts the queue beside the lyrics, and back below them.
+Spotifast remembers where you left the line and which way you chose. The
+Queue or Lyrics button closes only its own panel. A window too short or too
+narrow for both shows the one you opened last, with the other still open behind
+it: its button brings it to the front, closing the front one shows it again,
+and both come back once the window has room.
 
 The expand button in the lyrics panel or at the right of the player bar, or
 **F** when no text field has focus, opens lyrics in full screen. A narrow

@@ -507,6 +507,8 @@ Settings for a listener still on a shared grant from before 0.14.2, and
 light or dark (on Linux), to show the light and dark mode themes; with an
 explicit `--demo-data` directory, its `config/settings.json` and
 `config/themes` supply them.
+`side-panels-beside`, given with `lyrics` and `queue`, shows the two side by
+side rather than one above the other, where the window has room for it.
 `player-bar-spectrum` and `player-bar-waveform` play a fixed, music-like
 sound on this computer with that player bar visualizer on.
 `lyrics-fullscreen-view` and `lyrics-fullscreen-instrumental` draw full-screen

@@ -1913,6 +1913,12 @@ pub struct SessionState {
     pub queue_open: Option<bool>,
     /// Which tab the queue panel showed: `queue` or `recents`.
     pub queue_tab: Option<String>,
+    /// The share of the side panel's height the Lyrics took above the
+    /// Queue, where the divider between the two was left.
+    pub lyrics_share: Option<f32>,
+    /// Whether the Lyrics and the Queue, open together, sat side by side
+    /// rather than one above the other.
+    pub side_panels_beside: bool,
     /// Last outer position of the Winamp window.
     pub winamp_pos: Option<[f32; 2]>,
     /// Last outer position of the MilkDrop window.
@@ -2063,6 +2069,25 @@ mod session_tests {
             crate::player::RepeatMode::from_api(&read.repeat),
             crate::player::RepeatMode::Track
         );
+    }
+
+    /// Where the Lyrics and the Queue sat together, and the divider
+    /// between them, survive a restart; older sessions stack them in half
+    /// (#1390).
+    #[test]
+    fn the_side_panel_layout_round_trips() {
+        let older = serde_json::from_str::<SessionState>("{}").unwrap();
+        assert_eq!(
+            (older.lyrics_share, older.side_panels_beside),
+            (None, false)
+        );
+        let state = SessionState {
+            lyrics_share: Some(0.35),
+            side_panels_beside: true,
+            ..SessionState::default()
+        };
+        let json = serde_json::to_string(&state).unwrap();
+        assert_eq!(serde_json::from_str::<SessionState>(&json).unwrap(), state);
     }
 
     #[test]

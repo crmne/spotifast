@@ -55,65 +55,16 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
                 .fill(palette.panel)
                 .inner_margin(Margin::symmetric(12, 12)),
         );
+    // With the queue open too and the two in rows, it sits below the
+    // lyrics in this panel, at the lyrics' width (#1390).
+    let with_queue = app.queue_panel_shown(ui.ctx())
+        && super::side_panels_together(ui.ctx(), app) == Some(super::Together::Rows);
     let response = panel.show(ui, |ui| {
-        let window_controls = super::window_controls_reservation(
-            ui.ctx(),
-            app.show_queue_panel,
-            app.show_lyrics_panel,
-            ui.available_width(),
-        );
-        ui.add_space(window_controls.lyrics_top);
-        ui.horizontal(|ui| {
-            ui.add_space(4.0);
-            theme::text(
-                ui,
-                gettext(app.locale, "Lyrics"),
-                theme::bold(18.0),
-                palette.text,
-            );
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if theme::icon_button(
-                    ui,
-                    Icon::X,
-                    18.0,
-                    palette.secondary,
-                    palette.text,
-                    &gettext(app.locale, "Close"),
-                )
-                .clicked()
-                {
-                    app.actions.push(Action::ToggleLyricsPanel);
-                }
-                if theme::icon_button(
-                    ui,
-                    Icon::Expand,
-                    18.0,
-                    palette.secondary,
-                    palette.text,
-                    &gettext(app.locale, "Full screen lyrics"),
-                )
-                .clicked()
-                {
-                    app.actions.push(Action::SetLyricsFullscreen(true));
-                }
-                let loaded = matches!(&app.lyrics, Loadable::Loaded(Some(_)));
-                if loaded
-                    && !app.lyrics_following
-                    && theme::pill_button(
-                        ui,
-                        &palette,
-                        &pgettext(app.locale, "lyrics", "Follow"),
-                        false,
-                    )
-                    .clicked()
-                {
-                    app.lyrics_following = true;
-                    app.lyrics_line_shown = None;
-                }
-            });
-        });
-        ui.add_space(8.0);
-        contents(app, ui);
+        if with_queue {
+            super::stacked(app, ui, panel_body, super::queue::panel_body);
+        } else {
+            panel_body(app, ui);
+        }
     });
     let current_width = response.response.rect.width();
     if (app.settings.lyrics_width - current_width).abs() > 1.0
@@ -121,6 +72,96 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
     {
         app.settings.lyrics_width = current_width;
         app.actions.push(Action::SettingsChanged);
+    }
+}
+
+/// The side panel's header and the words, alone in the panel or above the
+/// queue.
+fn panel_body(app: &mut App, ui: &mut egui::Ui) {
+    let palette = app.palette;
+    let (queue, lyrics) = super::caption_headers(app, ui.ctx());
+    let window_controls =
+        super::window_controls_reservation(ui.ctx(), queue, lyrics, ui.available_width());
+    ui.add_space(window_controls.lyrics_top);
+    ui.horizontal(|ui| {
+        ui.add_space(4.0);
+        theme::text(
+            ui,
+            gettext(app.locale, "Lyrics"),
+            theme::bold(18.0),
+            palette.text,
+        );
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            if theme::icon_button(
+                ui,
+                Icon::X,
+                18.0,
+                palette.secondary,
+                palette.text,
+                &gettext(app.locale, "Close"),
+            )
+            .clicked()
+            {
+                app.actions.push(Action::ToggleLyricsPanel);
+            }
+            arrangement_button(app, ui);
+            if theme::icon_button(
+                ui,
+                Icon::Expand,
+                18.0,
+                palette.secondary,
+                palette.text,
+                &gettext(app.locale, "Full screen lyrics"),
+            )
+            .clicked()
+            {
+                app.actions.push(Action::SetLyricsFullscreen(true));
+            }
+            let loaded = matches!(&app.lyrics, Loadable::Loaded(Some(_)));
+            if loaded
+                && !app.lyrics_following
+                && theme::pill_button(
+                    ui,
+                    &palette,
+                    &pgettext(app.locale, "lyrics", "Follow"),
+                    false,
+                )
+                .clicked()
+            {
+                app.lyrics_following = true;
+                app.lyrics_line_shown = None;
+            }
+        });
+    });
+    ui.add_space(8.0);
+    contents(app, ui);
+}
+
+/// With the Queue shown too, switches the two between one above the other
+/// and side by side, when the window has room for both ways.
+fn arrangement_button(app: &mut App, ui: &mut egui::Ui) {
+    let palette = app.palette;
+    let ctx = ui.ctx().clone();
+    if !app.queue_panel_shown(&ctx) {
+        return;
+    }
+    let now = super::side_panels_together(&ctx, app);
+    let next = super::arrangement(&ctx, &app.settings, !app.side_panels_beside);
+    if now.is_none() || next == now {
+        return;
+    }
+    let (icon, label) = match next {
+        Some(super::Together::Columns) => (
+            Icon::Columns,
+            gettext(app.locale, "Show the queue beside the lyrics"),
+        ),
+        _ => (
+            Icon::Rows,
+            gettext(app.locale, "Show the queue below the lyrics"),
+        ),
+    };
+    if theme::icon_button(ui, icon, 18.0, palette.secondary, palette.text, &label).clicked() {
+        app.actions.push(Action::ToggleSidePanelArrangement);
     }
 }
 

@@ -662,10 +662,21 @@ pub struct App {
     cover_uploads: HashMap<String, u64>,
     /// Successful uploads stay visible while Spotify propagates the new image.
     uploaded_covers: std::collections::HashMap<String, crate::playlist_cover::PendingCover>,
+    /// The Queue and Lyrics side panels can be open together, Lyrics above
+    /// or beside the Queue (#1390).
     pub show_queue_panel: bool,
     pub show_lyrics_panel: bool,
-    /// Friend activity takes the right panel's place, so at most one of the
-    /// Queue, Lyrics and Friend activity is open.
+    /// Which of the two was opened last, and so the one a window with no
+    /// room for both shows: true for Lyrics.
+    pub lyrics_in_front: bool,
+    /// The share of the side panel's height the Lyrics take above the
+    /// Queue, remembered in the session.
+    pub lyrics_share: f32,
+    /// The Lyrics and the Queue, open together, sit side by side rather
+    /// than one above the other. Remembered in the session.
+    pub side_panels_beside: bool,
+    /// Friend activity takes the right panel's place, so it is never open
+    /// beside the Queue or Lyrics.
     pub show_friends_panel: bool,
     /// What friends last played. A refresh keeps the last answer on screen.
     pub friends: Loadable<Vec<crate::session_reads::FriendActivity>>,
@@ -1398,6 +1409,9 @@ impl App {
             uploaded_covers: Default::default(),
             show_queue_panel: session.queue_open.unwrap_or(false),
             show_lyrics_panel: false,
+            lyrics_in_front: false,
+            lyrics_share: session.lyrics_share.unwrap_or(0.5),
+            side_panels_beside: session.side_panels_beside,
             show_friends_panel: false,
             friends: Loadable::NotLoaded,
             friends_in_flight: false,
@@ -12519,6 +12533,27 @@ impl App {
         }
     }
 
+    /// Whether the queue's side panel is on screen: open, and not hidden
+    /// behind the lyrics in a window with no room for the two together. In full
+    /// screen lyrics an open queue is the column beside them.
+    pub(crate) fn queue_panel_shown(&self, ctx: &egui::Context) -> bool {
+        self.show_queue_panel
+            && (self.lyrics_fullscreen.is_some()
+                || !self.show_lyrics_panel
+                || !self.lyrics_in_front
+                || crate::ui::side_panels_together(ctx, self).is_some())
+    }
+
+    /// Whether the lyrics' side panel is on screen: open, and not hidden
+    /// behind the queue in a window with no room for the two together.
+    pub(crate) fn lyrics_panel_shown(&self, ctx: &egui::Context) -> bool {
+        self.show_lyrics_panel
+            && (self.lyrics_fullscreen.is_some()
+                || !self.show_queue_panel
+                || self.lyrics_in_front
+                || crate::ui::side_panels_together(ctx, self).is_some())
+    }
+
     fn leave_lyrics_fullscreen(&mut self, ctx: &egui::Context) {
         self.end_immersive();
         if let Some(was_fullscreen) = self.lyrics_fullscreen.take() {
@@ -13465,23 +13500,40 @@ impl App {
                 self.settings.sidebar_visible = !self.settings.sidebar_visible;
                 self.settings_dirty = true;
             }
+            // Queue and Lyrics open together, stacked or side by side. A
+            // window with room for neither shows the one in front, and the
+            // other stays open behind it: opening it, or a click on its
+            // button, brings it forward instead of closing it, and both come
+            // back once the window has room (#1390).
             Action::ToggleQueuePanel => {
-                self.show_queue_panel = !self.show_queue_panel;
-                if self.show_queue_panel {
-                    self.show_lyrics_panel = false;
+                if self.queue_panel_shown(ctx) {
+                    self.show_queue_panel = false;
+                } else {
+                    self.show_queue_panel = true;
+                    self.lyrics_in_front = false;
                     self.show_friends_panel = false;
                     self.refresh_queue(true);
                 }
             }
             Action::ToggleLyricsPanel => {
                 self.leave_lyrics_fullscreen(ctx);
-                self.show_lyrics_panel = !self.show_lyrics_panel;
-                if self.show_lyrics_panel {
-                    self.show_queue_panel = false;
+                if self.lyrics_panel_shown(ctx) {
+                    self.show_lyrics_panel = false;
+                } else {
+                    self.show_lyrics_panel = true;
+                    self.lyrics_in_front = true;
                     self.show_friends_panel = false;
                     self.lyrics_following = true;
                     self.request_lyrics();
                 }
+            }
+            Action::ToggleSidePanelArrangement => {
+                self.side_panels_beside = !self.side_panels_beside;
+                self.session_dirty = true;
+            }
+            Action::SetLyricsShare(share) => {
+                self.lyrics_share = share;
+                self.session_dirty = true;
             }
             Action::ToggleFriendsPanel => {
                 self.show_friends_panel = !self.show_friends_panel;
@@ -13512,7 +13564,8 @@ impl App {
                     self.lyrics_fullscreen_seen = false;
                     // The queue flag is preserved: an open side panel becomes
                     // the fullscreen queue column instead of vanishing. The
-                    // lyrics panel yields, so normal mode never shows both.
+                    // lyrics panel stays as it was, so leaving full screen
+                    // brings back the panels that were open before it.
                     if !self.show_queue_panel {
                         self.show_lyrics_panel = true;
                     }
@@ -15121,6 +15174,8 @@ impl App {
                 window_maximized: self.window_geometry.maximized,
                 queue_open: Some(self.show_queue_panel),
                 queue_tab: Some(self.queue_tab.encode().to_string()),
+                lyrics_share: Some(self.lyrics_share),
+                side_panels_beside: self.side_panels_beside,
                 winamp_pos: self.winamp.geometry.position,
                 milkdrop_pos: self.milkdrop_pos,
                 lyrics_fullscreen_from: self.lyrics_fullscreen.map(|fullscreen| {
@@ -24206,6 +24261,129 @@ mod tests {
         assert!(app.show_friends_panel && !app.show_lyrics_panel);
         app.apply(Action::ToggleFriendsPanel, &ctx);
         assert!(!app.show_friends_panel && !app.show_queue_panel && !app.show_lyrics_panel);
+        app.backend.shutdown();
+    }
+
+    /// A context whose window is `width` by `height` points.
+    fn sized_context(width: f32, height: f32) -> egui::Context {
+        let ctx = egui::Context::default();
+        crate::theme::install(&ctx);
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(width, height),
+                )),
+                ..Default::default()
+            },
+            |_| {},
+        );
+        output.textures_delta.clear();
+        ctx
+    }
+
+    /// With room for both, opening the Queue or the Lyrics adds it beside
+    /// the other, and its button closes only that one (#1390).
+    #[test]
+    fn queue_and_lyrics_open_together() {
+        let ctx = sized_context(1280.0, 900.0);
+        let mut app = test_app("side-panels-together");
+        app.apply(Action::ToggleLyricsPanel, &ctx);
+        app.apply(Action::ToggleQueuePanel, &ctx);
+        assert!(app.show_lyrics_panel && app.show_queue_panel);
+        assert!(app.lyrics_panel_shown(&ctx) && app.queue_panel_shown(&ctx));
+        app.apply(Action::ToggleLyricsPanel, &ctx);
+        assert!(
+            !app.show_lyrics_panel,
+            "the Lyrics button closes the lyrics"
+        );
+        assert!(app.queue_panel_shown(&ctx), "the queue stays open");
+        app.apply(Action::ToggleLyricsPanel, &ctx);
+        app.apply(Action::ToggleQueuePanel, &ctx);
+        assert!(!app.show_queue_panel, "the Queue button closes the queue");
+        assert!(app.lyrics_panel_shown(&ctx), "the lyrics stay open");
+        // Listening activity still takes the place of both.
+        app.apply(Action::ToggleQueuePanel, &ctx);
+        app.apply(Action::ToggleFriendsPanel, &ctx);
+        assert!(app.show_friends_panel && !app.show_queue_panel && !app.show_lyrics_panel);
+        app.backend.shutdown();
+    }
+
+    /// A window with no room for both shows one at a time: opening one
+    /// brings it in front of the other, which stays open behind it and
+    /// shows again when the front one closes.
+    #[test]
+    fn a_small_window_shows_one_side_panel_at_a_time() {
+        let ctx = sized_context(780.0, 540.0);
+        let mut app = test_app("side-panels-small");
+        assert_eq!(crate::ui::side_panels_together(&ctx, &app), None);
+        app.apply(Action::ToggleQueuePanel, &ctx);
+        app.apply(Action::ToggleLyricsPanel, &ctx);
+        assert!(app.lyrics_panel_shown(&ctx) && !app.queue_panel_shown(&ctx));
+        assert!(app.show_queue_panel, "the queue stays open behind");
+        app.apply(Action::ToggleQueuePanel, &ctx);
+        assert!(app.queue_panel_shown(&ctx) && !app.lyrics_panel_shown(&ctx));
+        assert!(app.show_lyrics_panel, "the lyrics stay open behind");
+        app.apply(Action::ToggleQueuePanel, &ctx);
+        assert!(!app.show_queue_panel, "the front panel's button closes it");
+        assert!(app.lyrics_panel_shown(&ctx), "the one behind shows again");
+        app.backend.shutdown();
+    }
+
+    /// Both open in a window that then shrinks: the one opened last shows,
+    /// the other's button brings it forward instead of closing it, and both
+    /// come back once the window has room again, without reopening either.
+    #[test]
+    fn a_window_shrunk_under_both_side_panels_shows_the_last_opened() {
+        let tall = sized_context(1280.0, 900.0);
+        let short = sized_context(780.0, 540.0);
+        let mut app = test_app("side-panels-shrunk");
+        app.apply(Action::ToggleQueuePanel, &tall);
+        app.apply(Action::ToggleLyricsPanel, &tall);
+        assert!(app.lyrics_panel_shown(&short) && !app.queue_panel_shown(&short));
+        app.apply(Action::ToggleQueuePanel, &short);
+        assert!(
+            app.queue_panel_shown(&short),
+            "the hidden queue comes forward"
+        );
+        assert!(!app.lyrics_panel_shown(&short));
+        assert!(app.show_lyrics_panel, "the lyrics stay open behind it");
+        assert!(app.lyrics_panel_shown(&tall) && app.queue_panel_shown(&tall));
+        app.backend.shutdown();
+    }
+
+    /// The arrangement button flips between rows and columns, remembered
+    /// in the session, and a window with room for only one way uses it.
+    #[test]
+    fn the_side_panel_arrangement_follows_the_choice_and_the_room() {
+        use crate::ui::Together;
+        let ctx = sized_context(1600.0, 900.0);
+        let mut app = test_app("side-panels-arrangement");
+        app.settings.sidebar_visible = false;
+        assert_eq!(
+            crate::ui::side_panels_together(&ctx, &app),
+            Some(Together::Rows)
+        );
+        app.apply(Action::ToggleSidePanelArrangement, &ctx);
+        assert!(app.side_panels_beside && app.session_dirty);
+        assert_eq!(
+            crate::ui::side_panels_together(&ctx, &app),
+            Some(Together::Columns)
+        );
+        // Too short to stack: columns even when rows were chosen.
+        let wide_short = sized_context(1600.0, 560.0);
+        app.side_panels_beside = false;
+        assert_eq!(
+            crate::ui::side_panels_together(&wide_short, &app),
+            Some(Together::Columns)
+        );
+        // Too narrow for columns: rows even when columns were chosen.
+        let narrow_tall = sized_context(900.0, 900.0);
+        app.side_panels_beside = true;
+        assert_eq!(
+            crate::ui::side_panels_together(&narrow_tall, &app),
+            Some(Together::Rows)
+        );
         app.backend.shutdown();
     }
 

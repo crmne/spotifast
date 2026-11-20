@@ -28,7 +28,9 @@ mod update;
 pub mod widgets;
 pub mod winamp;
 
-use egui::{Align2, Color32, Context, CornerRadius, Frame, Id, Margin, Rect, Stroke, vec2};
+use egui::{
+    Align2, Color32, Context, CornerRadius, Frame, Id, Margin, Rect, Stroke, UiBuilder, vec2,
+};
 
 use crate::api::models::pick_image;
 use crate::app::App;
@@ -98,10 +100,15 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         if app.settings.sidebar_visible {
             sidebar::show(app, ui);
         }
-        if app.show_queue_panel {
+        // Shown together, the queue sits below the lyrics inside their
+        // panel, or in its own panel beside them, the outer one (#1390).
+        let lyrics = app.lyrics_panel_shown(ctx);
+        if app.queue_panel_shown(ctx)
+            && (!lyrics || side_panels_together(ctx, app) == Some(Together::Columns))
+        {
             queue::side_panel(app, ui);
         }
-        if app.show_lyrics_panel {
+        if lyrics {
             lyrics::side_panel(app, ui);
         }
         if app.show_friends_panel {
@@ -133,6 +140,139 @@ fn main_min_width(page: f32, sidebar: bool, right_panel: bool) -> f32 {
 
 /// The sidebar's narrowest width.
 pub(crate) const SIDEBAR_MIN_WIDTH: f32 = 210.0;
+
+/// The least height the Lyrics and the Queue each keep when stacked in the
+/// side panel: a header and a few lines or rows.
+const STACKED_PANE_MIN_HEIGHT: f32 = 240.0;
+
+/// The strip between the stacked Lyrics and Queue that drags the divider.
+const STACK_DIVIDER_HEIGHT: f32 = 16.0;
+
+/// How the Lyrics and the Queue sit when both are open (#1390).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Together {
+    /// The Lyrics above the Queue, in one panel.
+    Rows,
+    /// The Lyrics beside the Queue, each in its own panel.
+    Columns,
+}
+
+/// How the Lyrics and the Queue fit together in this window: the way the
+/// person chose when it has room, the other way when only that one does,
+/// and `None` when neither fits, which shows one at a time.
+pub(crate) fn side_panels_together(ctx: &Context, app: &App) -> Option<Together> {
+    arrangement(ctx, &app.settings, app.side_panels_beside)
+}
+
+/// How the two fit when the person's choice is `beside`.
+pub(super) fn arrangement(
+    ctx: &Context,
+    settings: &crate::settings::Settings,
+    beside: bool,
+) -> Option<Together> {
+    let window = ctx.content_rect();
+    let sidebar = if settings.sidebar_visible {
+        settings.sidebar_width.clamp(SIDEBAR_MIN_WIDTH, 600.0)
+    } else {
+        0.0
+    };
+    together(
+        beside,
+        stack_fits(window.height()),
+        window.width() - sidebar - topbar::least_width(ctx) >= 2.0 * theme::SIDE_PANEL_MIN_WIDTH,
+    )
+}
+
+fn together(beside: bool, rows: bool, columns: bool) -> Option<Together> {
+    match (beside, rows, columns) {
+        (true, _, true) | (false, false, true) => Some(Together::Columns),
+        (_, true, _) => Some(Together::Rows),
+        _ => None,
+    }
+}
+
+/// Which side panel headers the caption buttons can sit in: the queue's
+/// when it is shown, the lyrics' when they are, but not when the queue is
+/// the outer of two columns.
+pub(super) fn caption_headers(app: &App, ctx: &Context) -> (bool, bool) {
+    let queue = app.queue_panel_shown(ctx);
+    let lyrics = app.lyrics_panel_shown(ctx)
+        && !(queue && side_panels_together(ctx, app) == Some(Together::Columns));
+    (queue, lyrics)
+}
+
+fn stack_fits(window_height: f32) -> bool {
+    // The side panels run from the window's top to the player bar, inside a
+    // 12-point frame margin.
+    window_height - theme::PLAYER_BAR_HEIGHT - 24.0
+        >= 2.0 * STACKED_PANE_MIN_HEIGHT + STACK_DIVIDER_HEIGHT
+}
+
+/// The top pane's height when `share` of `height` goes to it, leaving each
+/// pane at least its least height.
+fn stack_split(height: f32, share: f32) -> f32 {
+    let room = height - STACK_DIVIDER_HEIGHT;
+    let share = if share.is_finite() { share } else { 0.5 };
+    let most = (room - STACKED_PANE_MIN_HEIGHT).max(STACKED_PANE_MIN_HEIGHT);
+    (room * share).clamp(STACKED_PANE_MIN_HEIGHT, most)
+}
+
+/// Draws `top` above `bottom` in the rest of `ui`, split by a divider the
+/// person drags. Where they leave it is remembered in the session, as a
+/// share of the height, so it holds as the window grows or shrinks.
+pub(crate) fn stacked(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    top: fn(&mut App, &mut egui::Ui),
+    bottom: fn(&mut App, &mut egui::Ui),
+) {
+    let palette = app.palette;
+    let rect = ui.available_rect_before_wrap();
+    let top_height = stack_split(rect.height(), app.lyrics_share);
+    let divider = Rect::from_min_size(
+        egui::pos2(rect.left(), rect.top() + top_height),
+        vec2(rect.width(), STACK_DIVIDER_HEIGHT),
+    );
+    let panes = [
+        (
+            Rect::from_min_max(rect.min, egui::pos2(rect.right(), divider.top())),
+            top,
+        ),
+        (
+            Rect::from_min_max(egui::pos2(rect.left(), divider.bottom()), rect.max),
+            bottom,
+        ),
+    ];
+    for (pane, draw) in panes {
+        let mut child = ui.new_child(UiBuilder::new().max_rect(pane).layout(*ui.layout()));
+        child.shrink_clip_rect(pane);
+        draw(app, &mut child);
+    }
+    let grip = ui.interact(divider, Id::new("side-stack-divider"), egui::Sense::drag());
+    let held = grip.hovered() || grip.dragged();
+    if held {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeRow);
+    }
+    // A quiet line that firms up under the pointer, as the full screen
+    // queue column's edge does.
+    let firm = ui.ctx().animate_bool_with_time(grip.id, held, 0.15);
+    ui.painter().hline(
+        divider.x_range(),
+        divider.center().y,
+        Stroke::new(1.0, blend(palette.outline, palette.text, firm)),
+    );
+    if grip.dragged()
+        && let Some(pointer) = grip.interact_pointer_pos()
+    {
+        let room = rect.height() - STACK_DIVIDER_HEIGHT;
+        let wanted = (pointer.y - rect.top() - STACK_DIVIDER_HEIGHT / 2.0) / room;
+        let share = stack_split(rect.height(), wanted) / room;
+        if (share - app.lyrics_share).abs() > 0.001 {
+            app.actions.push(Action::SetLyricsShare(share));
+        }
+    }
+    ui.advance_cursor_after_rect(rect);
+}
 
 /// Raise the window's minimum width while the Queue or Lyrics panel is open,
 /// so even at its narrowest the page beside the panels keeps the room its
@@ -607,8 +747,9 @@ pub(super) struct WindowControlsReservation {
 }
 
 /// The caption buttons on the right belong to the outermost header: the
-/// queue's or the lyrics' when either panel is open, otherwise the top bar,
-/// beside its controls or above them when the page is too narrow.
+/// lyrics' when they are shown, which sit above a queue shown with them, the
+/// queue's when it is shown alone, otherwise the top bar, beside its
+/// controls or above them when the page is too narrow.
 fn controls_reservation(
     footprint: fastframe_titlebar::Footprint,
     queue: bool,
@@ -624,10 +765,10 @@ fn controls_reservation(
     if footprint.right <= 0.0 {
         return space;
     }
-    if queue {
-        space.queue_top = footprint.height;
-    } else if lyrics {
+    if lyrics {
         space.lyrics_top = footprint.height;
+    } else if queue {
+        space.queue_top = footprint.height;
     } else {
         let reserve = footprint.reserve(topbar_width, TOPBAR_MIN_CONTENT);
         space.topbar_width = reserve.inline_width;
@@ -790,7 +931,7 @@ mod window_chrome_tests {
         assert_eq!(values(BUTTONS, false, false), [width, 0.0, 0.0, 0.0]);
         assert_eq!(values(BUTTONS, true, false), [0.0, 0.0, height, 0.0]);
         assert_eq!(values(BUTTONS, false, true), [0.0, 0.0, 0.0, height]);
-        assert_eq!(values(BUTTONS, true, true), [0.0, 0.0, height, 0.0]);
+        assert_eq!(values(BUTTONS, true, true), [0.0, 0.0, 0.0, height]);
         // No buttons on the right: full screen, the native frame, macOS's
         // traffic lights, or a GNOME layout with them all on the left.
         let none = Footprint {

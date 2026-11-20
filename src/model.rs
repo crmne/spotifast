@@ -1367,6 +1367,12 @@ pub enum Action {
     ToggleSidebar,
     ToggleQueuePanel,
     ToggleLyricsPanel,
+    /// Lay the Lyrics and the Queue, open together, side by side or one
+    /// above the other.
+    ToggleSidePanelArrangement,
+    /// Move the divider between the Lyrics and the Queue below them: the
+    /// share of the height the Lyrics take.
+    SetLyricsShare(f32),
     /// Show or hide what friends are listening to, in the right panel.
     ToggleFriendsPanel,
     SetLyricsFullscreen(bool),
