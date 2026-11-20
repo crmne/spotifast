@@ -269,7 +269,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
-      - uses: wimpysworld/nothing-but-nix@v9
+      - uses: wimpysworld/nothing-but-nix@v12
       - uses: cachix/install-nix-action@v31
       - uses: nix-community/cache-nix-action@v7
         with:
