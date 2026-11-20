@@ -13998,6 +13998,10 @@ impl App {
                     }
                 }
             }
+            Action::SetWinampAllDesktops(all) => {
+                self.settings.winamp_all_desktops = all;
+                self.mark_settings_dirty();
+            }
             Action::SetWinampTaskbar(visible) => {
                 if self.settings.winamp_show_taskbar != visible {
                     self.settings.winamp_show_taskbar = visible;

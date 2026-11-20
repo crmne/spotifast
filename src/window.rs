@@ -107,6 +107,50 @@ pub fn supports_hiding_from_taskbar(display: raw_window_handle::RawDisplayHandle
     )
 }
 
+/// Whether the mini player can be shown on every desktop. Only macOS gets the
+/// choice: its windows stay on the desktop they opened on until the app asks
+/// otherwise.
+pub const fn supports_all_desktops() -> bool {
+    cfg!(target_os = "macos")
+}
+
+/// Puts a macOS window on every desktop (Space), or back on just one. AppKit
+/// does not allow joining all of them together with moving to the active one.
+#[cfg(target_os = "macos")]
+fn all_desktops_behavior(
+    current: objc2_app_kit::NSWindowCollectionBehavior,
+    all: bool,
+) -> objc2_app_kit::NSWindowCollectionBehavior {
+    use objc2_app_kit::NSWindowCollectionBehavior as Behavior;
+    if all {
+        (current & !Behavior::MoveToActiveSpace) | Behavior::CanJoinAllSpaces
+    } else {
+        current & !Behavior::CanJoinAllSpaces
+    }
+}
+
+/// Shows this window on every desktop, or only on the one it is on, and says
+/// whether it did. A view that has no window yet, or any other handle, is
+/// left alone, so the caller can ask again.
+///
+/// # Safety
+///
+/// An AppKit handle's `ns_view` must point to an `NSView` that stays valid for
+/// the whole call, and the call must be made on the main thread.
+#[cfg(target_os = "macos")]
+pub unsafe fn show_on_all_desktops(window: raw_window_handle::RawWindowHandle, all: bool) -> bool {
+    let raw_window_handle::RawWindowHandle::AppKit(handle) = window else {
+        return false;
+    };
+    // SAFETY: the caller promises a valid view and the main thread.
+    let view = unsafe { handle.ns_view.cast::<objc2_app_kit::NSView>().as_ref() };
+    let Some(window) = view.window() else {
+        return false;
+    };
+    window.setCollectionBehavior(all_desktops_behavior(window.collectionBehavior(), all));
+    true
+}
+
 /// Keeps an X11 window out of the taskbar with `_NET_WM_STATE_SKIP_TASKBAR`.
 ///
 /// winit can only do this on Windows, so this asks the window manager
@@ -266,6 +310,21 @@ mod tests {
         assert!(supports_window_level(RawDisplayHandle::Xcb(
             XcbDisplayHandle::new(None, 0)
         )));
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn all_desktops_can_be_turned_on_and_back_off() {
+        use objc2_app_kit::NSWindowCollectionBehavior as Behavior;
+        let on = super::all_desktops_behavior(
+            Behavior::MoveToActiveSpace | Behavior::IgnoresCycle,
+            true,
+        );
+        assert_eq!(on, Behavior::CanJoinAllSpaces | Behavior::IgnoresCycle);
+        assert_eq!(
+            super::all_desktops_behavior(on, false),
+            Behavior::IgnoresCycle
+        );
     }
 
     #[test]
