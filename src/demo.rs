@@ -852,33 +852,27 @@ fn sonos_devices(app: &mut App, active: bool) {
 }
 
 /// Words to go with the sample track, timed so that the one being sung
-/// sits mid-panel at the demo's playback position.
+/// sits mid-panel at the demo's playback position. Each word carries a stamp
+/// of its own, so the demo fills the sung line the way timed lyrics do.
 #[cfg(any(test, feature = "demo"))]
 fn sample_lyrics() -> crate::lyrics::Lyrics {
-    let lines = [
-        (40_000, "Streetlights blinking down the river road"),
-        (46_500, "Every window holding someone's evening"),
-        (53_000, "I keep the radio low so you can sleep"),
-        (59_500, "Counting mile markers like a rosary"),
-        (66_000, "We left the city with the tank half full"),
-        (72_500, "And a map that only shows the way back"),
-        (79_000, "But the night is wide and the road is long"),
-        (85_500, "And there's nowhere I would rather be"),
-        (92_000, "Coffee going cold in the cup holder"),
-        (98_500, "Your hand asleep on the gear stick"),
-        (105_000, "Somewhere past the county line"),
-        (111_500, "The stars come out to see us through"),
-        (118_000, "Still the night is wide and the road is long"),
-        (124_500, "And there's nowhere I would rather be"),
-    ];
+    let lines = "[00:40.00] <00:40.00>Streetlights <00:40.38>blinking <00:40.76>down <00:41.14>the <00:41.52>river <00:41.90>road
+[00:46.50] <00:46.50>Every <00:46.88>window <00:47.26>holding <00:47.64>someone's <00:48.02>evening
+[00:53.00] <00:53.00>I <00:53.38>keep <00:53.76>the <00:54.14>radio <00:54.52>low <00:54.90>so <00:55.28>you <00:55.66>can <00:56.04>sleep
+[00:59.50] <00:59.50>Counting <00:59.88>mile <01:00.26>markers <01:00.64>like <01:01.02>a <01:01.40>rosary
+[01:06.00] <01:06.00>We <01:06.38>left <01:06.76>the <01:07.14>city <01:07.52>with <01:07.90>the <01:08.28>tank <01:08.66>half <01:09.04>full
+[01:12.50] <01:12.50>And <01:12.88>a <01:13.26>map <01:13.64>that <01:14.02>only <01:14.40>shows <01:14.78>the <01:15.16>way <01:15.54>back
+[01:19.00] <01:19.00>But <01:19.38>the <01:19.76>night <01:20.14>is <01:20.52>wide <01:20.90>and <01:21.28>the <01:21.66>road <01:22.04>is <01:22.42>long
+[01:25.50] <01:25.50>And <01:25.88>there's <01:26.26>nowhere <01:26.64>I <01:27.02>would <01:27.40>rather <01:27.78>be
+[01:32.00] <01:32.00>Coffee <01:32.38>going <01:32.76>cold <01:33.14>in <01:33.52>the <01:33.90>cup <01:34.28>holder
+[01:38.50] <01:38.50>Your <01:38.88>hand <01:39.26>asleep <01:39.64>on <01:40.02>the <01:40.40>gear <01:40.78>stick
+[01:45.00] <01:45.00>Somewhere <01:45.38>past <01:45.76>the <01:46.14>county <01:46.52>line
+[01:51.50] <01:51.50>The <01:51.88>stars <01:52.26>come <01:52.64>out <01:53.02>to <01:53.40>see <01:53.78>us <01:54.16>through
+[01:58.00] <01:58.00>Still <01:58.38>the <01:58.76>night <01:59.14>is <01:59.52>wide <01:59.90>and <02:00.28>the <02:00.66>road <02:01.04>is <02:01.42>long
+[02:04.50] <02:04.50>And <02:04.88>there's <02:05.26>nowhere <02:05.64>I <02:06.02>would <02:06.40>rather <02:06.78>be
+";
     crate::lyrics::Lyrics {
-        lines: lines
-            .iter()
-            .map(|(at_ms, text)| crate::lyrics::Line {
-                at_ms: Some(*at_ms),
-                text: (*text).to_string(),
-            })
-            .collect(),
+        lines: crate::lyrics::parse_lrc(lines),
         synced: true,
         instrumental: false,
     }

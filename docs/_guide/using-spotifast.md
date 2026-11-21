@@ -848,6 +848,9 @@ Choose the microphone button in the player bar, or press **L**, to open lyrics.
 A local file from a playlist shows the words in a `.lrc` file of the same name
 beside it, or in its own tags, and the cover in its tags; otherwise lyrics come
 from LRCLIB by its artist, title, album and length.
+A synced entry that times each word, as enhanced LRC files and many LRCLIB
+transcriptions do, fills the line as it is sung: the words already sung take
+the accent colour, the rest wait in the quiet one.
 Synced lyrics follow the playing line automatically. Scroll to pause following,
 choose **Follow** to resume it, or choose a line to jump to that part of the song.
 

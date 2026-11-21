@@ -49,6 +49,18 @@ pub struct Line {
     /// When the line starts; `None` in lyrics that carry no timing.
     pub at_ms: Option<u32>,
     pub text: String,
+    /// When each of the line's words starts, in order, with the byte offset
+    /// the word takes in `text`. Empty when the lyrics time whole lines only.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub words: Vec<Word>,
+}
+
+/// A word of a line that the lyrics time on its own.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Word {
+    pub at_ms: u32,
+    /// Where the word starts in its line's `text`, in bytes.
+    pub start: usize,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -58,6 +70,16 @@ pub struct Lyrics {
     pub synced: bool,
     /// The database knows there are no words.
     pub instrumental: bool,
+}
+
+impl Line {
+    /// Where the word at `index` ends: the next word's start, so the last
+    /// word runs to the end of the line.
+    pub fn word_end(&self, index: usize) -> usize {
+        self.words
+            .get(index + 1)
+            .map_or(self.text.len(), |word| word.start)
+    }
 }
 
 impl Lyrics {
@@ -99,6 +121,7 @@ pub fn from_spotify(json: &serde_json::Value) -> Option<Lyrics> {
             Some(Line {
                 at_ms,
                 text: text.to_string(),
+                words: Vec::new(),
             })
         })
         .collect();
@@ -369,6 +392,7 @@ impl Record {
                 .map(|line| Line {
                     at_ms: None,
                     text: line.trim_end().to_string(),
+                    words: Vec::new(),
                 })
                 .collect(),
             synced: false,
@@ -666,6 +690,7 @@ pub fn from_text(text: &str) -> Option<Lyrics> {
             .map(|line| Line {
                 at_ms: None,
                 text: line.trim_end().to_string(),
+                words: Vec::new(),
             })
             .collect(),
         synced: false,
@@ -676,8 +701,11 @@ pub fn from_text(text: &str) -> Option<Lyrics> {
 // ---- LRC ------------------------------------------------------------------
 
 /// Parses `[mm:ss.xx]` lines. A line may open with several stamps when the
-/// same words repeat; tags such as `[ar:...]` carry no digits and are
-/// skipped. The result is sorted by time.
+/// same words repeat, each copy starting where its stamp says; tags such as
+/// `[ar:...]` carry no digits and are skipped. A line may also time each
+/// word, as in `<00:12.50>We're <00:12.90>no`; those stamps are not words,
+/// so they are dropped, and a line without a stamp of its own starts at its
+/// first word. The result is sorted by time.
 pub fn parse_lrc(text: &str) -> Vec<Line> {
     let mut lines = Vec::new();
     for raw in text.lines() {
@@ -687,14 +715,46 @@ pub fn parse_lrc(text: &str) -> Vec<Line> {
             times.push(stamp.0);
             rest = &rest[stamp.1..];
         }
+        let (mut body, mut words) = words_without_stamps(rest);
         if times.is_empty() {
-            continue;
+            match words.first() {
+                Some(first) => times.push(first.at_ms),
+                None => continue,
+            }
         }
-        let body = rest.trim();
-        for at_ms in times {
+        // Words the line holds before its first stamp are sung with the line.
+        if words.first().is_some_and(|word| word.start > 0) {
+            words.insert(
+                0,
+                Word {
+                    at_ms: times[0],
+                    start: 0,
+                },
+            );
+        }
+        // A timed line with no words is the band playing on, which the views
+        // draw as a note; word times on it would replace that note with
+        // nothing, and a line of only spaces is no words at all.
+        if body.trim().is_empty() {
+            body.clear();
+            words.clear();
+        }
+        for at_ms in &times {
+            // A repeated line sings its words again from its own start, so
+            // each copy carries the words as far from the first copy as it
+            // starts from it. The stamps need not climb: `[01:10][00:10]`
+            // repeats a line earlier, and its words move earlier with it.
+            let shift = i64::from(*at_ms) - i64::from(times[0]);
             lines.push(Line {
-                at_ms: Some(at_ms),
-                text: body.to_string(),
+                at_ms: Some(*at_ms),
+                text: body.clone(),
+                words: words
+                    .iter()
+                    .map(|word| Word {
+                        at_ms: (i64::from(word.at_ms) + shift).clamp(0, i64::from(u32::MAX)) as u32,
+                        start: word.start,
+                    })
+                    .collect(),
             });
         }
     }
@@ -702,12 +762,54 @@ pub fn parse_lrc(text: &str) -> Vec<Line> {
     lines
 }
 
+/// The words of `text` with its word stamps removed, and when each of them
+/// starts. Enhanced LRC puts a stamp before each word:
+/// `<00:12.50>We're <00:12.90>no`. A `<` that does not open a stamp, as in
+/// `<3`, is a word.
+fn words_without_stamps(text: &str) -> (String, Vec<Word>) {
+    let mut words = String::with_capacity(text.len());
+    let mut timed = Vec::new();
+    let mut rest = text.trim();
+    while let Some(open) = rest.find('<') {
+        words.push_str(&rest[..open]);
+        let after = &rest[open + 1..];
+        // A stamp ends at the next `>`, and only when no `<` comes first.
+        // Stopping at either delimiter keeps a `<` that never closes from
+        // costing a scan of the whole rest of the line, once per `<`.
+        let candidate = after
+            .find(['<', '>'])
+            .filter(|at| after[*at..].starts_with('>'))
+            .map(|at| &rest[open..open + at + 2]);
+        let Some((at_ms, len)) = candidate.and_then(|text| stamp(text, '<', '>')) else {
+            words.push('<');
+            rest = after;
+            continue;
+        };
+        rest = &rest[open + len..];
+        // A stamp between two words leaves the room of each behind.
+        if words.ends_with(' ') && rest.starts_with(' ') {
+            rest = &rest[1..];
+        }
+        timed.push(Word {
+            at_ms,
+            start: words.len(),
+        });
+    }
+    words.push_str(rest);
+    (words, timed)
+}
+
 /// A timestamp at the head of `text`: its milliseconds and its length.
 fn leading_stamp(text: &str) -> Option<(u32, usize)> {
-    let inner = text.strip_prefix('[')?;
-    let close = inner.find(']')?;
-    let stamp = &inner[..close];
-    let (minutes, seconds) = stamp.split_once(':')?;
+    stamp(text, '[', ']')
+}
+
+/// The stamp `text` opens with between `open` and `close`, if it is one.
+fn stamp(text: &str, open: char, close: char) -> Option<(u32, usize)> {
+    let inner = text.strip_prefix(open)?;
+    let end = inner.find(close)?;
+    let body = &inner[..end];
+    let (minutes, seconds) = body.split_once(':')?;
     let (seconds, fraction) = match seconds.find(['.', ':']) {
         Some(dot) => (&seconds[..dot], Some(&seconds[dot + 1..])),
         None => (seconds, None),
@@ -722,13 +824,26 @@ fn leading_stamp(text: &str) -> Option<(u32, usize)> {
         Some(_) => return None,
         None => 0,
     };
-    Some((minutes * 60_000 + seconds * 1_000 + fraction_ms, close + 2))
+    // A stamp that does not fit in milliseconds is not a stamp: the words
+    // around it are kept as text rather than panicking on the overflow.
+    let at_ms = minutes
+        .checked_mul(60_000)?
+        .checked_add(seconds.checked_mul(1_000)?)?
+        .checked_add(fraction_ms)?;
+    let len = end + open.len_utf8() + close.len_utf8();
+    Some((at_ms, len))
 }
 
 // ---- cache ------------------------------------------------------------------
 
+/// The shape of a cached answer. One written by another shape is read again,
+/// so a cache never serves lyrics the parser no longer makes.
+const CACHE_VERSION: u32 = 2;
+
 #[derive(Serialize, Deserialize)]
 struct Cached {
+    #[serde(default)]
+    version: u32,
     found: Option<Lyrics>,
 }
 
@@ -753,9 +868,8 @@ fn read_cache(path: &PathBuf) -> Option<Option<Lyrics>> {
 
 fn read_cache_contents(path: &Path) -> Option<Option<Lyrics>> {
     let text = std::fs::read_to_string(path).ok()?;
-    serde_json::from_str::<Cached>(&text)
-        .ok()
-        .map(|cached| cached.found)
+    let cached = serde_json::from_str::<Cached>(&text).ok()?;
+    (cached.version == CACHE_VERSION).then_some(cached.found)
 }
 
 fn write_cache(path: &Path, found: &Option<Lyrics>) {
@@ -763,6 +877,7 @@ fn write_cache(path: &Path, found: &Option<Lyrics>) {
         let _ = std::fs::create_dir_all(parent);
     }
     if let Ok(text) = serde_json::to_string(&Cached {
+        version: CACHE_VERSION,
         found: found.clone(),
     }) {
         let _ = std::fs::write(path, text);
@@ -1055,6 +1170,117 @@ mod tests {
         assert_eq!(lines[0].text, "Early");
         assert_eq!(lines[2].text, "Twice");
         assert_eq!(lines[3].text, "Twice");
+    }
+
+    #[test]
+    fn word_stamps_time_their_words_and_stay_out_of_them() {
+        let lines = parse_lrc(
+            "[00:18.89] <00:18.89>We're <00:19.25>no <00:19.53>strangers
+             <00:22.82>You <00:23.23>know
+             [00:30.00]Plain <00:30.40>line
+             ",
+        );
+        let texts: Vec<&str> = lines.iter().map(|line| line.text.as_str()).collect();
+        assert_eq!(texts, ["We're no strangers", "You know", "Plain line"]);
+        let times: Vec<u32> = lines.iter().filter_map(|line| line.at_ms).collect();
+        assert_eq!(times, vec![18_890, 22_820, 30_000]);
+        let words: Vec<(u32, &str)> = lines[0]
+            .words
+            .iter()
+            .enumerate()
+            .map(|(index, word)| {
+                (
+                    word.at_ms,
+                    lines[0].text[word.start..lines[0].word_end(index)].trim(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            words,
+            [(18_890, "We're"), (19_250, "no"), (19_530, "strangers")]
+        );
+        // The word a line opens with takes the line's own time.
+        assert_eq!(lines[2].words[0].at_ms, 30_000);
+        assert_eq!(&lines[2].text[..lines[2].word_end(0)].trim(), &"Plain");
+    }
+
+    #[test]
+    fn a_repeated_line_sings_its_words_again_from_its_own_start() {
+        let lines = parse_lrc("[00:10][01:10]<00:10>one <00:11>two");
+        assert_eq!(lines.len(), 2);
+        let times =
+            |line: &Line| -> Vec<u32> { line.words.iter().map(|word| word.at_ms).collect() };
+        assert_eq!(times(&lines[0]), vec![10_000, 11_000]);
+        assert_eq!(times(&lines[1]), vec![70_000, 71_000]);
+        // Stamps may descend: the copy stamped earlier keeps its words with it.
+        let lines = parse_lrc("[01:10][00:10]<01:10>one <01:11>two");
+        assert_eq!(times(&lines[0]), vec![10_000, 11_000]);
+        assert_eq!(times(&lines[1]), vec![70_000, 71_000]);
+    }
+
+    #[test]
+    fn a_timed_line_with_no_words_keeps_its_note() {
+        let lines = parse_lrc("[00:10]<00:10>");
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].text, "");
+        assert!(lines[0].words.is_empty());
+        // Stamps with only room between them are the same line.
+        let lines = parse_lrc("[00:10] <00:10>  <00:11>");
+        assert_eq!(lines[0].text, "");
+        assert!(lines[0].words.is_empty());
+    }
+
+    #[test]
+    fn an_opener_that_never_closes_costs_one_pass() {
+        // A quadratic scan would spend minutes here; the parser stops each
+        // candidate at the next delimiter instead.
+        let text = format!("{}>", "<".repeat(50_000));
+        let lines = parse_lrc(&format!("[00:01]{text}"));
+        assert_eq!(lines[0].text, text);
+        assert!(lines[0].words.is_empty());
+    }
+
+    #[test]
+    fn a_stamp_past_the_millisecond_range_is_text() {
+        // 71583 minutes would be four billion milliseconds.
+        let lines = parse_lrc("[00:01]one <71583:00>two");
+        assert_eq!(lines[0].text, "one <71583:00>two");
+        assert!(lines[0].words.is_empty());
+        assert!(parse_lrc("[71583:00]Huge").is_empty());
+    }
+
+    #[test]
+    fn a_word_stamp_that_is_not_one_is_a_word() {
+        let lines = parse_lrc("[00:05.00]I <3 <00:05.50>you");
+        assert_eq!(lines[0].text, "I <3 you");
+        assert_eq!(lines[0].words.len(), 2);
+        assert_eq!(&lines[0].text[..lines[0].word_end(0)], "I <3 ");
+    }
+
+    #[test]
+    fn cache_entries_from_another_shape_are_read_again() {
+        let root =
+            std::env::temp_dir().join(format!("spotifast-lyrics-shape-{}", std::process::id()));
+        let path = root.join("old.json");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            &path,
+            r#"{"version":0,"found":{"lines":[],"synced":false,"instrumental":false}}"#,
+        )
+        .unwrap();
+        assert!(read_cache_contents(&path).is_none());
+        // The same answer in the shape this build writes is taken.
+        std::fs::write(
+            &path,
+            format!(
+                r#"{{"version":{CACHE_VERSION},"found":{{"lines":[],"synced":false,"instrumental":false}}}}"#
+            ),
+        )
+        .unwrap();
+        assert!(read_cache_contents(&path).is_some());
+        write_cache(&path, &from_text("[00:01.00] A test line"));
+        assert!(read_cache_contents(&path).is_some());
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
