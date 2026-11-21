@@ -43,7 +43,7 @@ jobs:
   packaging:
     permissions:
       contents: write
-    uses: crmne/native-packages/.github/workflows/package.yml@25a4214d2f203357c84b069f39de7c17c0be6253 # v0.11.0
+    uses: crmne/native-packages/.github/workflows/package.yml@51500464793687a52be65abb1b4dfc23639e3f48 # v0.12.0
     with:
       targets: linux-amd64,linux-arm64
       # Packaging changes exercise real release binaries on both architectures.
