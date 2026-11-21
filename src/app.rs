@@ -16246,6 +16246,7 @@ mod tests {
                     .map(|i| crate::lyrics::Line {
                         at_ms: Some(i * 5000),
                         text: format!("Autoscroll lyric line {i}"),
+                        words: Vec::new(),
                     })
                     .collect(),
                 synced: true,
