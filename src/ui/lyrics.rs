@@ -36,6 +36,85 @@ fn blend(from: egui::Color32, to: egui::Color32, t: f32) -> egui::Color32 {
     egui::Color32::from(egui::Rgba::from(from) * (1.0 - t) + egui::Rgba::from(to) * t)
 }
 
+/// How much of a word the song has reached, from 0 to 1. A word fills over
+/// the time it takes, which is until the next word starts.
+fn word_fill(at_ms: u32, until_ms: u32, position_ms: u32) -> f32 {
+    if position_ms <= at_ms {
+        return 0.0;
+    }
+    if until_ms <= at_ms {
+        return 1.0;
+    }
+    ((position_ms - at_ms) as f32 / (until_ms - at_ms) as f32).clamp(0.0, 1.0)
+}
+
+/// The colours a sung line fills between: `quiet` until the song reaches a
+/// word, `bright` once it has.
+#[derive(Clone, Copy)]
+struct Filling {
+    quiet: Color32,
+    bright: Color32,
+}
+
+/// The line laid out word by word, each word taking `bright` as the song
+/// reaches it and `quiet` before, so the line fills as it is sung, the way
+/// Spotify's does. `until_ms` is when the next line starts, which ends the
+/// last word. `None` for lyrics that time whole lines, or for a line that
+/// reads right to left, where the words would have to be reordered in runs
+/// of their own.
+fn sung_galley(
+    painter: &egui::Painter,
+    line: &crate::lyrics::Line,
+    until_ms: Option<u32>,
+    position_ms: u32,
+    font: egui::FontId,
+    wrap_width: f32,
+    colours: Filling,
+) -> Option<std::sync::Arc<egui::Galley>> {
+    if line.words.is_empty() || crate::bidi::has_rtl(&line.text) {
+        return None;
+    }
+    let mut job = egui::text::LayoutJob::default();
+    job.wrap.max_width = wrap_width;
+    job.wrap.break_anywhere = false;
+    let mut starts = 0;
+    for (index, word) in line.words.iter().enumerate() {
+        let until = line.word_end(index).min(line.text.len()).max(starts);
+        let at = word.at_ms;
+        let next = line
+            .words
+            .get(index + 1)
+            .map_or(until_ms.unwrap_or(at), |next| next.at_ms);
+        let piece = line.text.get(starts..until)?;
+        job.append(
+            piece,
+            0.0,
+            egui::TextFormat {
+                font_id: font.clone(),
+                color: blend(
+                    colours.quiet,
+                    colours.bright,
+                    word_fill(at, next, position_ms),
+                ),
+                ..Default::default()
+            },
+        );
+        starts = until;
+    }
+    if starts < line.text.len() {
+        job.append(
+            &line.text[starts..],
+            0.0,
+            egui::TextFormat {
+                font_id: font.clone(),
+                color: colours.bright,
+                ..Default::default()
+            },
+        );
+    }
+    Some(painter.layout_job(job))
+}
+
 pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     let fit = super::yielding_panel(
@@ -253,7 +332,22 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                 } else {
                     Sense::hover()
                 };
-                let response = if crate::bidi::is_rtl(text) {
+                let next_at = lyrics.lines.get(index + 1).and_then(|line| line.at_ms);
+                let sung = sung_galley(
+                    ui.painter(),
+                    line,
+                    next_at,
+                    now.position_ms,
+                    font.clone(),
+                    ui.available_width(),
+                    Filling {
+                        quiet,
+                        bright: color,
+                    },
+                );
+                let response = if let Some(galley) = sung {
+                    ui.add(egui::Label::new(galley).sense(sense))
+                } else if crate::bidi::is_rtl(text) {
                     let galley = crate::bidi::layout(
                         ui.painter(),
                         text,
@@ -304,6 +398,15 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
         },
     );
     crate::autoscroll::lyrics(ui, scroll.id);
+    // A line that fills word by word moves between line changes, so the
+    // clock asks for frames of its own while it is sung.
+    if now.playing
+        && let Some(line) = active.and_then(|index| lyrics.lines.get(index))
+        && !line.words.is_empty()
+    {
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_millis(33));
+    }
     // Scrolling by hand means the reader wants to look elsewhere; the
     // Follow button in the header picks the song back up.
     if ui.rect_contains_pointer(scroll.inner_rect)
@@ -940,8 +1043,22 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui) {
                 // Untimed words have nowhere to jump to, but a click on them
                 // is still on a line, so it must not reach the backdrop.
                 let sense = Sense::click();
-                let galley =
-                    crate::bidi::layout(ui.painter(), text, font, color, wrap, usize::MAX, None);
+                let next_at = lyrics.lines.get(index + 1).and_then(|line| line.at_ms);
+                let galley = sung_galley(
+                    ui.painter(),
+                    line,
+                    next_at,
+                    now.position_ms,
+                    font.clone(),
+                    wrap,
+                    Filling {
+                        quiet,
+                        bright: color,
+                    },
+                )
+                .unwrap_or_else(|| {
+                    crate::bidi::layout(ui.painter(), text, font, color, wrap, usize::MAX, None)
+                });
                 let center = ui.cursor().top() + galley.size().y * 0.5;
                 let edge = ((center - viewport.top()).min(viewport.bottom() - center)
                     / (size * 2.0))
@@ -1001,11 +1118,31 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui) {
                 next - now.position_ms,
             )));
     }
+    // A line that fills word by word moves between line changes, so the
+    // clock asks for frames of its own while it is sung.
+    if now.playing
+        && let Some(line) = active.and_then(|index| lyrics.lines.get(index))
+        && !line.words.is_empty()
+    {
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_millis(33));
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{fullscreen_content_width, preferred_backdrop_art};
+
+    #[test]
+    fn a_word_fills_between_its_own_stamp_and_the_next() {
+        assert_eq!(super::word_fill(1_000, 2_000, 500), 0.0);
+        assert_eq!(super::word_fill(1_000, 2_000, 1_000), 0.0);
+        assert_eq!(super::word_fill(1_000, 2_000, 1_500), 0.5);
+        assert_eq!(super::word_fill(1_000, 2_000, 3_000), 1.0);
+        // A last word with nothing after it lights up once it is reached.
+        assert_eq!(super::word_fill(1_000, 1_000, 1_000), 0.0);
+        assert_eq!(super::word_fill(1_000, 1_000, 1_001), 1.0);
+    }
 
     #[test]
     fn fullscreen_backdrop_prefers_small_art_with_large_art_as_fallback() {
