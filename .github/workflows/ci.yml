@@ -270,7 +270,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: wimpysworld/nothing-but-nix@v9
-      - uses: cachix/install-nix-action@v31
+      - uses: cachix/install-nix-action@v32
       - uses: nix-community/cache-nix-action@v7
         with:
           primary-key: nix-${{ runner.os }}-${{ hashFiles('**/flake.lock') }}
