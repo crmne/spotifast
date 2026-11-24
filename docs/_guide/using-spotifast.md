@@ -351,7 +351,8 @@ for its own text.
 Repeat cycles through off, the whole list, and one song. As in Spotify's own
 apps, choosing another song while one song repeats (Next, Previous, or playing
 a song) turns Repeat One back into repeating the whole list. Previous that
-restarts the song keeps it repeating.
+restarts the song keeps it repeating. Hover over the Repeat button to see what
+repeats now and what a click changes it to.
 
 ## Controlling it from the command line
 

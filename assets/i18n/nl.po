@@ -274,17 +274,29 @@ msgstr "Pauzeren"
 msgid "Next"
 msgstr "Volgende"
 
-#: src/ui/player_bar.rs:849
+#: src/ui/player_bar.rs:854
 msgid "Repeat"
 msgstr "Herhalen"
 
-#: src/ui/player_bar.rs:853
+#: src/ui/player_bar.rs:860
 msgid "Repeat one"
 msgstr "Eén nummer herhalen"
 
-#: src/ui/player_bar.rs:858
+#: src/ui/player_bar.rs:866
 msgid "Repeat off"
 msgstr "Herhalen uit"
+
+#: src/ui/player_bar.rs:855
+msgid "Repeat is off. Click to repeat all."
+msgstr "Herhalen staat uit. Klik om alles te herhalen."
+
+#: src/ui/player_bar.rs:861
+msgid "Repeating all. Click to repeat this song."
+msgstr "Alles wordt herhaald. Klik om dit nummer te herhalen."
+
+#: src/ui/player_bar.rs:867
+msgid "Repeating this song. Click to turn repeat off."
+msgstr "Dit nummer wordt herhaald. Klik om herhalen uit te zetten."
 
 #: src/ui/player_bar.rs:919
 msgid "Playback position (%)"

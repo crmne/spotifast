@@ -270,17 +270,29 @@ msgstr "暂停"
 msgid "Next"
 msgstr "下一首"
 
-#: src/ui/player_bar.rs:849
+#: src/ui/player_bar.rs:854
 msgid "Repeat"
 msgstr "列表循环"
 
-#: src/ui/player_bar.rs:853
+#: src/ui/player_bar.rs:860
 msgid "Repeat one"
 msgstr "单曲循环"
 
-#: src/ui/player_bar.rs:858
+#: src/ui/player_bar.rs:866
 msgid "Repeat off"
 msgstr "关闭循环"
+
+#: src/ui/player_bar.rs:855
+msgid "Repeat is off. Click to repeat all."
+msgstr "循环已关闭。点击以列表循环。"
+
+#: src/ui/player_bar.rs:861
+msgid "Repeating all. Click to repeat this song."
+msgstr "正在列表循环。点击以单曲循环。"
+
+#: src/ui/player_bar.rs:867
+msgid "Repeating this song. Click to turn repeat off."
+msgstr "正在单曲循环。点击以关闭循环。"
 
 #: src/ui/player_bar.rs:919
 msgid "Playback position (%)"

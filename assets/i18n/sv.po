@@ -274,17 +274,29 @@ msgstr "Pausa"
 msgid "Next"
 msgstr "Nästa"
 
-#: src/ui/player_bar.rs:849
+#: src/ui/player_bar.rs:854
 msgid "Repeat"
 msgstr "Upprepa"
 
-#: src/ui/player_bar.rs:853
+#: src/ui/player_bar.rs:860
 msgid "Repeat one"
 msgstr "Upprepa en låt"
 
-#: src/ui/player_bar.rs:858
+#: src/ui/player_bar.rs:866
 msgid "Repeat off"
 msgstr "Stäng av upprepning"
+
+#: src/ui/player_bar.rs:855
+msgid "Repeat is off. Click to repeat all."
+msgstr "Upprepning är av. Klicka för att upprepa allt."
+
+#: src/ui/player_bar.rs:861
+msgid "Repeating all. Click to repeat this song."
+msgstr "Upprepar allt. Klicka för att upprepa den här låten."
+
+#: src/ui/player_bar.rs:867
+msgid "Repeating this song. Click to turn repeat off."
+msgstr "Upprepar den här låten. Klicka för att stänga av upprepning."
 
 #: src/ui/player_bar.rs:919
 msgid "Playback position (%)"

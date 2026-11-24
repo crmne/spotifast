@@ -6904,6 +6904,98 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// A screen reader hears the Repeat button named by what a click does,
+    /// and its tooltip also says what repeats now.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn the_repeat_button_says_what_repeats_and_what_a_click_does() {
+        use crate::player::RepeatMode;
+        let (ctx, mut app) = accessible_app("repeat-tooltip");
+        ctx.global_style_mut(|style| style.interaction.tooltip_delay = 0.0);
+        play_here(&mut app);
+        app.local.playback = crate::player::Playback::Playing;
+        let mut time = 0.0;
+        let mut draw = |app: &mut App, pos: egui::Pos2| {
+            time += 1.0;
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 800.0),
+                    )),
+                    time: Some(time),
+                    events: vec![egui::Event::PointerMoved(pos)],
+                    ..Default::default()
+                },
+                |ui| crate::ui::player_bar::show(app, ui),
+            );
+            output.textures_delta.clear();
+            fn texts(shape: &egui::epaint::Shape, found: &mut Vec<String>) {
+                match shape {
+                    egui::epaint::Shape::Text(text) => found.push(text.galley.job.text.clone()),
+                    egui::epaint::Shape::Vec(shapes) => {
+                        shapes.iter().for_each(|shape| texts(shape, found));
+                    }
+                    _ => {}
+                }
+            }
+            let mut found = Vec::new();
+            output
+                .shapes
+                .iter()
+                .for_each(|clipped| texts(&clipped.shape, &mut found));
+            (found, output.platform_output.accesskit_update)
+        };
+        for (mode, name, tip) in [
+            (
+                RepeatMode::Off,
+                "Repeat",
+                "Repeat is off. Click to repeat all.",
+            ),
+            (
+                RepeatMode::Context,
+                "Repeat one",
+                "Repeating all. Click to repeat this song.",
+            ),
+            (
+                RepeatMode::Track,
+                "Repeat off",
+                "Repeating this song. Click to turn repeat off.",
+            ),
+        ] {
+            // #given the song repeating in `mode`
+            app.local.repeat = mode;
+            let away = egui::pos2(640.0, 20.0);
+            draw(&mut app, away);
+            let (_, tree) = draw(&mut app, away);
+
+            // #then the button is named by what a click does
+            let bounds = tree
+                .expect("screen-reader tree")
+                .nodes
+                .iter()
+                .find(|(_, node)| {
+                    node.label() == Some(name) && node.role() == egui::accesskit::Role::Button
+                })
+                .and_then(|(_, node)| node.bounds())
+                .unwrap_or_else(|| panic!("missing {name:?}"));
+
+            // #when the pointer rests on it
+            let centre = egui::pos2(
+                (bounds.x0 + bounds.x1) as f32 / 2.0,
+                (bounds.y0 + bounds.y1) as f32 / 2.0,
+            );
+            for _ in 0..3 {
+                draw(&mut app, centre);
+            }
+
+            // #then the tooltip says what repeats now and what a click does
+            let (shown, _) = draw(&mut app, centre);
+            assert!(shown.iter().any(|text| text == tip), "{name}: {shown:?}");
+        }
+        app.backend.shutdown();
+    }
+
     #[test]
     fn loading_collections_keep_their_hero_layout() {
         fn playlist(app: &mut App, ui: &mut egui::Ui) {

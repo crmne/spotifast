@@ -274,17 +274,29 @@ msgstr "Pausar"
 msgid "Next"
 msgstr "Próxima"
 
-#: src/ui/player_bar.rs:849
+#: src/ui/player_bar.rs:854
 msgid "Repeat"
 msgstr "Repetir"
 
-#: src/ui/player_bar.rs:853
+#: src/ui/player_bar.rs:860
 msgid "Repeat one"
 msgstr "Repetir uma música"
 
-#: src/ui/player_bar.rs:858
+#: src/ui/player_bar.rs:866
 msgid "Repeat off"
 msgstr "Desativar repetição"
+
+#: src/ui/player_bar.rs:855
+msgid "Repeat is off. Click to repeat all."
+msgstr "A repetição está desativada. Clique para repetir tudo."
+
+#: src/ui/player_bar.rs:861
+msgid "Repeating all. Click to repeat this song."
+msgstr "Repetindo tudo. Clique para repetir esta música."
+
+#: src/ui/player_bar.rs:867
+msgid "Repeating this song. Click to turn repeat off."
+msgstr "Repetindo esta música. Clique para desativar a repetição."
 
 #: src/ui/player_bar.rs:919
 msgid "Playback position (%)"

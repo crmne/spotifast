@@ -847,21 +847,35 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
         app.actions.push(Action::Next);
     }
 
-    let (repeat_icon, repeat_color, tooltip) = match repeat {
-        RepeatMode::Off => (Icon::Repeat, dim, gettext(app.locale, "Repeat")),
+    let (repeat_icon, repeat_color, name, tooltip) = match repeat {
+        RepeatMode::Off => (
+            Icon::Repeat,
+            dim,
+            gettext(app.locale, "Repeat"),
+            gettext(app.locale, "Repeat is off. Click to repeat all."),
+        ),
         RepeatMode::Context => (
             Icon::Repeat,
             palette.accent,
             gettext(app.locale, "Repeat one"),
+            gettext(app.locale, "Repeating all. Click to repeat this song."),
         ),
         RepeatMode::Track => (
             Icon::Repeat1,
             palette.accent,
             gettext(app.locale, "Repeat off"),
+            gettext(app.locale, "Repeating this song. Click to turn repeat off."),
         ),
     };
     let mut cell = centered(ui, slot(widths[4]));
-    if theme::toggle_icon_button(&mut cell, repeat_icon, 17.0, repeat_color, &tooltip).clicked() {
+    let repeat_button =
+        theme::toggle_icon_button(&mut cell, repeat_icon, 17.0, repeat_color, &tooltip);
+    // A screen reader names the button by what a click does; the tooltip
+    // also says what repeats now.
+    repeat_button.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, cell.is_enabled(), &*name)
+    });
+    if repeat_button.clicked() {
         app.actions.push(Action::CycleRepeat);
     }
 

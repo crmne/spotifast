@@ -279,17 +279,29 @@ msgstr "Призупинити"
 msgid "Next"
 msgstr "Наступний"
 
-#: src/ui/player_bar.rs:849
+#: src/ui/player_bar.rs:854
 msgid "Repeat"
 msgstr "Увімкнути повтор"
 
-#: src/ui/player_bar.rs:853
+#: src/ui/player_bar.rs:860
 msgid "Repeat one"
 msgstr "Повторювати один трек"
 
-#: src/ui/player_bar.rs:858
+#: src/ui/player_bar.rs:866
 msgid "Repeat off"
 msgstr "Вимкнути повтор"
+
+#: src/ui/player_bar.rs:855
+msgid "Repeat is off. Click to repeat all."
+msgstr "Повтор вимкнено. Натисніть, щоб повторювати все."
+
+#: src/ui/player_bar.rs:861
+msgid "Repeating all. Click to repeat this song."
+msgstr "Повторюється все. Натисніть, щоб повторювати цей трек."
+
+#: src/ui/player_bar.rs:867
+msgid "Repeating this song. Click to turn repeat off."
+msgstr "Повторюється цей трек. Натисніть, щоб вимкнути повтор."
 
 #: src/ui/player_bar.rs:919
 msgid "Playback position (%)"
