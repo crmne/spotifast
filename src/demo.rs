@@ -5435,23 +5435,33 @@ mod tests {
     }
 
     /// Show MilkDrop from the window with no MilkDrop to be had goes back
-    /// to the window, as if it was never clicked.
+    /// to the window and the side panel it had, as if it was never clicked.
     #[cfg(feature = "milkdrop")]
     #[test]
     fn show_milkdrop_without_milkdrop_stays_in_the_window() {
         use crate::milkdrop::pane::Picture;
-        let (ctx, mut app) = immersive_app("immersive-window-none");
-        app.answer_milkdrop(Picture::None);
-        app.lyrics_fullscreen = None;
-        app.actions.push(crate::model::Action::EnterImmersive);
-        timed(&ctx, &mut app, 10.0, Vec::new());
-        assert!(app.lyrics_fullscreen.is_some(), "on the way to MilkDrop");
-        for t in [10.1, 10.2] {
-            timed(&ctx, &mut app, t, Vec::new());
+        for (lyrics, friends) in [(true, false), (false, false), (false, true)] {
+            let name = format!("immersive-window-none-{lyrics}-{friends}");
+            let (ctx, mut app) = immersive_app(&name);
+            app.answer_milkdrop(Picture::None);
+            app.lyrics_fullscreen = None;
+            app.show_lyrics_panel = lyrics;
+            app.show_friends_panel = friends;
+            app.actions.push(crate::model::Action::EnterImmersive);
+            timed(&ctx, &mut app, 10.0, Vec::new());
+            assert!(app.lyrics_fullscreen.is_some(), "on the way to MilkDrop");
+            for t in [10.1, 10.2] {
+                timed(&ctx, &mut app, t, Vec::new());
+            }
+            assert!(app.lyrics_fullscreen.is_none());
+            assert!(!app.immersive());
+            assert_eq!(
+                (app.show_lyrics_panel, app.show_friends_panel),
+                (lyrics, friends),
+                "the panels it left"
+            );
+            app.backend.shutdown();
         }
-        assert!(app.lyrics_fullscreen.is_none());
-        assert!(!app.immersive());
-        app.backend.shutdown();
     }
 
     /// A line that starts under a scroll that moves nothing, at the top of

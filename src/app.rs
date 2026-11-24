@@ -358,9 +358,10 @@ struct Immersive {
     backdrop_was: bool,
     /// A frame has arrived, so the lyrics, cover and bars have gone.
     showing: bool,
-    /// Show MilkDrop opened full screen lyrics for it; a MilkDrop that never
-    /// drew closes them again.
-    opened_fullscreen: bool,
+    /// The lyrics and Friends panels as they were when Show MilkDrop opened
+    /// full screen lyrics for it; a MilkDrop that never drew closes them
+    /// again and puts the panels back.
+    opened_from_window: Option<(bool, bool)>,
     /// Until when the controls show, on the input clock.
     controls_until: f64,
 }
@@ -14188,15 +14189,18 @@ impl App {
             Action::EnterImmersive => {
                 // The top bar's Show MilkDrop is drawn only in the window, so
                 // it opens full screen lyrics first.
-                let opened_fullscreen = self.lyrics_fullscreen.is_none();
-                if opened_fullscreen {
+                let opened_from_window = self
+                    .lyrics_fullscreen
+                    .is_none()
+                    .then_some((self.show_lyrics_panel, self.show_friends_panel));
+                if opened_from_window.is_some() {
                     self.apply(Action::SetLyricsFullscreen(true), ctx);
                 }
                 if self.lyrics_fullscreen.is_some() && self.immersive.is_none() {
                     self.immersive = Some(Immersive {
                         backdrop_was: self.milkdrop_backdrop,
                         showing: false,
-                        opened_fullscreen,
+                        opened_from_window,
                         controls_until: 0.0,
                     });
                     self.milkdrop_backdrop = true;
@@ -14206,13 +14210,17 @@ impl App {
             }
             Action::LeaveImmersive => {
                 // A Show MilkDrop from the window that never drew goes back
-                // to the window, as if it was never clicked.
+                // to the window and its side panels, as if it was never
+                // clicked.
                 let back_to_window = self
                     .immersive
-                    .is_some_and(|mode| mode.opened_fullscreen && !mode.showing);
+                    .filter(|mode| !mode.showing)
+                    .and_then(|mode| mode.opened_from_window);
                 self.end_immersive();
-                if back_to_window {
+                if let Some((lyrics, friends)) = back_to_window {
                     self.apply(Action::SetLyricsFullscreen(false), ctx);
+                    self.show_lyrics_panel = lyrics;
+                    self.show_friends_panel = friends;
                 }
             }
             Action::ToggleLyricsMilkdrop => {
