@@ -5416,6 +5416,100 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// The top bar's Show MilkDrop is drawn only in the window, so it opens
+    /// full screen lyrics on the way to MilkDrop.
+    #[cfg(feature = "milkdrop")]
+    #[test]
+    fn show_milkdrop_from_the_window_opens_full_screen() {
+        let (ctx, mut app) = immersive_app("immersive-window");
+        app.lyrics_fullscreen = None;
+        app.actions.push(crate::model::Action::EnterImmersive);
+        timed(&ctx, &mut app, 10.0, Vec::new());
+        assert!(app.lyrics_fullscreen.is_some());
+        // Full screen lyrics draw MilkDrop, and its first frame takes over.
+        for t in [10.1, 10.2] {
+            timed(&ctx, &mut app, t, Vec::new());
+        }
+        assert!(app.immersive());
+        app.backend.shutdown();
+    }
+
+    /// Show MilkDrop from the window with no MilkDrop to be had goes back
+    /// to the window, as if it was never clicked.
+    #[cfg(feature = "milkdrop")]
+    #[test]
+    fn show_milkdrop_without_milkdrop_stays_in_the_window() {
+        use crate::milkdrop::pane::Picture;
+        let (ctx, mut app) = immersive_app("immersive-window-none");
+        app.answer_milkdrop(Picture::None);
+        app.lyrics_fullscreen = None;
+        app.actions.push(crate::model::Action::EnterImmersive);
+        timed(&ctx, &mut app, 10.0, Vec::new());
+        assert!(app.lyrics_fullscreen.is_some(), "on the way to MilkDrop");
+        for t in [10.1, 10.2] {
+            timed(&ctx, &mut app, t, Vec::new());
+        }
+        assert!(app.lyrics_fullscreen.is_none());
+        assert!(!app.immersive());
+        app.backend.shutdown();
+    }
+
+    /// A line that starts under a scroll that moves nothing, at the top of
+    /// the lyrics, is still scrolled to once the wheel is quiet.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn a_still_scroll_leaves_a_new_line_to_follow() {
+        const FIRST: &str = "Streetlights blinking down the river road";
+        for fullscreen in [None, Some(false)] {
+            let name = format!("still-scroll-{}", fullscreen.is_some());
+            let (ctx, mut app) = accessible_app(&name);
+            app.backend.set_offline(true);
+            play_here(&mut app);
+            app.local.playback = crate::player::Playback::Paused;
+            app.local.position_ms = 0;
+            app.show_lyrics_panel = true;
+            app.lyrics_fullscreen = fullscreen;
+            app.lyrics_uri = app.now_playing().map(|now| now.uri);
+            app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
+            app.lyrics_following = true;
+            app.lyrics_line_shown = None;
+            let at = lyric_at(&ctx, &mut app, FIRST);
+            assert_eq!(app.lyrics_line_shown, Some(None), "{fullscreen:?}");
+            // The first line starts in the frame the wheel turns up.
+            app.local.position_ms = 40_000;
+            frame_events(
+                &ctx,
+                &mut app,
+                vec![
+                    egui::Event::PointerMoved(at),
+                    egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Point,
+                        delta: egui::vec2(0.0, 50.0),
+                        modifiers: egui::Modifiers::NONE,
+                        phase: egui::TouchPhase::Move,
+                    },
+                ],
+            );
+            assert_ne!(
+                app.lyrics_line_shown,
+                Some(Some(0)),
+                "{fullscreen:?}: the scroll frame does not count the line as shown"
+            );
+            for _ in 0..120 {
+                frame(&ctx, &mut app);
+                if app.lyrics_line_shown == Some(Some(0)) {
+                    break;
+                }
+            }
+            assert_eq!(app.lyrics_line_shown, Some(Some(0)), "{fullscreen:?}");
+            assert!(
+                app.lyrics_following,
+                "{fullscreen:?}: nothing moved by hand"
+            );
+            app.backend.shutdown();
+        }
+    }
+
     /// Artwork clicks leave the backdrop alone, including when MilkDrop is ready.
     #[cfg(feature = "milkdrop")]
     #[test]

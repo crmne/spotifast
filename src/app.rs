@@ -358,6 +358,9 @@ struct Immersive {
     backdrop_was: bool,
     /// A frame has arrived, so the lyrics, cover and bars have gone.
     showing: bool,
+    /// Show MilkDrop opened full screen lyrics for it; a MilkDrop that never
+    /// drew closes them again.
+    opened_fullscreen: bool,
     /// Until when the controls show, on the input clock.
     controls_until: f64,
 }
@@ -13531,10 +13534,11 @@ impl App {
                     self.leave_lyrics_fullscreen(ctx);
                 }
             }
-            Action::LyricsLineShown(line) => {
-                // Escape or navigation may already have left the view earlier
-                // in this frame. The returning panel still needs to reposition.
-                if self.lyrics_fullscreen.is_some() {
+            Action::LyricsLineShown { line, fullscreen } => {
+                // Escape, navigation or a button may already have switched
+                // views earlier in this frame. The view coming in still needs
+                // to position itself, so only the view showing keeps its line.
+                if self.lyrics_fullscreen.is_some() == fullscreen {
                     self.lyrics_line_shown = Some(line);
                 }
             }
@@ -14182,10 +14186,17 @@ impl App {
                 }
             }
             Action::EnterImmersive => {
+                // The top bar's Show MilkDrop is drawn only in the window, so
+                // it opens full screen lyrics first.
+                let opened_fullscreen = self.lyrics_fullscreen.is_none();
+                if opened_fullscreen {
+                    self.apply(Action::SetLyricsFullscreen(true), ctx);
+                }
                 if self.lyrics_fullscreen.is_some() && self.immersive.is_none() {
                     self.immersive = Some(Immersive {
                         backdrop_was: self.milkdrop_backdrop,
                         showing: false,
+                        opened_fullscreen,
                         controls_until: 0.0,
                     });
                     self.milkdrop_backdrop = true;
@@ -14193,7 +14204,17 @@ impl App {
                     self.fetch_presets_if_none(ctx);
                 }
             }
-            Action::LeaveImmersive => self.end_immersive(),
+            Action::LeaveImmersive => {
+                // A Show MilkDrop from the window that never drew goes back
+                // to the window, as if it was never clicked.
+                let back_to_window = self
+                    .immersive
+                    .is_some_and(|mode| mode.opened_fullscreen && !mode.showing);
+                self.end_immersive();
+                if back_to_window {
+                    self.apply(Action::SetLyricsFullscreen(false), ctx);
+                }
+            }
             Action::ToggleLyricsMilkdrop => {
                 // Off is a choice of its own, and there is nothing left to be
                 // immersed in; the mode's memory of the backdrop goes with it.

@@ -1370,7 +1370,12 @@ pub enum Action {
     /// Show or hide what friends are listening to, in the right panel.
     ToggleFriendsPanel,
     SetLyricsFullscreen(bool),
-    LyricsLineShown(Option<usize>),
+    /// The lyrics view that drew this line, full screen or the panel, has it
+    /// in place.
+    LyricsLineShown {
+        line: Option<usize>,
+        fullscreen: bool,
+    },
     FollowLyrics,
     PauseLyricsFollow,
     RetryLyrics,

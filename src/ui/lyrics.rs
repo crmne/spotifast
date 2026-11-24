@@ -310,7 +310,19 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
     if scrolled_by_hand(ui, &scroll, gesture) && app.lyrics_following {
         app.actions.push(Action::PauseLyricsFollow);
     }
-    app.lyrics_line_shown = Some(active);
+    // A scroll that moved nothing leaves the line for the next quiet frame
+    // to scroll to, and a Sync lyrics click resets it after drawing.
+    if !gesture
+        && !app
+            .actions
+            .iter()
+            .any(|action| matches!(action, Action::FollowLyrics))
+    {
+        app.actions.push(Action::LyricsLineShown {
+            line: active,
+            fullscreen: false,
+        });
+    }
 }
 
 /// Moves the cursor down to the next whole pixel below `top`, the top of
@@ -1118,15 +1130,6 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui, scroll_right: f32, cont
     };
 
     let active = lyrics.active_line(now.position_ms);
-    // A Follow click resets the remembered line after drawing. Other frames
-    // record the shown line before any line-click action restores following.
-    if !app
-        .actions
-        .iter()
-        .any(|action| matches!(action, Action::FollowLyrics))
-    {
-        app.actions.push(Action::LyricsLineShown(active));
-    }
     let column = ui.available_width();
     let column_rect = ui.available_rect_before_wrap();
     let viewport = Rect::from_min_max(
@@ -1136,6 +1139,20 @@ fn fullscreen_contents(app: &mut App, ui: &mut egui::Ui, scroll_right: f32, cont
     let mut ui = ui.new_child(UiBuilder::new().max_rect(viewport));
     let ui = &mut ui;
     let manual_scroll = scroll_gesture(ui, viewport);
+    // A Follow click resets the remembered line after drawing. Other frames
+    // record the shown line before any line-click action restores following,
+    // except a scroll that moved nothing: the next quiet frame scrolls to it.
+    if !manual_scroll
+        && !app
+            .actions
+            .iter()
+            .any(|action| matches!(action, Action::FollowLyrics))
+    {
+        app.actions.push(Action::LyricsLineShown {
+            line: active,
+            fullscreen: true,
+        });
+    }
     let following = app.lyrics_following && !manual_scroll;
     let follow = following && app.lyrics_line_shown != Some(active);
     let animation = crate::motion::scroll(ui.ctx(), 0.45);
