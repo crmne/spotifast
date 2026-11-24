@@ -189,6 +189,21 @@ impl ArtLoader {
         )
     }
 
+    /// Whether artwork has finished loading or failed to, or is not art
+    /// this loader fetches, so covers further down the list may be asked for.
+    pub fn is_settled(&self, url: &str) -> bool {
+        !is_art(url)
+            || self.is_coverless(url)
+            || matches!(
+                self.inner
+                    .entries
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .get(url),
+                Some(Entry::Ready { .. } | Entry::Failed(_))
+            )
+    }
+
     /// Marks artwork as visible so size-based eviction keeps it stable.
     pub fn touch(&self, url: &str) {
         if let Some(Entry::Ready { last_used, .. }) = self

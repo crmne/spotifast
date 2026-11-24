@@ -191,6 +191,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
                                 if card.clicked {
                                     app.actions
                                         .push(Action::Open(Page::Album(album.id.clone())));
+                                } else if widgets::rested_on(ui, &card.response) {
+                                    app.actions.push(Action::PreloadAlbum(album.id.clone()));
                                 }
                                 egui::Popup::context_menu(&card.response)
                                     .id(ui.make_persistent_id(("discography-menu", &album.uri)))

@@ -1287,6 +1287,12 @@ pub enum Action {
     /// Send the account to a receiver found on the local network.
     ActivateReceiver(Box<crate::zeroconf::Receiver>),
     RefreshDevices,
+    /// The pointer rests on a device button: fetch the device list ahead of
+    /// the click, unless it is fresh.
+    WarmDevices,
+    /// The pointer has rested on an album's card: fetch the album ahead of
+    /// the click.
+    PreloadAlbum(String),
     /// List this computer's audio outputs for the device picker.
     ListOutputDevices,
     /// Start Spotifast when the person logs in, this way, or not at all.

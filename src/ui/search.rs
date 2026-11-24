@@ -573,6 +573,8 @@ fn album_card(app: &mut App, ui: &mut egui::Ui, album: &crate::api::models::Albu
     if card.clicked {
         app.actions
             .push(Action::Open(Page::Album(album.id.clone())));
+    } else if widgets::rested_on(ui, &card.response) {
+        app.actions.push(Action::PreloadAlbum(album.id.clone()));
     }
     egui::Popup::context_menu(&card.response)
         .id(ui.make_persistent_id(("search-album-menu", &album.uri)))

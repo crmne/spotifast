@@ -267,7 +267,9 @@ out, or a reconnection that gives up stops it.
 - Spotifast has no telemetry, analytics, or hosted service. When the lyrics
   panel is open and neither Spotify nor a local file has lyrics, it sends
   the track's artist, title, album, and length to
-  [lrclib.net](https://lrclib.net). It also checks
+  [lrclib.net](https://lrclib.net). On a connection that is not metered it
+  does the same for the next song in the queue while the playing one plays,
+  so its lyrics are there when it starts. It also checks
   api.github.com once a day for updates. You can turn off automatic checks in
   Settings, or request one there at any time. On macOS, **Check for Updates**
   is also in the application menu. On a connection the system reports as
@@ -329,6 +331,25 @@ grid cover already loaded for the same item can preview a larger page cover
 without another download. When only a small known thumbnail is available, a
 softened preview may appear while the larger image loads. If the completed
 response has no cover, the page shows its placeholder instead of an old image.
+
+Resting the pointer on an album's card for a quarter of a second, in Your
+Library, search results or an artist's discography, requests that album
+ahead of the click, so its page opens complete. Only one such request is on
+its way at a time, it waits behind requests you made, and passing over a
+card requests nothing. An album fetched this way and never opened is the
+first page Spotifast lets go of. Resting on a device button requests the
+device list and looks for receivers on the local network, unless the list
+is less than 12 seconds old, and the picker opened within 5 seconds shows
+that answer without asking again. On a connection the system reports as
+metered (Windows), neither is fetched ahead: albums load when opened, and
+the device list when the picker opens.
+
+While a song plays, the cover of the next song in the queue is downloaded
+once the playing song's cover has arrived, so it shows the moment that song
+starts. Lyrics on show read the queue as the queue panel does, every 20
+seconds, to know the next song. Opening the queue panel also requests its
+Recent tab, and keeps a queue read in the last 20 seconds instead of reading
+it again. On a metered connection none of this is fetched ahead.
 
 Since 0.8.0, album and playlist scrollbars can request a distant track
 page through the existing session or Web API read path, without fetching all

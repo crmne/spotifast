@@ -45,6 +45,9 @@ const REMOTE_FRESH: Duration = Duration::from_secs(60);
 /// How often the open Friend activity panel asks for news.
 const FRIENDS_POLL: Duration = Duration::from_secs(15);
 const DEVICES_FRESH: Duration = Duration::from_secs(12);
+/// How long a list fetched by resting on a device button serves the picker
+/// without asking again.
+const DEVICES_WARM: Duration = Duration::from_secs(5);
 const SEARCH_DEBOUNCE: Duration = Duration::from_millis(280);
 /// How long a suspend or the end of the session waits for pending file
 /// writes. fastframe-power holds the system back for 1.5 s before a
@@ -94,6 +97,8 @@ const REMOTE_RECHECK: Duration = Duration::from_millis(1200);
 const REMOTE_PUSH_SPACING: Duration = Duration::from_secs(1);
 /// Delay before checking the queue after a local change.
 const QUEUE_RECHECK: Duration = Duration::from_millis(700);
+/// A queue on show fetched this recently is current enough to keep.
+const QUEUE_FRESH: Duration = Duration::from_secs(20);
 /// Delay before reading a playlist's metadata again while Spotify still
 /// reports the snapshot from before a write.
 const PLAYLIST_SNAPSHOT_RECHECK: Duration = Duration::from_secs(1);
@@ -549,6 +554,11 @@ pub struct App {
     /// This computer's audio outputs, listed when the device picker asks.
     pub output_devices: Loadable<Vec<fastframe_audio::DeviceInfo>>,
     devices_fetched_at: Option<Instant>,
+    /// When resting on a device button last fetched the list.
+    devices_warmed_at: Option<Instant>,
+    /// The device read on the way was started by a rest on a device button,
+    /// so nobody is waiting for it and its failure stays quiet.
+    devices_warm_pending: bool,
     pub selected_device: Option<String>,
     pub queue: Loadable<Queue>,
     queue_fetched_at: Option<Instant>,
@@ -594,6 +604,8 @@ pub struct App {
     playlist_cache_write_in_flight: bool,
     load_generation: u64,
     pub album_pages: HashMap<String, AlbumPage>,
+    /// The album fetched ahead of a click, while it is on its way.
+    album_preloading: Option<String>,
     pub artist_pages: HashMap<String, ArtistPage>,
     /// Never reset on page eviction or account reset, so old replies cannot match.
     artist_top_tracks_generation: u64,
@@ -682,6 +694,8 @@ pub struct App {
     pub softened_covers: crate::images::SoftenedCovers,
     /// The track the lyrics below are for.
     pub lyrics_uri: Option<String>,
+    /// Lyrics on either side of the playing song, including an outstanding read.
+    adjacent_lyrics: Vec<(String, Loadable<Option<crate::lyrics::Lyrics>>)>,
     /// How many of `LYRICS_RETRIES` this song has used.
     lyrics_retries: usize,
     /// When to ask again for lyrics a busy service didn't answer for.
@@ -1313,6 +1327,8 @@ impl App {
             devices_loading: false,
             output_devices: Loadable::NotLoaded,
             devices_fetched_at: None,
+            devices_warmed_at: None,
+            devices_warm_pending: false,
             selected_device: None,
             queue: match &session.last_track {
                 Some(current) if !session.last_queue_rows.is_empty() => {
@@ -1360,6 +1376,7 @@ impl App {
             playlist_cache_write_in_flight: false,
             load_generation: 0,
             album_pages: HashMap::new(),
+            album_preloading: None,
             artist_pages: HashMap::new(),
             artist_top_tracks_generation: 0,
             show_pages: HashMap::new(),
@@ -1410,6 +1427,7 @@ impl App {
             lyrics_backdrop: Default::default(),
             softened_covers: Default::default(),
             lyrics_uri: None,
+            adjacent_lyrics: Vec::new(),
             lyrics_retries: 0,
             lyrics_retry_at: None,
             lyrics: Loadable::NotLoaded,
@@ -2640,13 +2658,26 @@ impl App {
         crate::api::models::art_target(self.pixels_per_point, points)
     }
 
+    /// The rendition the playing art takes for a cover drawn `points` wide:
+    /// the 64 pixel one while it is sharp enough, else the 640 pixel one, the
+    /// two the playing song keeps. The next song's cover is fetched ahead in
+    /// the same one.
+    pub fn playing_art_px(&self, points: f32) -> u32 {
+        let small = crate::api::models::SMALL_ART_WIDTH;
+        if self.art_px(points) > small {
+            640
+        } else {
+            small
+        }
+    }
+
     /// The playing art for a cover drawn `points` wide: the small rendition
     /// while it is sharp enough, the large one once the display needs more
     /// pixels than the small one has.
     pub fn small_art<'a>(&self, now: &'a NowPlaying, points: f32) -> Option<&'a str> {
         let small = now.art_small.as_deref();
         let large = now.art_url.as_deref();
-        if self.art_px(points) > crate::api::models::SMALL_ART_WIDTH {
+        if self.playing_art_px(points) > crate::api::models::SMALL_ART_WIDTH {
             large.or(small)
         } else {
             small.or(large)
@@ -3063,6 +3094,10 @@ impl App {
                             Ok(found) => Loadable::Loaded(found),
                             Err(error) => self.lyrics_failed(error, Instant::now()),
                         };
+                    } else if let Some((_, state)) =
+                        self.adjacent_lyrics.iter_mut().find(|(id, _)| id == &uri)
+                    {
+                        *state = Loadable::from_result(result);
                     }
                 }
                 Event::PlaylistCache {
@@ -3734,6 +3769,12 @@ impl App {
 
     /// Clears account data while preserving request serials that reject late answers.
     fn reset_data(&mut self) {
+        self.adjacent_lyrics.clear();
+        // Recent is the account's own history; the next account reads its
+        // own, and a page still on its way is dropped.
+        self.recents.reset();
+        self.recents_generation = self.recents_generation.wrapping_add(1);
+        self.rebuild_recents();
         self.pending_remote_volume = None;
         self.local_transfer_sequence = None;
         self.queue_start_pending = None;
@@ -3782,6 +3823,7 @@ impl App {
         };
         self.playlist_pages.clear();
         self.album_pages.clear();
+        self.album_preloading = None;
         self.hidden_songs.clear();
         self.hidden_songs_revision = self.hidden_songs_revision.wrapping_add(1);
         self.hidden_songs_requested = false;
@@ -3813,6 +3855,8 @@ impl App {
         self.devices.clear();
         self.control_devices_stale = true;
         self.devices_fetched_at = None;
+        self.devices_warmed_at = None;
+        self.devices_warm_pending = false;
         self.search.results = Loadable::NotLoaded;
         self.search.committed.clear();
         self.search.committed_run = None;
@@ -4380,6 +4424,7 @@ impl App {
         }
         if matches!(self.page(), Page::Queue)
             || self.show_queue_panel
+            || (!self.metered() && (self.show_lyrics_panel || self.lyrics_fullscreen.is_some()))
             || (self.settings.winamp_window && self.settings.playlist_open)
         {
             self.refresh_queue(true);
@@ -4463,13 +4508,29 @@ impl App {
         {
             return;
         }
+        let mut prepared = None;
         if self.lyrics_uri.as_deref() != Some(now.uri.as_str()) {
+            prepared = self
+                .adjacent_lyrics
+                .iter()
+                .position(|(uri, _)| uri == &now.uri)
+                .map(|at| self.adjacent_lyrics.remove(at).1);
+            if let Some(uri) = self.lyrics_uri.take()
+                && matches!(self.lyrics, Loadable::Loaded(_))
+            {
+                let lyrics = std::mem::take(&mut self.lyrics);
+                self.remember_adjacent_lyrics(uri, lyrics);
+            }
             self.lyrics_retries = 0;
             self.lyrics_retry_at = None;
         }
         self.lyrics_uri = Some(now.uri.clone());
         self.lyrics_following = true;
         self.lyrics_line_shown = None;
+        if let Some(state @ (Loadable::Loaded(_) | Loadable::Loading)) = prepared {
+            self.lyrics = state;
+            return;
+        }
         if now.is_episode || self.offline {
             self.lyrics = Loadable::Loaded(None);
             return;
@@ -4488,6 +4549,102 @@ impl App {
                 album: now.album_name,
                 duration_ms: now.duration_ms,
             },
+            local_file,
+        })));
+    }
+
+    fn remember_adjacent_lyrics(
+        &mut self,
+        uri: String,
+        state: Loadable<Option<crate::lyrics::Lyrics>>,
+    ) {
+        self.adjacent_lyrics.retain(|(held, _)| *held != uri);
+        // Keep the previous song and the next one.
+        if self.adjacent_lyrics.len() == 2 {
+            self.adjacent_lyrics.remove(0);
+        }
+        self.adjacent_lyrics.push((uri, state));
+    }
+
+    /// Readies the song after the playing one while it plays: its cover,
+    /// and its lyrics while they are on show, so both are there when it
+    /// starts. Waits for the playing song's cover, and for a connection
+    /// that is not metered.
+    fn prepare_next_song(&mut self, ctx: &egui::Context) {
+        let reading = self.show_lyrics_panel || self.lyrics_fullscreen.is_some();
+        let Some(now) = &self.frame_now else {
+            return;
+        };
+        // The playing song's own lookup comes first. A track change, or
+        // opening the lyrics, starts it.
+        if reading && self.lyrics_uri.as_deref() != Some(now.uri.as_str()) {
+            return;
+        }
+        // A paused song, or one on Repeat One, is not about to give way.
+        if now.loading
+            || now.resuming
+            || !now.playing
+            || now.repeat == RepeatMode::Track
+            || self.offline
+            || self.metered()
+            || !self.network_reachable
+        {
+            return;
+        }
+        let Some(queue) = self.queue.get() else {
+            return;
+        };
+        if queue.currently_playing.as_ref().map(PlayableItem::uri) != Some(now.uri.as_str()) {
+            return;
+        }
+        let Some(item @ PlayableItem::Track(track)) = queue.queue.first() else {
+            return;
+        };
+        if track.uri == now.uri || !self.row_playable(item) {
+            return;
+        }
+        let art = self.backend.art();
+        let fullscreen = self.lyrics_fullscreen.is_some();
+        let size = if fullscreen { 320.0 } else { 56.0 };
+        if self
+            .small_art(now, size)
+            .is_some_and(|url| !art.is_settled(url))
+        {
+            return;
+        }
+        if let Some(url) = self.item_image(item, self.playing_art_px(size)) {
+            art.prefetch(ctx, &url);
+        }
+        // Once the playing song's lookup has ended, found or not.
+        if !reading
+            || !matches!(self.lyrics, Loadable::Loaded(_) | Loadable::Failed(_))
+            || self
+                .adjacent_lyrics
+                .iter()
+                .any(|(uri, state)| uri == &track.uri || state.is_loading())
+        {
+            return;
+        }
+        let uri = track.uri.clone();
+        let query = crate::lyrics::Query {
+            artist: track
+                .artists
+                .first()
+                .map(|artist| artist.name.clone())
+                .unwrap_or_default(),
+            title: track.name.clone(),
+            album: track
+                .album
+                .as_ref()
+                .map(|album| album.name.clone())
+                .unwrap_or_default(),
+            duration_ms: track.duration_ms,
+        };
+        let local_file = self.local_file(&uri).map(std::path::Path::to_path_buf);
+        self.remember_adjacent_lyrics(uri.clone(), Loadable::Loading);
+        self.backend.send(Command::Lyrics(Box::new(LyricsRequest {
+            uri,
+            query,
             local_file,
         })));
     }
@@ -4658,11 +4815,16 @@ impl App {
                 self.refresh_devices();
             }
             let playlist_open = self.settings.winamp_window && self.settings.playlist_open;
-            if (self.show_queue_panel || matches!(self.page(), Page::Queue) || playlist_open)
+            let reading =
+                !self.metered() && (self.show_lyrics_panel || self.lyrics_fullscreen.is_some());
+            if (self.show_queue_panel
+                || matches!(self.page(), Page::Queue)
+                || playlist_open
+                || reading)
                 && !self.queue.is_loading()
                 && self
                     .queue_fetched_at
-                    .is_none_or(|at| at.elapsed() > Duration::from_secs(20))
+                    .is_none_or(|at| at.elapsed() > QUEUE_FRESH)
             {
                 self.refresh_queue(false);
             }
@@ -6491,8 +6653,15 @@ impl App {
                     );
                 }
                 let page = self.album_pages.entry(id.clone()).or_default();
-                if page.album.needs_load() && self.network_reachable {
+                // A read a rest on its card started may still wait behind
+                // other background reads, so the visit asks in the foreground.
+                let preload_waiting = self.album_preloading.as_ref() == Some(&id)
+                    && matches!(page.album, Loadable::Loading);
+                if (page.album.needs_load() || preload_waiting) && self.network_reachable {
                     page.album = Loadable::Loading;
+                    if preload_waiting {
+                        self.album_preloading = None;
+                    }
                     self.backend.api(ApiRequest::Album { id: id.clone() });
                 }
                 if self.network_reachable {
@@ -7304,6 +7473,71 @@ impl App {
         }
         self.devices_loading = true;
         self.backend.api(ApiRequest::Devices);
+    }
+
+    /// Fetches the device list and looks for receivers while the pointer
+    /// rests on a device button, so the picker opens on a current list. A
+    /// list fetched within `DEVICES_FRESH` is current enough, and on a
+    /// metered connection the picker waits for the click.
+    fn warm_devices(&mut self) {
+        let fresh = |at: Option<Instant>| at.is_some_and(|at| at.elapsed() < DEVICES_FRESH);
+        if self.show_devices
+            || !self.is_connected()
+            || self.metered()
+            || fresh(self.devices_fetched_at)
+            || fresh(self.devices_warmed_at)
+        {
+            return;
+        }
+        self.devices_warmed_at = Some(Instant::now());
+        // A read already on the way keeps the listener it has.
+        if !self.devices_loading {
+            self.devices_warm_pending = true;
+        }
+        self.refresh_devices();
+        self.backend.send(Command::DiscoverReceivers);
+    }
+
+    /// Fetches an album while the pointer rests on its card, so its page
+    /// opens complete. One album at a time, never on a metered connection,
+    /// and never one already held. Nobody has visited the page this makes,
+    /// so it is the first to go when pages are evicted.
+    fn preload_album(&mut self, id: String) {
+        if id.is_empty()
+            || self.user.is_none()
+            || !self.network_reachable
+            || self.metered()
+            || self.album_preloading.is_some()
+            || self.album_pages.contains_key(&id)
+        {
+            return;
+        }
+        self.load_generation = self.load_generation.wrapping_add(1);
+        self.album_pages.insert(
+            id.clone(),
+            AlbumPage {
+                generation: self.load_generation,
+                album: Loadable::Loading,
+                ..Default::default()
+            },
+        );
+        self.album_preloading = Some(id.clone());
+        self.backend.api(ApiRequest::AlbumPreload { id });
+    }
+
+    /// The queue panel shows a current queue, and its Recent tab loads now
+    /// rather than when it is chosen. Both are Web API reads.
+    fn open_queue_panel(&mut self) {
+        if self
+            .queue_fetched_at
+            .is_none_or(|at| at.elapsed() > QUEUE_FRESH)
+            || self.queue.needs_load()
+        {
+            self.refresh_queue(false);
+        }
+        if !self.metered() && !self.recents.loaded_once && self.recents.error.is_none() {
+            self.load_recents(false);
+        }
     }
 
     fn refresh_queue(&mut self, force: bool) {
@@ -8255,6 +8489,7 @@ impl App {
                 }
             },
             ApiResponse::Devices(result) => {
+                let warm = std::mem::take(&mut self.devices_warm_pending);
                 self.devices_loading = false;
                 self.devices_fetched_at = Some(Instant::now());
                 match result {
@@ -8308,11 +8543,21 @@ impl App {
                             self.selected_device = None;
                         }
                     }
-                    Err(error) => self.toast_error(
-                        // Translators: {error} is an error message.
-                        gettext(self.locale, "Couldn't list devices: {error}")
-                            .replace("{error}", &error.to_string()),
-                    ),
+                    // A rest on the button asked, not the listener, so its
+                    // failure stays quiet and the click asks again.
+                    Err(_) if warm && !self.show_devices => {
+                        self.devices_warmed_at = None;
+                    }
+                    // A failed read is not a fresh list, so the next opening
+                    // asks again.
+                    Err(error) => {
+                        self.devices_warmed_at = None;
+                        self.toast_error(
+                            // Translators: {error} is an error message.
+                            gettext(self.locale, "Couldn't list devices: {error}")
+                                .replace("{error}", &error.to_string()),
+                        );
+                    }
                 }
             }
             ApiResponse::PlaybackState { seq, result } => {
@@ -9667,6 +9912,9 @@ impl App {
                 }
             }
             ApiResponse::Album { id, result } => {
+                if self.album_preloading.as_ref() == Some(&id) {
+                    self.album_preloading = None;
+                }
                 // An earlier Web API header has no page generation. Once the
                 // session resolves a countdown page, its preview and playable
                 // cache own this album; a late generic header cannot replace it.
@@ -9674,6 +9922,15 @@ impl App {
                     .album_pages
                     .get(&id)
                     .is_some_and(|page| page.prerelease.is_some())
+                {
+                    return;
+                }
+                // Only a page that needs its album asks for it, so an answer
+                // for a loaded page is the preload a visit overtook.
+                if self
+                    .album_pages
+                    .get(&id)
+                    .is_some_and(|page| matches!(page.album, Loadable::Loaded(_)))
                 {
                     return;
                 }
@@ -13296,6 +13553,8 @@ impl App {
                 self.refresh_devices();
                 self.backend.send(Command::DiscoverReceivers);
             }
+            Action::WarmDevices => self.warm_devices(),
+            Action::PreloadAlbum(id) => self.preload_album(id),
             Action::ClearQueue => self.clear_queue(),
             Action::SaveQueueAsPlaylist => self.save_queue_as_playlist(),
             Action::SaveRadio(seed) => self.save_radio(&seed),
@@ -13470,7 +13729,7 @@ impl App {
                 if self.show_queue_panel {
                     self.show_lyrics_panel = false;
                     self.show_friends_panel = false;
-                    self.refresh_queue(true);
+                    self.open_queue_panel();
                 }
             }
             Action::ToggleLyricsPanel => {
@@ -13544,6 +13803,14 @@ impl App {
             Action::ToggleDevicesPopup => {
                 self.show_devices = !self.show_devices;
                 if self.show_devices {
+                    // The open picker waits for a read a rest started.
+                    self.devices_warm_pending = false;
+                }
+                // A rest on the button has just fetched the list and searched.
+                let warmed = self
+                    .devices_warmed_at
+                    .is_some_and(|at| at.elapsed() < DEVICES_WARM);
+                if self.show_devices && !warmed {
                     self.refresh_devices();
                     // Receivers waiting on the network are invisible to the
                     // Web API, so look for them ourselves.
@@ -14917,6 +15184,7 @@ impl App {
         let ctx = &ctx;
         self.pixels_per_point = ctx.pixels_per_point();
         self.refresh_frame_now();
+        self.prepare_next_song(ctx);
         self.apply_theme(ctx);
         let autoscroll_on = crate::autoscroll::enabled(self.settings.middle_click_autoscroll);
         self.autoscroll.begin(ctx, autoscroll_on);
@@ -17289,6 +17557,48 @@ mod tests {
         app.request_lyrics();
         assert!(app.lyrics_retry_at.is_none(), "the next song starts clean");
         assert_eq!(app.lyrics_retries, 0);
+        app.backend.shutdown();
+    }
+
+    /// Lyrics read ahead for the next song show the moment it plays, and
+    /// the song before keeps its answer for a skip back.
+    #[test]
+    fn lyrics_prepared_for_the_next_song_show_when_it_plays() {
+        let mut app = headless_app();
+        let play = |app: &mut App, uri: &str| {
+            app.local.track = Some(crate::player::LocalTrack {
+                uri: uri.into(),
+                ..Default::default()
+            });
+            app.request_lyrics();
+        };
+        app.local.playback = Playback::Playing;
+        play(&mut app, "spotify:track:a");
+        assert!(matches!(app.lyrics, Loadable::Loading));
+        app.handle_backend_events(vec![Event::Lyrics {
+            uri: "spotify:track:a".into(),
+            result: Ok(None),
+        }]);
+        assert!(matches!(app.lyrics, Loadable::Loaded(None)));
+        app.remember_adjacent_lyrics("spotify:track:b".into(), Loadable::Loading);
+        app.handle_backend_events(vec![Event::Lyrics {
+            uri: "spotify:track:b".into(),
+            result: Ok(Some(crate::lyrics::Lyrics::default())),
+        }]);
+        assert!(
+            matches!(app.lyrics, Loadable::Loaded(None)),
+            "the playing song keeps its own"
+        );
+        play(&mut app, "spotify:track:b");
+        assert!(
+            matches!(app.lyrics, Loadable::Loaded(Some(_))),
+            "shown without asking again"
+        );
+        play(&mut app, "spotify:track:a");
+        assert!(
+            matches!(app.lyrics, Loadable::Loaded(None)),
+            "the song before kept its answer"
+        );
         app.backend.shutdown();
     }
 
@@ -24188,6 +24498,23 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// Opening the queue panel loads its Recent tab at once, so choosing the
+    /// tab shows it without a wait; a metered connection waits for the tab.
+    #[test]
+    fn opening_the_queue_panel_loads_recent_at_once() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        change_power(&app, |conditions| conditions.metered = true);
+        app.apply(Action::ToggleQueuePanel, &ctx);
+        assert!(app.show_queue_panel);
+        assert!(!app.recents.loading, "a metered connection waits");
+        app.apply(Action::ToggleQueuePanel, &ctx);
+        change_power(&app, |conditions| conditions.metered = false);
+        app.apply(Action::ToggleQueuePanel, &ctx);
+        assert!(app.recents.loading);
+        app.backend.shutdown();
+    }
+
     /// Friend activity takes the right panel's place: opening it closes the
     /// Queue and Lyrics, and opening either of them closes it.
     #[test]
@@ -27293,6 +27620,179 @@ mod tests {
         let _ = std::fs::remove_file(&file);
     }
 
+    /// Resting on a device button fetches the list, so the picker opens on
+    /// it without asking again; a metered connection waits for the click.
+    #[test]
+    fn resting_on_a_device_button_fetches_the_list_ahead_of_the_click() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.auth = AuthStatus::Connected {
+            username: "alice".into(),
+        };
+        change_power(&app, |conditions| conditions.metered = true);
+        app.apply(Action::WarmDevices, &ctx);
+        assert!(!app.devices_loading, "a metered connection waits");
+        change_power(&app, |conditions| conditions.metered = false);
+        app.apply(Action::WarmDevices, &ctx);
+        assert!(app.devices_loading);
+        app.handle_api(ApiResponse::Devices(Ok(Vec::new())));
+        app.apply(Action::WarmDevices, &ctx);
+        assert!(!app.devices_loading, "a fresh list is not fetched again");
+        app.apply(Action::ToggleDevicesPopup, &ctx);
+        assert!(app.show_devices);
+        assert!(
+            !app.devices_loading,
+            "the picker shows the list just fetched"
+        );
+        app.apply(Action::ToggleDevicesPopup, &ctx);
+        app.devices_warmed_at = Some(Instant::now() - DEVICES_WARM);
+        app.apply(Action::ToggleDevicesPopup, &ctx);
+        assert!(
+            app.devices_loading,
+            "an older list is fetched again on opening"
+        );
+        app.handle_api(ApiResponse::Devices(Ok(Vec::new())));
+        app.apply(Action::ToggleDevicesPopup, &ctx);
+        assert!(!app.show_devices);
+        app.devices_fetched_at = None;
+        app.devices_warmed_at = None;
+        app.apply(Action::WarmDevices, &ctx);
+        assert!(app.devices_loading);
+        let toasts = app.toasts.len();
+        app.handle_api(ApiResponse::Devices(Err(crate::api::ApiError::RateLimited)));
+        assert_eq!(app.toasts.len(), toasts, "a rest that fails says nothing");
+        app.apply(Action::ToggleDevicesPopup, &ctx);
+        assert!(app.devices_loading, "the click asks again");
+    }
+
+    /// A read a rest started stays quiet however long it waits, and once the
+    /// picker opens on it, its failure is the listener's to see.
+    #[test]
+    fn a_slow_rest_on_a_device_button_fails_quietly_until_the_picker_opens() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.auth = AuthStatus::Connected {
+            username: "alice".into(),
+        };
+        app.apply(Action::WarmDevices, &ctx);
+        assert!(app.devices_loading);
+        app.devices_warmed_at = Some(Instant::now() - DEVICES_WARM);
+        let toasts = app.toasts.len();
+        app.handle_api(ApiResponse::Devices(Err(crate::api::ApiError::RateLimited)));
+        assert_eq!(app.toasts.len(), toasts, "nobody opened the picker");
+
+        app.devices_fetched_at = None;
+        app.devices_warmed_at = None;
+        app.apply(Action::WarmDevices, &ctx);
+        app.apply(Action::ToggleDevicesPopup, &ctx);
+        assert!(app.show_devices);
+        app.handle_api(ApiResponse::Devices(Err(crate::api::ApiError::RateLimited)));
+        assert_eq!(app.toasts.len(), toasts + 1, "the open picker reports it");
+        assert_eq!(app.devices_warmed_at, None, "the next opening asks again");
+    }
+
+    /// Opening an album whose preload still waits asks in the foreground, and
+    /// the preload's later answer leaves the page as the visit loaded it.
+    #[test]
+    fn opening_an_album_while_its_preload_waits_asks_in_the_foreground() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.auth = AuthStatus::Connected {
+            username: "alice".into(),
+        };
+        app.user = Some(crate::api::models::User::default());
+        app.apply(Action::PreloadAlbum("a1".into()), &ctx);
+        assert_eq!(app.album_preloading.as_deref(), Some("a1"));
+        app.ensure_loaded(Page::Album("a1".into()));
+        assert_eq!(app.album_preloading, None, "the visit took the read over");
+        let album = |name: &str| crate::api::models::Album {
+            id: "a1".into(),
+            uri: "spotify:album:a1".into(),
+            name: name.into(),
+            ..Default::default()
+        };
+        app.handle_api(ApiResponse::Album {
+            id: "a1".into(),
+            result: Ok(album("Visited")),
+        });
+        app.handle_api(ApiResponse::Album {
+            id: "a1".into(),
+            result: Ok(album("Preloaded")),
+        });
+        let Some(Loadable::Loaded(album)) = app.album_pages.get("a1").map(|page| &page.album)
+        else {
+            panic!("the album loaded")
+        };
+        assert_eq!(album.name, "Visited");
+    }
+
+    /// The next song's cover fetched ahead is the rendition the player bar
+    /// and full screen lyrics draw once it plays, not one between.
+    #[test]
+    fn the_next_cover_fetched_ahead_is_the_one_drawn() {
+        use crate::api::models::{Album, Image, PlayableItem, Track};
+        let mut app = headless_app();
+        app.pixels_per_point = 1.0;
+        let image = |width: u32| Image {
+            url: width.to_string(),
+            width: Some(width),
+            height: Some(width),
+        };
+        let item = PlayableItem::Track(Track {
+            album: Some(Album {
+                images: vec![image(640), image(300), image(64)],
+                ..Album::default()
+            }),
+            ..Track::default()
+        });
+        for points in [56.0, 320.0] {
+            assert_eq!(
+                app.item_image(&item, app.playing_art_px(points)).as_deref(),
+                Some("640"),
+                "{points} points"
+            );
+        }
+        assert_eq!(app.playing_art_px(20.0), 64);
+        app.backend.shutdown();
+    }
+
+    /// Resting on an album's card fetches the album, one at a time and never
+    /// on a metered connection; the page it makes is the first evicted.
+    #[test]
+    fn resting_on_an_album_fetches_it_ahead_one_at_a_time() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.user = Some(crate::api::models::User::default());
+        change_power(&app, |conditions| conditions.metered = true);
+        app.apply(Action::PreloadAlbum("a".into()), &ctx);
+        assert!(app.album_pages.is_empty(), "a metered connection waits");
+        change_power(&app, |conditions| conditions.metered = false);
+        app.apply(Action::PreloadAlbum("a".into()), &ctx);
+        assert!(matches!(app.album_pages["a"].album, Loadable::Loading));
+        app.apply(Action::PreloadAlbum("b".into()), &ctx);
+        assert!(!app.album_pages.contains_key("b"), "one album at a time");
+        app.handle_api(ApiResponse::Album {
+            id: "a".into(),
+            result: Ok(crate::api::models::Album {
+                id: "a".into(),
+                uri: "spotify:album:a".into(),
+                ..Default::default()
+            }),
+        });
+        assert!(matches!(app.album_pages["a"].album, Loadable::Loaded(_)));
+        app.apply(Action::PreloadAlbum("b".into()), &ctx);
+        assert!(matches!(app.album_pages["b"].album, Loadable::Loading));
+        for index in 0..16 {
+            let id = format!("opened{index}");
+            app.album_pages.insert(id.clone(), AlbumPage::default());
+            app.touch_page(&Page::Album(id));
+        }
+        app.evict_stale_pages();
+        assert!(!app.album_pages.contains_key("a"));
+        assert!(!app.album_pages.contains_key("b"));
+        assert!((0..16).all(|index| app.album_pages.contains_key(&format!("opened{index}"))));
+    }
+
     /// Changes the conditions as the power reader would.
     fn change_power(app: &App, change: impl FnOnce(&mut crate::power::Conditions)) {
         let mut conditions = app.power.conditions();
@@ -29247,6 +29747,20 @@ mod tests {
         app.reset_data();
         assert!(app.page_used.is_empty());
         assert!(app.track_used.is_empty());
+    }
+
+    /// Recent belongs to the account: the next one reads its own, and a
+    /// page still on its way for the last one is dropped.
+    #[test]
+    fn reset_data_forgets_the_last_accounts_recent() {
+        let mut app = headless_app();
+        app.recents.loaded_once = true;
+        app.recents.after = Some("cursor".into());
+        let generation = app.recents_generation;
+        app.reset_data();
+        assert!(!app.recents.loaded_once);
+        assert!(app.recents.after.is_none());
+        assert_ne!(app.recents_generation, generation);
     }
 
     #[test]
