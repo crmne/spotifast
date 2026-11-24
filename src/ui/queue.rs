@@ -803,7 +803,7 @@ fn recents_contents(app: &mut App, ui: &mut egui::Ui) {
         // Need owned PlayableItem for track_row; clone track.
         let item = PlayableItem::Track(entry.track.clone());
         let context = RowContext::Uris(Arc::from([entry.track.uri.clone()]));
-        widgets::track_row(
+        widgets::queue_track_row(
             ui,
             app,
             TrackRow {

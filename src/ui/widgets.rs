@@ -1716,6 +1716,7 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) -> Option<RowPic
     track_row_response(ui, app, row).1
 }
 
+/// A row in the queue panel, Queue or Recent alike.
 pub(crate) fn queue_track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) {
     track_row_with_menu(ui, app, row, true);
 }
@@ -2394,8 +2395,8 @@ fn track_row_contents(
         }
     }
     let mut menu = egui::Popup::context_menu(&response);
-    // Artist and album links take the click from the row. In the queue,
-    // a secondary click over those links still opens the song menu.
+    // Artist and album links take the click from the row. In the queue
+    // panel, a secondary click over those links still opens the song menu.
     if queue_menu
         && ui.is_enabled()
         && ui.rect_contains_pointer(rect)

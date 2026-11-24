@@ -11255,6 +11255,76 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// A secondary click on an artist link in Recent opens the song menu,
+    /// as it does in the queue.
+    #[test]
+    fn a_recent_rows_artist_link_opens_the_song_menu() {
+        use egui::accesskit::Role;
+        let (ctx, mut app) = accessible_app("recent-artist-menu");
+        app.show_queue_panel = true;
+        app.queue_tab = QueueTab::Recents;
+        let mut song = track(0);
+        song.name = "Played before".into();
+        let entry = crate::api::models::PlayHistory {
+            track: song,
+            played_at: None,
+            context: None,
+        };
+        app.recents.items = vec![entry.clone()];
+        app.recents_view = std::sync::Arc::from([entry]);
+        app.recents.loaded_once = true;
+        app.recents.complete = true;
+        for _ in 0..3 {
+            frame_events(&ctx, &mut app, vec![]);
+        }
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let row = tree
+            .nodes
+            .iter()
+            .find(|(_, node)| {
+                node.role() == Role::Button
+                    && node
+                        .label()
+                        .is_some_and(|text| text.starts_with("Play Played before,"))
+                    && node.bounds().is_some_and(|bounds| bounds.x0 >= 900.0)
+            })
+            .expect("the Recent row in the queue panel")
+            .1
+            .bounds()
+            .unwrap();
+        let center = (row.y0 + row.y1) / 2.0;
+        let artist = tree
+            .nodes
+            .iter()
+            .find_map(|(_, node)| {
+                let bounds = node.bounds()?;
+                (node.role() == Role::Link
+                    && bounds.x0 >= 900.0
+                    && bounds.y0 >= center
+                    && bounds.y0 <= center + 24.0)
+                    .then_some(bounds)
+            })
+            .expect("artist link in the Recent row");
+        let has_menu = |tree: &egui::accesskit::TreeUpdate| {
+            tree.nodes.iter().any(|(_, node)| {
+                node.role() == Role::Button && node.label() == Some("Add to queue")
+            })
+        };
+        assert!(!has_menu(&tree));
+        let pos = egui::pos2(
+            ((artist.x0 + artist.x1) / 2.0) as f32,
+            ((artist.y0 + artist.y1) / 2.0) as f32,
+        );
+        accessible_frame(
+            &ctx,
+            &mut app,
+            pointer_click(pos, egui::PointerButton::Secondary),
+        );
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        assert!(has_menu(&tree), "the song menu opens over the artist link");
+        app.backend.shutdown();
+    }
+
     /// If the playing song advances (consuming the front queued row) while a
     /// queued row is mid-drag, the drop must still act on the song that was
     /// actually picked up, not on whatever now sits at the drag's recorded
