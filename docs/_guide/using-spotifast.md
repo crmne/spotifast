@@ -781,8 +781,10 @@ first. If Spotify will not provide the seed song, the radio leaves it out.
 Spotify mixes a radio afresh each time it is asked, so the page keeps the
 songs it shows: **Play**, **Shuffle**, and a double-clicked row play those
 songs, and the queue names the radio. Choose **Refresh** in the page's **…**
-menu for a new mix. **Save as playlist** creates a private playlist named
-after the radio with the songs on the page.
+menu for a new mix. **Save as playlist** opens **New playlist**, named after
+the radio, for the songs on the page: change the name, add a cover or a
+description, then choose **Create**. The queue's **Save as a playlist**
+button works the same way.
 
 Radio comes from Spotify's playback service, so it needs playback on this
 computer to be set up; the page can then play on any device.
@@ -838,6 +840,9 @@ preview so you can try again. Uploading the cover is separate from **Save**,
 which saves the playlist name, description, and visibility. Spotify doesn't
 let apps remove a description, so clearing the field keeps the current one.
 You can replace it with other text instead.
+
+**New playlist** offers the same cover picker. The cover uploads as soon as
+Spotify has made the playlist.
 
 If Spotify refuses permission, sign in again and approve image uploads. If you
 use your own Client ID, authorize it again in Settings as well.
