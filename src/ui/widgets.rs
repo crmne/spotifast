@@ -192,6 +192,37 @@ fn stand_in(
         .then(|| std::sync::Arc::clone(&shown.url))
 }
 
+/// Whether [`playing_cover`] under `key` shows the last song's cover in
+/// place of `url`'s, which is still being made.
+pub fn playing_cover_stands_in(
+    ui: &Ui,
+    art: &crate::images::ArtLoader,
+    key: &str,
+    url: Option<&str>,
+) -> bool {
+    let id = egui::Id::new(("playing-cover", key));
+    let now = ui.input(|input| input.time);
+    let shown = ui.ctx().data(|data| data.get_temp::<ShownCover>(id));
+    stand_in(shown.as_ref(), url, now).is_some() && !url.is_some_and(|url| art.has_copy(url))
+}
+
+/// Called after [`playing_cover`] painted `url`'s in a place laid out while
+/// the last song's cover stood in for it (`stood_in`, from
+/// [`playing_cover_stands_in`]). The new cover can be made while it paints,
+/// and would then show in the last one's place, so that frame is drawn again
+/// with the new cover in its own.
+pub fn settle_playing_cover(
+    ui: &Ui,
+    art: &crate::images::ArtLoader,
+    url: Option<&str>,
+    stood_in: bool,
+) {
+    if stood_in && url.is_some_and(|url| art.has_copy(url)) {
+        ui.ctx()
+            .request_discard("the new song's cover takes its own place");
+    }
+}
+
 /// Paints the playing song's cover. A new song's cover still being made
 /// keeps the last song's in its place for a moment, so a change of song
 /// does not pass through the placeholder. `key` tells apart the places that
@@ -367,12 +398,76 @@ pub fn virtual_rows(
         ui.allocate_space(vec2(width, first as f32 * row_height));
     }
     for index in first..last {
-        row(ui, index);
+        edge_faded(ui, row_height, |ui| row(ui, index));
     }
     if last < count {
         ui.allocate_space(vec2(width, (count - last) as f32 * row_height));
     }
     ui.spacing_mut().item_spacing = previous_spacing;
+}
+
+fn list_edge_id() -> egui::Id {
+    egui::Id::new("spotifast-list-edge-fade")
+}
+
+/// Draws the scroll area `add` makes with its rows fading out from `band`
+/// points before its top and bottom edges, for a list on a rounded pane:
+/// a row the area's square edge cuts shows what of it is inside, faint, and
+/// the list reads as part of the pane rather than a box inside it. Rows from
+/// [`virtual_rows`] fade on their own; anything else in the list goes through
+/// [`edge_faded`].
+pub fn fade_list_edges<R>(ui: &mut Ui, band: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
+    let id = list_edge_id();
+    ui.ctx().data_mut(|data| data.insert_temp(id, band));
+    let shown = add(ui);
+    ui.ctx().data_mut(|data| data.remove::<f32>(id));
+    shown
+}
+
+/// Draws `add`, `height` points tall at the cursor, faded by how near it is
+/// to an edge of the visible list while [`fade_list_edges`] is on, and as it
+/// is otherwise.
+pub fn edge_faded<R>(ui: &mut Ui, height: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
+    let Some(band) = ui.ctx().data(|data| data.get_temp::<f32>(list_edge_id())) else {
+        return add(ui);
+    };
+    let item = Rect::from_min_size(ui.cursor().min, vec2(ui.available_width(), height));
+    let opacity = ui.opacity();
+    ui.set_opacity(opacity * list_edge_opacity(item, ui.clip_rect(), band));
+    let shown = add(ui);
+    ui.set_opacity(opacity);
+    shown
+}
+
+/// How visible `item` is near the edges of `view`. It fades by whichever of
+/// its edges is nearer the edge of `view`, over `band` points, and is gone
+/// before that edge reaches it, so the clip never cuts it in half. An item
+/// too tall to clear the band at both ends at once fades over the room it
+/// has, so it still shows whole in the middle, and one taller than `view`
+/// does not fade at all.
+pub fn edge_opacity(item: Rect, view: Rect, band: f32) -> f32 {
+    let band = band.min((view.height() - item.height()) / 2.0);
+    if band <= 0.0 {
+        return 1.0;
+    }
+    let room = (item.top() - view.top()).min(view.bottom() - item.bottom());
+    let edge = (room / band).clamp(0.0, 1.0);
+    edge * edge * (3.0 - 2.0 * edge)
+}
+
+/// How visible a list row `item` is near the edges of `view`: whole while it
+/// is `band` points inside them, then fading as it nears and crosses the
+/// nearer edge until it has left `view`. A row the edge cuts still shows what
+/// of it is inside, so a list never ends in an empty strip where its next row
+/// is waiting for room.
+pub fn list_edge_opacity(item: Rect, view: Rect, band: f32) -> f32 {
+    let band = band.min((view.height() - item.height()) / 2.0);
+    if band <= 0.0 {
+        return 1.0;
+    }
+    let room = (item.top() - view.top()).min(view.bottom() - item.bottom());
+    let edge = ((room + item.height()) / (band + item.height())).clamp(0.0, 1.0);
+    edge * edge * (3.0 - 2.0 * edge)
 }
 
 /// A wrapping grid of cards, laid out row by row so only visible cards are
@@ -5139,5 +5234,63 @@ mod tests {
             .unwrap();
         assert_eq!(meta.options, crate::images::COVER_TEXTURE);
         assert_eq!(meta.options.mipmap_mode, Some(egui::TextureFilter::Linear));
+    }
+}
+
+#[cfg(test)]
+mod list_edge_tests {
+    use super::*;
+
+    fn item(top: f32) -> Rect {
+        Rect::from_min_size(pos2(0.0, top), vec2(100.0, 20.0))
+    }
+
+    #[test]
+    fn a_row_fades_out_by_its_nearer_edge_of_the_list() {
+        let view = Rect::from_min_size(egui::Pos2::ZERO, vec2(100.0, 200.0));
+        assert_eq!(edge_opacity(item(0.0), view, 12.0), 0.0, "at the top");
+        assert_eq!(edge_opacity(item(6.0), view, 12.0), 0.5, "half way in");
+        assert_eq!(edge_opacity(item(12.0), view, 12.0), 1.0, "a band inside");
+        assert_eq!(edge_opacity(item(90.0), view, 12.0), 1.0, "in the middle");
+        assert_eq!(edge_opacity(item(180.0), view, 12.0), 0.0, "at the bottom");
+        assert_eq!(edge_opacity(item(-30.0), view, 12.0), 0.0, "scrolled past");
+    }
+
+    #[test]
+    fn a_list_row_the_edge_cuts_still_shows_what_is_inside() {
+        let view = Rect::from_min_size(egui::Pos2::ZERO, vec2(100.0, 200.0));
+        let at = |top: f32| list_edge_opacity(item(top), view, 12.0);
+        assert_eq!(at(12.0), 1.0, "a band inside");
+        assert_eq!(at(90.0), 1.0, "in the middle");
+        assert_eq!(at(168.0), 1.0, "a band above the bottom");
+        assert_eq!(at(0.0), at(180.0), "both edges alike");
+        assert!(at(180.0) > 0.5 && at(180.0) < 1.0, "whole at the bottom");
+        assert!(at(190.0) > 0.0 && at(190.0) < at(180.0), "half cut");
+        assert!(at(-10.0) > 0.0 && at(-10.0) < at(0.0), "half gone");
+        assert_eq!(at(200.0), 0.0, "below the list");
+        assert_eq!(at(-20.0), 0.0, "scrolled past");
+    }
+
+    #[test]
+    fn only_a_list_that_asks_for_it_fades_its_edges() {
+        let ctx = egui::Context::default();
+        let mut seen = Vec::new();
+        let mut output = ctx.run_ui(Default::default(), |ui| {
+            seen.clear();
+            ui.set_clip_rect(Rect::from_min_size(ui.cursor().min, vec2(200.0, 100.0)));
+            seen.push(edge_faded(ui, 20.0, |ui| ui.opacity()));
+            fade_list_edges(ui, 12.0, |ui| {
+                seen.push(edge_faded(ui, 20.0, |ui| ui.opacity()));
+                ui.add_space(12.0);
+                seen.push(edge_faded(ui, 20.0, |ui| ui.opacity()));
+            });
+            seen.push(ui.opacity());
+            seen.push(edge_faded(ui, 20.0, |ui| ui.opacity()));
+        });
+        output.textures_delta.clear();
+        let view = Rect::from_min_size(egui::Pos2::ZERO, vec2(200.0, 100.0));
+        let at_edge = list_edge_opacity(item(0.0), view, 12.0);
+        assert!(at_edge < 1.0);
+        assert_eq!(seen, [1.0, at_edge, 1.0, 1.0, 1.0]);
     }
 }

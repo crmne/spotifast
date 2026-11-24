@@ -559,8 +559,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 {
                     app.actions.push(Action::Open(Page::Settings));
                 }
-                if app.visualizers_available()
-                    && theme::icon_button(
+                if app.visualizers_available() {
+                    let milkdrop = theme::icon_button(
                         ui,
                         Icon::AudioLines,
                         ICON_BUTTON_ICON,
@@ -574,10 +574,23 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                             &gettext(locale, "MilkDrop visualiser (Ctrl+Shift+K)"),
                             &gettext(locale, "MilkDrop visualiser (Cmd+Shift+K)"),
                         ),
-                    )
-                    .clicked()
-                {
-                    app.actions.push(Action::ToggleWinampMilkdrop);
+                    );
+                    if milkdrop.clicked() {
+                        app.actions.push(Action::ToggleWinampMilkdrop);
+                    }
+                    #[cfg(feature = "milkdrop")]
+                    egui::Popup::context_menu(&milkdrop)
+                        .frame(super::widgets::menu_frame(&palette))
+                        .show(|ui| {
+                            if super::widgets::menu_item(
+                                ui,
+                                &palette,
+                                None,
+                                &gettext(locale, "Show MilkDrop only"),
+                            ) {
+                                app.actions.push(Action::EnterImmersive);
+                            }
+                        });
                 }
                 if theme::icon_button(
                     ui,

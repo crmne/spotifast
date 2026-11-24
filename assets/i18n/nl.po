@@ -4289,6 +4289,18 @@ msgstr ""
 "stuurprogramma of zet GPU-versnelling aan voor de virtuele machine. {url} "
 "openen voor meer informatie?"
 
+#: src/ui/lyrics.rs:991
+msgid "Sync lyrics"
+msgstr "Songtekst synchroniseren"
+
+#: src/ui/lyrics.rs:970
+msgid "Toggle MilkDrop background (V)"
+msgstr "MilkDrop-achtergrond aan of uit (V)"
+
+#: src/ui/topbar.rs:589
+msgid "Show MilkDrop only"
+msgstr "Alleen MilkDrop tonen"
+
 #~ msgid "Otherwise it installs the next time Spotifast starts."
 #~ msgstr ""
 #~ "Anders wordt de update geïnstalleerd wanneer Spotifast de volgende keer "

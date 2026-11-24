@@ -4263,6 +4263,18 @@ msgstr ""
 "するか、仮想マシンの GPU アクセラレーションを有効にしてください。詳しくは "
 "{url} を開きますか？"
 
+#: src/ui/lyrics.rs:991
+msgid "Sync lyrics"
+msgstr "歌詞を同期"
+
+#: src/ui/lyrics.rs:970
+msgid "Toggle MilkDrop background (V)"
+msgstr "MilkDrop の背景を切り替え (V)"
+
+#: src/ui/topbar.rs:589
+msgid "Show MilkDrop only"
+msgstr "MilkDrop のみ表示"
+
 #~ msgid "Otherwise it installs the next time Spotifast starts."
 #~ msgstr ""
 #~ "今再起動しない場合は、次に Spotifast を起動したときにインストールされま"

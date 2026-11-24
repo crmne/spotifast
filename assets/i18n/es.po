@@ -4295,6 +4295,18 @@ msgstr ""
 "PC o máquina virtual no lo ofrece. Instala el controlador gráfico o activa "
 "la aceleración por GPU de la máquina virtual. ¿Abrir {url} para saber más?"
 
+#: src/ui/lyrics.rs:991
+msgid "Sync lyrics"
+msgstr "Sincronizar letra"
+
+#: src/ui/lyrics.rs:970
+msgid "Toggle MilkDrop background (V)"
+msgstr "Activar o desactivar el fondo de MilkDrop (V)"
+
+#: src/ui/topbar.rs:589
+msgid "Show MilkDrop only"
+msgstr "Mostrar solo MilkDrop"
+
 #~ msgid "Otherwise it installs the next time Spotifast starts."
 #~ msgstr "Si no, se instalará la próxima vez que se inicie Spotifast."
 

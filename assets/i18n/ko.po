@@ -4211,6 +4211,18 @@ msgstr ""
 "나 가상 머신의 GPU 가속을 켜세요. 자세한 내용을 보려면 {url}을(를) 여시겠습니"
 "까?"
 
+#: src/ui/lyrics.rs:991
+msgid "Sync lyrics"
+msgstr "가사 동기화"
+
+#: src/ui/lyrics.rs:970
+msgid "Toggle MilkDrop background (V)"
+msgstr "MilkDrop 배경 켜기/끄기 (V)"
+
+#: src/ui/topbar.rs:589
+msgid "Show MilkDrop only"
+msgstr "MilkDrop만 보기"
+
 #~ msgid "Otherwise it installs the next time Spotifast starts."
 #~ msgstr "지금 다시 시작하지 않으면 다음에 Spotifast를 시작할 때 설치됩니다."
 

@@ -4319,6 +4319,18 @@ msgstr ""
 "драйвер або увімкніть GPU-прискорення для віртуальної машини. Відкрити "
 "{url}, щоб дізнатися більше?"
 
+#: src/ui/lyrics.rs:991
+msgid "Sync lyrics"
+msgstr "Синхронізувати текст"
+
+#: src/ui/lyrics.rs:970
+msgid "Toggle MilkDrop background (V)"
+msgstr "Увімкнути або вимкнути тло MilkDrop (V)"
+
+#: src/ui/topbar.rs:589
+msgid "Show MilkDrop only"
+msgstr "Показати лише MilkDrop"
+
 #~ msgid "Otherwise it installs the next time Spotifast starts."
 #~ msgstr "Інакше оновлення встановиться під час наступного запуску Spotifast."
 

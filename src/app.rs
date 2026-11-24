@@ -358,6 +358,10 @@ struct Immersive {
     backdrop_was: bool,
     /// A frame has arrived, so the lyrics, cover and bars have gone.
     showing: bool,
+    /// The lyrics and Friends panels as they were when Show MilkDrop opened
+    /// full screen lyrics for it; a MilkDrop that never drew closes them
+    /// again and puts the panels back.
+    opened_from_window: Option<(bool, bool)>,
     /// Until when the controls show, on the input clock.
     controls_until: f64,
 }
@@ -3060,7 +3064,9 @@ impl App {
                 Event::Lyrics { uri, result } => {
                     if self.lyrics_uri.as_deref() == Some(uri.as_str()) {
                         self.lyrics = match result {
-                            Ok(found) => Loadable::Loaded(found),
+                            Ok(found) => Loadable::Loaded(
+                                found.map(crate::lyrics::Lyrics::without_closing_notes),
+                            ),
                             Err(error) => self.lyrics_failed(error, Instant::now()),
                         };
                     }
@@ -13474,8 +13480,12 @@ impl App {
                 }
             }
             Action::ToggleLyricsPanel => {
+                // Full screen lyrics are lit as lyrics, also while the queue
+                // column holds the side panel, so the button closes them and
+                // leaves that queue where it was.
+                let leaving = self.lyrics_fullscreen.is_some();
                 self.leave_lyrics_fullscreen(ctx);
-                self.show_lyrics_panel = !self.show_lyrics_panel;
+                self.show_lyrics_panel = !leaving && !self.show_lyrics_panel;
                 if self.show_lyrics_panel {
                     self.show_queue_panel = false;
                     self.show_friends_panel = false;
@@ -13525,10 +13535,11 @@ impl App {
                     self.leave_lyrics_fullscreen(ctx);
                 }
             }
-            Action::LyricsLineShown(line) => {
-                // Escape or navigation may already have left the view earlier
-                // in this frame. The returning panel still needs to reposition.
-                if self.lyrics_fullscreen.is_some() {
+            Action::LyricsLineShown { line, fullscreen } => {
+                // Escape, navigation or a button may already have switched
+                // views earlier in this frame. The view coming in still needs
+                // to position itself, so only the view showing keeps its line.
+                if self.lyrics_fullscreen.is_some() == fullscreen {
                     self.lyrics_line_shown = Some(line);
                 }
             }
@@ -14176,10 +14187,20 @@ impl App {
                 }
             }
             Action::EnterImmersive => {
+                // The top bar's Show MilkDrop is drawn only in the window, so
+                // it opens full screen lyrics first.
+                let opened_from_window = self
+                    .lyrics_fullscreen
+                    .is_none()
+                    .then_some((self.show_lyrics_panel, self.show_friends_panel));
+                if opened_from_window.is_some() {
+                    self.apply(Action::SetLyricsFullscreen(true), ctx);
+                }
                 if self.lyrics_fullscreen.is_some() && self.immersive.is_none() {
                     self.immersive = Some(Immersive {
                         backdrop_was: self.milkdrop_backdrop,
                         showing: false,
+                        opened_from_window,
                         controls_until: 0.0,
                     });
                     self.milkdrop_backdrop = true;
@@ -14187,7 +14208,21 @@ impl App {
                     self.fetch_presets_if_none(ctx);
                 }
             }
-            Action::LeaveImmersive => self.end_immersive(),
+            Action::LeaveImmersive => {
+                // A Show MilkDrop from the window that never drew goes back
+                // to the window and its side panels, as if it was never
+                // clicked.
+                let back_to_window = self
+                    .immersive
+                    .filter(|mode| !mode.showing)
+                    .and_then(|mode| mode.opened_from_window);
+                self.end_immersive();
+                if let Some((lyrics, friends)) = back_to_window {
+                    self.apply(Action::SetLyricsFullscreen(false), ctx);
+                    self.show_lyrics_panel = lyrics;
+                    self.show_friends_panel = friends;
+                }
+            }
             Action::ToggleLyricsMilkdrop => {
                 // Off is a choice of its own, and there is nothing left to be
                 // immersed in; the mode's memory of the backdrop goes with it.
@@ -14941,6 +14976,7 @@ impl App {
                 self.leave_lyrics_fullscreen(ctx);
             }
         }
+        crate::window::keep_shadow_out_of_fullscreen(ctx, fastframe_titlebar::enabled());
         // Switch to the main window when sign-in is required.
         let needs_sign_in = !(self.is_connected() && self.user.is_some())
             && !matches!(self.auth, AuthStatus::Connecting | AuthStatus::Starting)
@@ -27895,6 +27931,29 @@ mod tests {
     }
 
     #[test]
+    fn the_lyrics_button_closes_fullscreen_beside_the_queue() {
+        let mut app = headless_app();
+        let ctx = egui::Context::default();
+        let mut output = ctx.run_ui(Default::default(), |ui| {
+            app.apply(Action::ToggleQueuePanel, ui.ctx());
+            app.apply(Action::SetLyricsFullscreen(true), ui.ctx());
+        });
+        output.textures_delta.clear();
+        assert!(app.show_queue_panel);
+        assert!(!app.show_lyrics_panel, "the queue keeps the side panel");
+        assert!(crate::ui::player_bar::lyrics_lit(&app));
+        let mut output = ctx.run_ui(Default::default(), |ui| {
+            app.apply(Action::ToggleLyricsPanel, ui.ctx());
+        });
+        output.textures_delta.clear();
+        assert_eq!(app.lyrics_fullscreen, None);
+        assert!(!app.show_lyrics_panel, "closing lyrics does not open them");
+        assert!(app.show_queue_panel, "the queue stays where it was");
+        assert!(!crate::ui::player_bar::lyrics_lit(&app));
+        app.backend.shutdown();
+    }
+
+    #[test]
     fn closing_lyrics_leaves_fullscreen() {
         let mut app = headless_app();
         let ctx = egui::Context::default();
@@ -32465,6 +32524,53 @@ mod tests {
         );
         app.handle_playback(LocalPlayback::Failed("test connection failure".into()));
         assert!(app.requested_track_preview().is_none());
+        app.backend.shutdown();
+    }
+
+    /// The queue beside full screen lyrics lays no shade along the edges of
+    /// its list, which would show as a square band on the glass: its rows
+    /// fade out there on their own.
+    #[test]
+    fn the_queue_beside_full_screen_lyrics_shades_no_edge() {
+        use egui::{Rect, pos2, vec2};
+
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.attach(&ctx);
+        crate::demo::populate(&mut app);
+        app.show_queue_panel = true;
+        // egui's shade is a rectangle of four untextured corners, two of
+        // them see-through.
+        let is_shade = |shape: &egui::Shape| {
+            let egui::Shape::Mesh(mesh) = shape else {
+                return false;
+            };
+            mesh.texture_id == egui::TextureId::default()
+                && mesh.vertices.len() == 4
+                && mesh.vertices.iter().any(|vertex| vertex.color.a() == 0)
+        };
+        let screen = Rect::from_min_size(egui::Pos2::ZERO, vec2(1280.0, 800.0));
+        // Short enough that the demo queue runs on past its bottom.
+        let column = Rect::from_min_size(pos2(900.0, 40.0), vec2(340.0, 260.0));
+        let mut shades = usize::MAX;
+        for _ in 0..2 {
+            let input = egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            };
+            let mut output = ctx.run_ui(input, |ui| {
+                let mut pane = ui.new_child(egui::UiBuilder::new().max_rect(column));
+                crate::ui::queue::fullscreen_column(&mut app, &mut pane, 1.0);
+            });
+            output.textures_delta.clear();
+            app.apply_actions(&ctx);
+            shades = output
+                .shapes
+                .iter()
+                .filter(|shape| is_shade(&shape.shape))
+                .count();
+        }
+        assert_eq!(shades, 0, "a shade along the list's edge");
         app.backend.shutdown();
     }
 

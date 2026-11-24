@@ -4129,6 +4129,18 @@ msgstr ""
 "器沒有提供。請安裝顯示卡驅動程式，或為虛擬機器開啟 GPU 加速。要開啟 {url} 了"
 "解更多嗎？"
 
+#: src/ui/lyrics.rs:991
+msgid "Sync lyrics"
+msgstr "同步歌詞"
+
+#: src/ui/lyrics.rs:970
+msgid "Toggle MilkDrop background (V)"
+msgstr "切換 MilkDrop 背景 (V)"
+
+#: src/ui/topbar.rs:589
+msgid "Show MilkDrop only"
+msgstr "只顯示 MilkDrop"
+
 #~ msgid "Otherwise it installs the next time Spotifast starts."
 #~ msgstr "否則會在下次啟動 Spotifast 時安裝。"
 

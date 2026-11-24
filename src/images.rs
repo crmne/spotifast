@@ -2516,6 +2516,61 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    /// The frame a new song's cover is made in is drawn again, so a place
+    /// laid out for the last song's cover never shows the new one.
+    #[test]
+    fn a_new_songs_cover_shows_only_in_its_own_place() {
+        use crate::ui::widgets::{playing_cover_stands_in, settle_playing_cover};
+        let runtime = artwork_test_runtime();
+        let dir = std::env::temp_dir().join(format!("spotifast-own-place-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let loader = artwork_test_loader(&runtime, dir.clone());
+        let ctx = egui::Context::default();
+        ctx.add_bytes_loader(Arc::new(loader.clone()));
+        ctx.add_image_loader(Arc::new(loader.scaler()));
+        let [first, next] = [
+            "https://i.scdn.co/image/before",
+            "https://i.scdn.co/image/after",
+        ];
+        cached_png(&loader, first, [20, 30, 40]);
+        cached_png(&loader, next, [200, 30, 40]);
+        let palette = crate::theme::Palette::dark();
+        let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(56.0, 56.0));
+        let cover = |ui: &mut egui::Ui, url: &str| {
+            crate::ui::widgets::playing_cover(ui, &palette, &loader, "big", Some(url), rect, 6.0);
+        };
+        paint_until_made(&runtime, &ctx, &[scaled_uri(first, 64)], |ui| {
+            cover(ui, first)
+        });
+        let made = scaled_uri(next, 64);
+        let mut stood_in = false;
+        runtime.block_on(async {
+            tokio::time::timeout(Duration::from_secs(10), async {
+                while texture_named(&ctx, &made).is_none() {
+                    let mut held = false;
+                    let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                        held = playing_cover_stands_in(ui, &loader, "big", Some(next));
+                        cover(ui, next);
+                        settle_playing_cover(ui, &loader, Some(next), held);
+                    });
+                    output.textures_delta.clear();
+                    stood_in |= held;
+                    let painted = painted_textures(&output.shapes);
+                    let new = texture_named(&ctx, &made);
+                    assert!(
+                        !held || new.is_none_or(|new| !painted.contains(&new)),
+                        "in the last one's place"
+                    );
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+            })
+            .await
+            .expect("the copy is made");
+        });
+        assert!(stood_in, "the last song's cover stood in");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     fn png(rgb: [u8; 3]) -> Bytes {
         let mut encoded = std::io::Cursor::new(Vec::new());
         image::RgbImage::from_pixel(64, 64, image::Rgb(rgb))

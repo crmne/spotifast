@@ -2993,7 +2993,7 @@ mod tests {
 
     #[test]
     fn translated_lyrics_controls_keep_follow_retry_and_fullscreen_actions() {
-        use crate::i18n::{Locale, gettext, pgettext};
+        use crate::i18n::{Locale, gettext};
         use clap::ValueEnum;
         use egui::accesskit::{Action as AccessibleAction, Role};
 
@@ -3006,8 +3006,7 @@ mod tests {
             app.lyrics_following = false;
             accessible_frame(&ctx, &mut app, vec![]);
             let tree = accessible_frame(&ctx, &mut app, vec![]);
-            let follow =
-                accessible_node(&tree, &pgettext(locale, "lyrics", "Follow"), Role::Button);
+            let follow = accessible_node(&tree, &gettext(locale, "Sync lyrics"), Role::Button);
             accessible_frame(
                 &ctx,
                 &mut app,
@@ -3025,8 +3024,7 @@ mod tests {
             assert!(app.lyrics_fullscreen.is_some());
             app.lyrics_following = false;
             let tree = accessible_frame(&ctx, &mut app, vec![]);
-            let follow =
-                accessible_node(&tree, &pgettext(locale, "lyrics", "Follow"), Role::Button);
+            let follow = accessible_node(&tree, &gettext(locale, "Sync lyrics"), Role::Button);
             accessible_frame(
                 &ctx,
                 &mut app,
@@ -3069,6 +3067,43 @@ mod tests {
             assert!(!app.show_lyrics_panel);
             app.backend.shutdown();
         }
+    }
+
+    /// Sync lyrics returns to the playing line, so only timed lyrics have it,
+    /// in the side panel and in full screen.
+    #[test]
+    fn sync_lyrics_shows_only_for_timed_lyrics() {
+        use egui::accesskit::Role;
+        let (ctx, mut app) = accessible_app("sync-lyrics-timed-only");
+        app.show_lyrics_panel = true;
+        app.lyrics_uri = app.now_playing().map(|now| now.uri);
+        let has_sync = |tree: &egui::accesskit::TreeUpdate| {
+            tree.nodes
+                .iter()
+                .any(|(_, node)| node.label() == Some("Sync lyrics") && node.role() == Role::Button)
+        };
+        for fullscreen in [false, true] {
+            app.lyrics_fullscreen = fullscreen.then_some(false);
+            for synced in [true, false] {
+                let mut lyrics = sample_lyrics();
+                lyrics.synced = synced;
+                if !synced {
+                    for line in &mut lyrics.lines {
+                        line.at_ms = None;
+                    }
+                }
+                app.lyrics = Loadable::Loaded(Some(lyrics));
+                app.lyrics_following = false;
+                accessible_frame(&ctx, &mut app, vec![]);
+                let tree = accessible_frame(&ctx, &mut app, vec![]);
+                assert_eq!(
+                    has_sync(&tree),
+                    synced,
+                    "synced={synced}, fullscreen={fullscreen}"
+                );
+            }
+        }
+        app.backend.shutdown();
     }
 
     #[test]
@@ -3122,7 +3157,7 @@ mod tests {
                     let painted = view_frame(&ctx, &mut app, vec![], view);
                     for message in messages {
                         assert!(
-                            painted.iter().any(|(text, _)| text == &message),
+                            painted.iter().any(|(text, _)| one_line(text) == message),
                             "{locale:?}: missing {message}"
                         );
                     }
@@ -5179,6 +5214,11 @@ mod tests {
         frame_events(ctx, app, Vec::new());
     }
 
+    /// A lyric line drawn on its rows, read back as the one line it is.
+    fn one_line(text: &str) -> String {
+        text.replace('\n', " ")
+    }
+
     /// Where a line of lyrics was drawn, in a frame of full screen lyrics.
     fn lyric_at(ctx: &egui::Context, app: &mut App, line: &str) -> egui::Pos2 {
         let input = egui::RawInput {
@@ -5194,7 +5234,7 @@ mod tests {
             .shapes
             .iter()
             .find_map(|shape| match &shape.shape {
-                egui::Shape::Text(text) if text.galley.job.text == line => {
+                egui::Shape::Text(text) if one_line(&text.galley.job.text) == line => {
                     Some(text.pos + text.galley.size() / 2.0)
                 }
                 _ => None,
@@ -5261,11 +5301,11 @@ mod tests {
         (ctx, app)
     }
 
-    /// The cover opens MilkDrop alone; any click brings back just what was
-    /// there; the controls come with the mouse and go again.
+    /// The immersive view hides the lyrics, shows controls on movement,
+    /// and restores the original backdrop on exit.
     #[cfg(feature = "milkdrop")]
     #[test]
-    fn the_cover_opens_milkdrop_alone_and_any_click_comes_back() {
+    fn immersive_milkdrop_restores_the_previous_backdrop() {
         use egui::PointerButton::Primary;
         const LINE: &str = "Streetlights blinking down the river road";
         const BAR: &str = "1:23";
@@ -5277,9 +5317,13 @@ mod tests {
             timed_output(ctx, app, t, events)
         };
         let (text, _) = step(&ctx, &mut app, vec![egui::Event::PointerMoved(cover)]);
-        assert!(text.iter().any(|text| text == LINE), "lyrics to begin with");
+        assert!(
+            text.iter().any(|text| one_line(text) == LINE),
+            "lyrics to begin with"
+        );
         step(&ctx, &mut app, Vec::new());
-        step(&ctx, &mut app, pointer_click(cover, Primary));
+        app.actions.push(Action::EnterImmersive);
+        step(&ctx, &mut app, Vec::new());
         assert!(
             !app.settings.lyrics_milkdrop,
             "the backdrop's memory is safe"
@@ -5309,13 +5353,14 @@ mod tests {
         assert!(!app.immersive());
         assert!(!app.milkdrop_behind_lyrics(), "off as it was, not toggled");
         let text = timed(&ctx, &mut app, 41.2, Vec::new());
-        assert!(text.iter().any(|text| text == LINE));
+        assert!(text.iter().any(|text| one_line(text) == LINE));
 
         // With the backdrop on, it stays on.
         app.actions.push(Action::ToggleLyricsMilkdrop);
         timed(&ctx, &mut app, 45.0, vec![egui::Event::PointerMoved(cover)]);
         timed(&ctx, &mut app, 45.1, Vec::new());
-        timed(&ctx, &mut app, 45.2, pointer_click(cover, Primary));
+        app.actions.push(Action::EnterImmersive);
+        timed(&ctx, &mut app, 45.2, Vec::new());
         timed(&ctx, &mut app, 45.3, Vec::new());
         timed(&ctx, &mut app, 45.4, Vec::new());
         assert!(app.immersive());
@@ -5328,7 +5373,8 @@ mod tests {
         // Esc leaves full screen as ever, and the backdrop as it was.
         timed(&ctx, &mut app, 49.8, vec![egui::Event::PointerMoved(cover)]);
         timed(&ctx, &mut app, 49.9, Vec::new());
-        timed(&ctx, &mut app, 50.0, pointer_click(cover, Primary));
+        app.actions.push(Action::EnterImmersive);
+        timed(&ctx, &mut app, 50.0, Vec::new());
         timed(&ctx, &mut app, 50.1, Vec::new());
         timed(&ctx, &mut app, 50.2, Vec::new());
         assert!(app.immersive());
@@ -5350,7 +5396,8 @@ mod tests {
         // V stays a choice of its own: MilkDrop off, and remembered.
         timed(&ctx, &mut app, 54.8, vec![egui::Event::PointerMoved(cover)]);
         timed(&ctx, &mut app, 54.9, Vec::new());
-        timed(&ctx, &mut app, 55.0, pointer_click(cover, Primary));
+        app.actions.push(Action::EnterImmersive);
+        timed(&ctx, &mut app, 55.0, Vec::new());
         timed(&ctx, &mut app, 55.1, Vec::new());
         timed(&ctx, &mut app, 55.2, Vec::new());
         assert!(app.immersive());
@@ -5369,10 +5416,114 @@ mod tests {
         app.backend.shutdown();
     }
 
-    /// With no MilkDrop, or no art to click, nothing changes.
+    /// The top bar's Show MilkDrop is drawn only in the window, so it opens
+    /// full screen lyrics on the way to MilkDrop.
     #[cfg(feature = "milkdrop")]
     #[test]
-    fn the_cover_changes_nothing_without_milkdrop_or_art() {
+    fn show_milkdrop_from_the_window_opens_full_screen() {
+        let (ctx, mut app) = immersive_app("immersive-window");
+        app.lyrics_fullscreen = None;
+        app.actions.push(crate::model::Action::EnterImmersive);
+        timed(&ctx, &mut app, 10.0, Vec::new());
+        assert!(app.lyrics_fullscreen.is_some());
+        // Full screen lyrics draw MilkDrop, and its first frame takes over.
+        for t in [10.1, 10.2] {
+            timed(&ctx, &mut app, t, Vec::new());
+        }
+        assert!(app.immersive());
+        app.backend.shutdown();
+    }
+
+    /// Show MilkDrop from the window with no MilkDrop to be had goes back
+    /// to the window and the side panel it had, as if it was never clicked.
+    #[cfg(feature = "milkdrop")]
+    #[test]
+    fn show_milkdrop_without_milkdrop_stays_in_the_window() {
+        use crate::milkdrop::pane::Picture;
+        for (lyrics, friends) in [(true, false), (false, false), (false, true)] {
+            let name = format!("immersive-window-none-{lyrics}-{friends}");
+            let (ctx, mut app) = immersive_app(&name);
+            app.answer_milkdrop(Picture::None);
+            app.lyrics_fullscreen = None;
+            app.show_lyrics_panel = lyrics;
+            app.show_friends_panel = friends;
+            app.actions.push(crate::model::Action::EnterImmersive);
+            timed(&ctx, &mut app, 10.0, Vec::new());
+            assert!(app.lyrics_fullscreen.is_some(), "on the way to MilkDrop");
+            for t in [10.1, 10.2] {
+                timed(&ctx, &mut app, t, Vec::new());
+            }
+            assert!(app.lyrics_fullscreen.is_none());
+            assert!(!app.immersive());
+            assert_eq!(
+                (app.show_lyrics_panel, app.show_friends_panel),
+                (lyrics, friends),
+                "the panels it left"
+            );
+            app.backend.shutdown();
+        }
+    }
+
+    /// A line that starts under a scroll that moves nothing, at the top of
+    /// the lyrics, is still scrolled to once the wheel is quiet.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn a_still_scroll_leaves_a_new_line_to_follow() {
+        const FIRST: &str = "Streetlights blinking down the river road";
+        for fullscreen in [None, Some(false)] {
+            let name = format!("still-scroll-{}", fullscreen.is_some());
+            let (ctx, mut app) = accessible_app(&name);
+            app.backend.set_offline(true);
+            play_here(&mut app);
+            app.local.playback = crate::player::Playback::Paused;
+            app.local.position_ms = 0;
+            app.show_lyrics_panel = true;
+            app.lyrics_fullscreen = fullscreen;
+            app.lyrics_uri = app.now_playing().map(|now| now.uri);
+            app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
+            app.lyrics_following = true;
+            app.lyrics_line_shown = None;
+            let at = lyric_at(&ctx, &mut app, FIRST);
+            assert_eq!(app.lyrics_line_shown, Some(None), "{fullscreen:?}");
+            // The first line starts in the frame the wheel turns up.
+            app.local.position_ms = 40_000;
+            frame_events(
+                &ctx,
+                &mut app,
+                vec![
+                    egui::Event::PointerMoved(at),
+                    egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Point,
+                        delta: egui::vec2(0.0, 50.0),
+                        modifiers: egui::Modifiers::NONE,
+                        phase: egui::TouchPhase::Move,
+                    },
+                ],
+            );
+            assert_ne!(
+                app.lyrics_line_shown,
+                Some(Some(0)),
+                "{fullscreen:?}: the scroll frame does not count the line as shown"
+            );
+            for _ in 0..120 {
+                frame(&ctx, &mut app);
+                if app.lyrics_line_shown == Some(Some(0)) {
+                    break;
+                }
+            }
+            assert_eq!(app.lyrics_line_shown, Some(Some(0)), "{fullscreen:?}");
+            assert!(
+                app.lyrics_following,
+                "{fullscreen:?}: nothing moved by hand"
+            );
+            app.backend.shutdown();
+        }
+    }
+
+    /// Artwork clicks leave the backdrop alone, including when MilkDrop is ready.
+    #[cfg(feature = "milkdrop")]
+    #[test]
+    fn clicking_the_lyrics_cover_leaves_the_backdrop_alone() {
         use crate::milkdrop::pane::Picture;
         use egui::PointerButton::Primary;
         let (ctx, mut app) = immersive_app("immersive-none");
@@ -5387,12 +5538,8 @@ mod tests {
         assert!(!app.immersive());
         assert!(!app.milkdrop_behind_lyrics(), "and the backdrop as it was");
 
-        let (ctx, mut app) = immersive_app("immersive-no-art");
-        if let Some(remote) = &mut app.remote
-            && let Some(PlayableItem::Track(track)) = &mut remote.state.item
-        {
-            track.album = None;
-        }
+        app.backend.shutdown();
+        let (ctx, mut app) = immersive_app("immersive-with-art");
         timed(&ctx, &mut app, 10.0, vec![egui::Event::PointerMoved(cover)]);
         timed(&ctx, &mut app, 10.1, Vec::new());
         timed(&ctx, &mut app, 10.2, pointer_click(cover, Primary));
@@ -5402,11 +5549,11 @@ mod tests {
         app.backend.shutdown();
     }
 
-    /// A click on nothing in full screen lyrics is the backdrop's switch, and
-    /// nothing else that happens there touches it.
+    /// The header button switches the backdrop. Clicking the lyrics or
+    /// empty space leaves it alone.
     #[cfg(feature = "milkdrop")]
     #[test]
-    fn only_a_click_on_nothing_switches_the_lyrics_backdrop() {
+    fn the_lyrics_header_button_switches_the_backdrop() {
         use egui::PointerButton::Primary;
         let (ctx, mut app) = accessible_app("lyrics-backdrop-click");
         app.backend.set_offline(true);
@@ -5436,14 +5583,33 @@ mod tests {
             let mut output = ctx.run_ui(input, |ui| app.frame_ui(ui));
             output.textures_delta.clear();
         };
+        let toggle_backdrop = |ctx: &egui::Context, app: &mut App| {
+            let tree = accessible_frame(ctx, app, vec![]);
+            let button = accessible_node(
+                &tree,
+                "Toggle MilkDrop background (V)",
+                egui::accesskit::Role::Button,
+            );
+            accessible_frame(
+                ctx,
+                app,
+                vec![accessible_action(
+                    button,
+                    egui::accesskit::Action::Click,
+                    None,
+                )],
+            );
+        };
+        toggle_backdrop(&ctx, &mut app);
+        assert!(app.milkdrop_behind_lyrics());
+        assert!(app.settings.lyrics_milkdrop);
+        assert!(!app.immersive());
+        toggle_backdrop(&ctx, &mut app);
+        assert!(!app.milkdrop_behind_lyrics());
+
         run(&ctx, &mut app, vec![egui::Event::PointerMoved(empty)]);
         run(&ctx, &mut app, pointer_click(empty, Primary));
-        assert!(app.milkdrop_behind_lyrics(), "a click turns it on");
-        assert!(app.settings.lyrics_milkdrop, "remembered as V is");
-        run(&ctx, &mut app, Vec::new());
-        run(&ctx, &mut app, pointer_click(empty, Primary));
-        assert!(!app.milkdrop_behind_lyrics(), "and off");
-        run(&ctx, &mut app, Vec::new());
+        assert!(!app.milkdrop_behind_lyrics());
 
         // A drag is no click.
         let press = |pos, pressed| egui::Event::PointerButton {
@@ -5474,12 +5640,11 @@ mod tests {
         run(&ctx, &mut app, pointer_click(line, Primary));
         assert!(!app.milkdrop_behind_lyrics(), "an untimed line");
 
-        // A double click is two clicks, back where it started, and leaves
-        // nothing: full screen has no double click of its own.
+        // A double click in empty space leaves both modes as they are.
         run(&ctx, &mut app, vec![egui::Event::PointerMoved(empty)]);
         frame_clicks_close_together(&ctx, &mut app, empty);
         assert!(app.lyrics_fullscreen.is_some());
-        assert!(!app.milkdrop_behind_lyrics(), "off, on, off");
+        assert!(!app.milkdrop_behind_lyrics());
 
         // The bar's button is a control: it leaves and comes back, and the
         // backdrop stays out of it.
@@ -8991,11 +9156,10 @@ mod tests {
             app.show_queue_panel = queue;
             app.show_lyrics_panel = lyrics;
             let placed = drawn(&mut app);
+            // The lyrics header holds only its title; Sync lyrics sits
+            // below the words.
             if queue {
                 assert_same_row(&placed, "Queue", "Recent");
-            }
-            if lyrics {
-                assert_same_row(&placed, "Lyrics", "Follow");
             }
         }
         app.backend.shutdown();
@@ -9335,7 +9499,7 @@ mod tests {
                         .iter()
                         .find_map(|shape| {
                             if let egui::Shape::Text(text) = &shape.shape
-                                && text.galley.job.text
+                                && one_line(&text.galley.job.text)
                                     == "Streetlights blinking down the river road"
                             {
                                 sung = text.galley.job.sections.first().map(|s| s.format.color);
@@ -10170,8 +10334,12 @@ mod tests {
         app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
         app.show_lyrics_panel = true;
         frame(&ctx, &mut app);
+        let palette = app.palette;
         app.lyrics_fullscreen = Some(false);
         frame(&ctx, &mut app);
+        // The queue beside full screen lyrics borrows dark colours only
+        // while it draws.
+        assert_eq!(app.palette, palette);
         app.lyrics_fullscreen = None;
         app.show_lyrics_panel = false;
         for dialog in [

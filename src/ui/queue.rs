@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use egui::{Align, Frame, Layout, Margin, Rect, UiBuilder};
+use egui::{Align, Color32, Frame, Layout, Margin, Rect, UiBuilder};
 
 use crate::api::models::PlayableItem;
 use crate::app::App;
@@ -161,16 +161,55 @@ pub(crate) fn fullscreen_column_drag_width(saved: f32, delta_x: f32) -> f32 {
 }
 
 /// The queue as the right column of lyrics fullscreen: the same rows as
-/// the side panel, without the resizable panel chrome. The caller provides
-/// the rect; everything here draws inside it.
-pub fn fullscreen_column(app: &mut App, ui: &mut egui::Ui) {
+/// the side panel, on a pane of tinted glass over the backdrop instead of
+/// the panel's chrome. The caller provides the rect; everything here draws
+/// inside it. Its scroll bar shows with the player bar (`controls`), as the
+/// words' bar does.
+pub fn fullscreen_column(app: &mut App, ui: &mut egui::Ui, controls: f32) {
+    // Full screen lyrics are dark in every theme, and so is the queue
+    // beside them, whatever the window's own theme. The palette is only the
+    // colours views draw with, and the rows read it from `app`, so the
+    // column lends them dark ones while it draws and gives the window's
+    // back before anything else draws or any action applies.
+    let own = app.palette;
+    app.palette = over_lyrics(&own);
+    column(app, ui, controls);
+    app.palette = own;
+}
+
+/// The colours of the queue over full screen lyrics: the dark theme's,
+/// with see-through surfaces so the backdrop shows through the chips and
+/// rows, and the app's own accent, as the words light up in.
+fn over_lyrics(own: &theme::Palette) -> theme::Palette {
+    theme::Palette {
+        surface: Color32::from_white_alpha(18),
+        surface_hover: Color32::from_white_alpha(32),
+        surface_active: Color32::from_white_alpha(40),
+        outline: Color32::from_white_alpha(20),
+        accent: own.accent,
+        accent_hover: own.accent_hover,
+        on_accent: own.on_accent,
+        ..theme::Palette::dark()
+    }
+}
+
+fn column(app: &mut App, ui: &mut egui::Ui, controls: f32) {
     let palette = app.palette;
+    let card = ui.max_rect();
+    ui.painter()
+        .rect_filled(card, 14.0, Color32::from_black_alpha(72));
+    ui.painter().rect_stroke(
+        card,
+        14.0,
+        egui::Stroke::new(1.0, Color32::from_white_alpha(16)),
+        egui::StrokeKind::Inside,
+    );
     // Drag strip on the column's left edge: same persisted width the side
     // panel uses, so both follow each resize. Explicit id, stable across
     // frames for the whole drag gesture.
     let strip = egui::Rect::from_min_size(
-        egui::pos2(ui.max_rect().left() - 4.0, ui.max_rect().top()),
-        egui::vec2(8.0, ui.max_rect().height()),
+        egui::pos2(card.left() - 4.0, card.top()),
+        egui::vec2(8.0, card.height()),
     );
     let grip = ui.interact(
         strip,
@@ -180,11 +219,12 @@ pub fn fullscreen_column(app: &mut App, ui: &mut egui::Ui) {
     if grip.hovered() || grip.dragged() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeColumn);
     }
-    // Gutter between the divider and the content, mirroring the side
-    // panel's frame margin, so headings never touch the edge.
+    // The pane's padding, as the side panel's frame margin, so headings
+    // never touch its edge. The scroll bar keeps clear of the rounded
+    // corners on the right.
     let mut inner = ui.new_child(UiBuilder::new().max_rect(Rect::from_min_max(
-        egui::pos2(ui.max_rect().left() + 12.0, ui.max_rect().top()),
-        ui.max_rect().max,
+        egui::pos2(card.left() + 12.0, card.top() + 12.0),
+        egui::pos2(card.right() - 6.0, card.bottom() - 10.0),
     )));
     let ui = &mut inner;
     // The handle stays invisible until hovered, then fades a slim edge in:
@@ -253,7 +293,6 @@ pub fn fullscreen_column(app: &mut App, ui: &mut egui::Ui) {
     if save {
         app.actions.push(Action::SaveQueueAsPlaylist);
     }
-    ui.add_space(8.0);
     // Lazy load recents when tab becomes visible.
     if app.queue_tab == QueueTab::Recents
         && !app.recents.loading
@@ -263,25 +302,44 @@ pub fn fullscreen_column(app: &mut App, ui: &mut egui::Ui) {
     {
         app.actions.push(Action::LoadMoreRecents);
     }
-    crate::autoscroll::show(
-        ui,
-        egui::ScrollArea::vertical()
-            .id_salt("queue-fullscreen-scroll")
-            .auto_shrink([false, false])
-            // Keep rows and headings clear of the scroll bar.
-            .content_margin(egui::Margin {
-                left: 0,
-                right: 12,
-                top: 0,
-                bottom: 0,
-            }),
-        egui::Vec2b::new(false, true),
-        |ui| match app.queue_tab {
-            QueueTab::Queue => contents(app, ui, true),
-            QueueTab::Recents => recents_contents(app, ui),
-        },
-    );
+    let scroll = &mut ui.spacing_mut().scroll;
+    // egui shades a scrolled list's edges in the panel's plain colour, a
+    // square band over the glass; the rows fade on their own instead.
+    scroll.fade.strength = 0.0;
+    scroll.dormant_handle_opacity = scroll.active_handle_opacity * controls;
+    scroll.active_handle_opacity *= controls;
+    scroll.interact_handle_opacity *= controls;
+    // The rows fade into the list's edges, a row the edge cuts showing
+    // faint, so the list belongs to the pane rather than sitting in a box of
+    // its own. At rest its margin keeps the first row whole.
+    widgets::fade_list_edges(ui, f32::from(LIST_EDGE), |ui| {
+        crate::autoscroll::show(
+            ui,
+            egui::ScrollArea::vertical()
+                .id_salt("queue-fullscreen-scroll")
+                .auto_shrink([false, false])
+                // Keep rows and headings clear of the scroll bar.
+                .content_margin(egui::Margin {
+                    left: 0,
+                    right: 12,
+                    top: LIST_EDGE,
+                    bottom: LIST_EDGE,
+                }),
+            egui::Vec2b::new(false, true),
+            |ui| match app.queue_tab {
+                QueueTab::Queue => contents(app, ui, true),
+                QueueTab::Recents => recents_contents(app, ui),
+            },
+        );
+    });
 }
+
+/// How far before its list's top and bottom the full screen column's rows
+/// start to fade, and the margin that keeps the first one whole at rest.
+const LIST_EDGE: i8 = 12;
+
+/// The height a section heading in the queue fades by near a list's edge.
+const HEADING_HEIGHT: f32 = 24.0;
 
 /// Saves the current and upcoming queue as a playlist.
 fn save_button(
@@ -380,61 +438,68 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
             .get()
             .and_then(|queue| queue.currently_playing.clone()),
     };
+    let row_height = if compact {
+        theme::COMPACT_ROW_HEIGHT
+    } else {
+        theme::ROW_HEIGHT
+    };
     // Where the songs come from, above the song itself. A radio has no
     // page, so its name is plain text.
     if let Some(from) = app.playing_from().filter(|_| current.is_some()) {
-        ui.horizontal(|ui| {
-            theme::text(
-                ui,
-                gettext(app.locale, "Playing from"),
-                theme::regular(13.0),
-                palette.secondary,
-            );
-            match from.page {
-                Some(page) => {
-                    if theme::link(ui, from.name, theme::semibold(13.0), palette.text).clicked() {
-                        app.actions.push(Action::Open(page));
+        widgets::edge_faded(ui, HEADING_HEIGHT, |ui| {
+            ui.horizontal(|ui| {
+                theme::text(
+                    ui,
+                    gettext(app.locale, "Playing from"),
+                    theme::regular(13.0),
+                    palette.secondary,
+                );
+                match from.page {
+                    Some(page) => {
+                        if theme::link(ui, from.name, theme::semibold(13.0), palette.text).clicked()
+                        {
+                            app.actions.push(Action::Open(page));
+                        }
+                    }
+                    None => {
+                        theme::text(ui, from.name, theme::semibold(13.0), palette.text);
                     }
                 }
-                None => {
-                    theme::text(ui, from.name, theme::semibold(13.0), palette.text);
-                }
-            }
+            });
         });
         ui.add_space(10.0);
     }
     if let Some(current) = current.as_ref() {
-        theme::text(
-            ui,
-            gettext(app.locale, "Now playing"),
-            theme::semibold(14.0),
-            palette.text,
-        );
+        widgets::edge_faded(ui, HEADING_HEIGHT, |ui| {
+            theme::text(
+                ui,
+                gettext(app.locale, "Now playing"),
+                theme::semibold(14.0),
+                palette.text,
+            );
+        });
         ui.add_space(4.0);
         let context = RowContext::Uris(Arc::from([current.uri().to_string()]));
-        widgets::track_row(
-            ui,
-            app,
-            TrackRow {
-                index: 0,
-                number: Some(1),
-                item: current,
-                context: &context,
-                show_cover: true,
-                show_album: !compact,
-                added_at: None,
-                added_by: None,
-                show_added_by: false,
-                show_plays: false,
-                compact,
-                thin: false,
-                shift: 0.0,
-                picked: false,
-                picked_songs: &[],
-                picked_positions: &[],
-                position: None,
-            },
-        );
+        let row = TrackRow {
+            index: 0,
+            number: Some(1),
+            item: current,
+            context: &context,
+            show_cover: true,
+            show_album: !compact,
+            added_at: None,
+            added_by: None,
+            show_added_by: false,
+            show_plays: false,
+            compact,
+            thin: false,
+            shift: 0.0,
+            picked: false,
+            picked_songs: &[],
+            picked_positions: &[],
+            position: None,
+        };
+        widgets::edge_faded(ui, row_height, |ui| widgets::track_row(ui, app, row));
         ui.add_space(SECTION_GAP);
     }
     if queue_is_empty(app) {
@@ -455,11 +520,6 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
         );
         return;
     }
-    let row_height = if compact {
-        theme::COMPACT_ROW_HEIGHT
-    } else {
-        theme::ROW_HEIGHT
-    };
     let queue_len = app.queue.get().map(|queue| queue.queue.len()).unwrap_or(0);
     // The user's own songs get their own section on top; the playing
     // context's rows follow under the usual heading. One numbering runs
@@ -468,19 +528,21 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
     if queued_len > 0 {
         // The trash sits with the songs it removes: only this section is
         // the user's to clear, the context below plays itself.
-        ui.horizontal(|ui| {
-            theme::text(
-                ui,
-                gettext(
-                    app.locale,
-                    // Translators: Songs added manually, before the current playlist or album continues.
-                    "Playing next",
-                ),
-                theme::semibold(14.0),
-                palette.text,
-            );
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                clear_button(app, ui);
+        widgets::edge_faded(ui, HEADING_HEIGHT, |ui| {
+            ui.horizontal(|ui| {
+                theme::text(
+                    ui,
+                    gettext(
+                        app.locale,
+                        // Translators: Songs added manually, before the current playlist or album continues.
+                        "Playing next",
+                    ),
+                    theme::semibold(14.0),
+                    palette.text,
+                );
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    clear_button(app, ui);
+                });
             });
         });
         ui.add_space(4.0);
@@ -576,16 +638,18 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
     // row on it belongs to Next up, which plays from the context and is never
     // rewritten. The player bar's Queue button still takes the drop.
     if queue_len > queued_len {
-        theme::text(
-            ui,
-            gettext(
-                app.locale,
-                // Translators: Upcoming songs from the current playlist or album, after manually queued songs.
-                "Next up",
-            ),
-            theme::semibold(14.0),
-            palette.text,
-        );
+        widgets::edge_faded(ui, HEADING_HEIGHT, |ui| {
+            theme::text(
+                ui,
+                gettext(
+                    app.locale,
+                    // Translators: Upcoming songs from the current playlist or album, after manually queued songs.
+                    "Next up",
+                ),
+                theme::semibold(14.0),
+                palette.text,
+            );
+        });
         ui.add_space(4.0);
         widgets::virtual_rows(ui, queue_len - queued_len, row_height, |ui, index| {
             queue_row(app, ui, queued_len + index, compact, 0.0);
@@ -761,4 +825,22 @@ fn queue_row(app: &mut App, ui: &mut egui::Ui, index: usize, compact: bool, shif
             position: None,
         },
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::over_lyrics;
+    use crate::theme::Palette;
+
+    /// Beside full screen lyrics, which are dark in every theme, the queue
+    /// reads light on dark in the light theme too, in the app's accent.
+    #[test]
+    fn the_queue_over_lyrics_is_dark_in_the_light_theme() {
+        let light = Palette::light();
+        let over = over_lyrics(&light);
+        assert!(over.dark);
+        assert_eq!(over.text, Palette::dark().text);
+        assert_eq!(over.accent, light.accent);
+        assert!(over.surface.a() < 255, "the backdrop shows through");
+    }
 }

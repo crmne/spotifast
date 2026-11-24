@@ -4123,6 +4123,18 @@ msgstr ""
 "有提供。请安装显卡驱动程序，或为虚拟机开启 GPU 加速。要打开 {url} 了解更多"
 "吗？"
 
+#: src/ui/lyrics.rs:991
+msgid "Sync lyrics"
+msgstr "同步歌词"
+
+#: src/ui/lyrics.rs:970
+msgid "Toggle MilkDrop background (V)"
+msgstr "切换 MilkDrop 背景 (V)"
+
+#: src/ui/topbar.rs:589
+msgid "Show MilkDrop only"
+msgstr "仅显示 MilkDrop"
+
 #~ msgid "Otherwise it installs the next time Spotifast starts."
 #~ msgstr "否则会在下次启动 Spotifast 时安装。"
 
