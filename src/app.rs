@@ -8548,11 +8548,16 @@ impl App {
                     Err(_) if warm && !self.show_devices => {
                         self.devices_warmed_at = None;
                     }
-                    Err(error) => self.toast_error(
-                        // Translators: {error} is an error message.
-                        gettext(self.locale, "Couldn't list devices: {error}")
-                            .replace("{error}", &error.to_string()),
-                    ),
+                    // A failed read is not a fresh list, so the next opening
+                    // asks again.
+                    Err(error) => {
+                        self.devices_warmed_at = None;
+                        self.toast_error(
+                            // Translators: {error} is an error message.
+                            gettext(self.locale, "Couldn't list devices: {error}")
+                                .replace("{error}", &error.to_string()),
+                        );
+                    }
                 }
             }
             ApiResponse::PlaybackState { seq, result } => {
@@ -27683,6 +27688,7 @@ mod tests {
         assert!(app.show_devices);
         app.handle_api(ApiResponse::Devices(Err(crate::api::ApiError::RateLimited)));
         assert_eq!(app.toasts.len(), toasts + 1, "the open picker reports it");
+        assert_eq!(app.devices_warmed_at, None, "the next opening asks again");
     }
 
     /// Opening an album whose preload still waits asks in the foreground, and
