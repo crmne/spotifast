@@ -11206,7 +11206,20 @@ mod tests {
             ((artist.x0 + artist.x1) / 2.0) as f32,
             ((artist.y0 + artist.y1) / 2.0) as f32,
         );
-        let context_count = app.queue.get().unwrap().queue.len();
+        let order = |app: &crate::app::App| -> Vec<String> {
+            let queue = &app.queue.get().unwrap().queue;
+            queue.iter().map(|item| item.uri().to_string()).collect()
+        };
+        let mut expected = order(&app);
+        let otomo = app
+            .queue
+            .get()
+            .unwrap()
+            .queue
+            .iter()
+            .position(|item| item.name() == "Otomo")
+            .expect("Otomo is coming up");
+        expected.remove(otomo);
         accessible_frame(
             &ctx,
             &mut app,
@@ -11224,7 +11237,7 @@ mod tests {
             )],
         );
         assert_eq!(app.manual_queue, uris);
-        assert_eq!(app.queue.get().unwrap().queue.len(), context_count - 1);
+        assert_eq!(order(&app), expected, "only Otomo's row left");
 
         let tree = accessible_frame(&ctx, &mut app, vec![]);
         let queued = row_center(&tree, "Queued 1");

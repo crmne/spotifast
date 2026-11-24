@@ -705,6 +705,16 @@ fn rows_match(
         .filter(|row| !row.uid.is_empty())
         .map(|row| row.uid.as_str())
         .collect();
+    // Manual rows past the wanted ones were queued since. One that was
+    // already queued is a row the edit should have moved or removed.
+    let kept: std::collections::HashSet<_> = wanted.iter().map(|row| row.uid.as_str()).collect();
+    if actual[manual..actual_manual].iter().any(|row| {
+        !row.uid.is_empty()
+            && original_uids.contains(row.uid.as_str())
+            && !kept.contains(row.uid.as_str())
+    }) {
+        return false;
+    }
     wanted
         .iter()
         .zip(actual[..manual].iter().chain(&actual[actual_manual..]))
@@ -2899,6 +2909,33 @@ mod tests {
         assert!(edit.confirmed_state(&state, &confirmed));
         confirmed.next_tracks[0].uri = "unrelated".into();
         assert!(!edit.confirmed_state(&state, &confirmed));
+    }
+
+    #[test]
+    fn a_remove_is_not_confirmed_while_the_removed_row_stays_queued() {
+        let mut state = player_state(
+            provided("now", "n", "context"),
+            vec![provided("a", "qa", "queue"), provided("c", "cc", "context")],
+        );
+        state.queue_revision = "r0".into();
+        let edit = super::QueueEdit {
+            playing: "now".into(),
+            before: vec!["a".into()],
+            manual: 1,
+            operation: super::QueueEditOperation::Remove { indexes: vec![0] },
+        };
+        let mut appended = state.clone();
+        appended.queue_revision = "r1".into();
+        appended.next_tracks.insert(1, provided("d", "d", "queue"));
+        assert!(
+            !edit.confirmed_state(&state, &appended),
+            "the removed row is still there"
+        );
+        appended.next_tracks.remove(0);
+        assert!(
+            edit.confirmed_state(&state, &appended),
+            "a song queued since is not the removed row"
+        );
     }
 
     #[test]

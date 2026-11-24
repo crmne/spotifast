@@ -406,7 +406,9 @@ fn drop_on_queue(app: &mut App, ui: &egui::Ui, landing: Landing, slot: Option<Qu
     } else {
         landing
     };
-    if slot.is_none() && !matches!(landing, Landing::Refused(_)) {
+    // An append needs no row, so it also lands while the queue loads or
+    // after its read failed.
+    if slot.is_none() && !matches!(landing, Landing::Refused(_) | Landing::Append) {
         return;
     }
     let slot = slot.map_or(0, |slot| slot.index);
@@ -860,7 +862,7 @@ fn recents_contents(app: &mut App, ui: &mut egui::Ui) {
 /// queue, whichever section it sits in. `shift` parts rows around the slot
 /// a dragged row would land in, in the "Next in queue" section only.
 fn queue_row(app: &mut App, ui: &mut egui::Ui, index: usize, compact: bool, shift: f32) {
-    let Some(mut item) = app
+    let Some(item) = app
         .queue
         .get()
         .and_then(|queue| queue.queue.get(index))
@@ -868,12 +870,6 @@ fn queue_row(app: &mut App, ui: &mut egui::Ui, index: usize, compact: bool, shif
     else {
         return;
     };
-    if let PlayableItem::Track(track) = &mut item
-        && track.needs_queue_details()
-        && (track.name.is_empty() || track.name == track.uri)
-    {
-        track.name = gettext(app.locale, "Loading…").to_string();
-    }
     widgets::queue_track_row(
         ui,
         app,

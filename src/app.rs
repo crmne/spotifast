@@ -4875,6 +4875,23 @@ impl App {
                     );
                 }
             }
+            // Missing song names wait out a failed or partial details read,
+            // then ask again with no other answer to start them.
+            let details_due = self
+                .queue_details_paused_until
+                .into_iter()
+                .chain(self.queue_details_retry_at.values().copied())
+                .min();
+            if let Some(due) = details_due {
+                let now = Instant::now();
+                if now >= due {
+                    self.queue_details_paused_until =
+                        self.queue_details_paused_until.filter(|until| *until > now);
+                    self.request_queue_details();
+                } else {
+                    ctx.request_repaint_after(due - now);
+                }
+            }
             for (id, page) in &mut self.playlist_pages {
                 let Some(due) = page.snapshot_recheck_at else {
                     continue;
@@ -21697,6 +21714,60 @@ mod tests {
                 .map(|item| item.uri().to_string())
                 .collect(),
         )
+    }
+
+    /// A details read that failed asks again once its pause ends, though
+    /// no queue answer comes to start it.
+    #[test]
+    fn missing_song_names_ask_again_when_a_failed_read_has_waited() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.backend.set_offline(true);
+        app.auth = AuthStatus::Connected {
+            username: "alice".into(),
+        };
+        app.show_queue_panel = true;
+        let now = "spotify:track:playing";
+        let uris: Vec<_> = (0..3_u32)
+            .map(|id| format!("spotify:track:{id:022}"))
+            .collect();
+        app.local_ready = false;
+        app.remote = Some(RemoteSnapshot {
+            state: sonos_playing(now),
+            received_at: Instant::now(),
+        });
+        app.remote_queue = Some(crate::player::RemoteQueueView {
+            device: "queue-device".into(),
+            track: now.into(),
+            rows: uris
+                .iter()
+                .map(|uri| (uri.clone(), String::new()))
+                .collect(),
+            ..Default::default()
+        });
+        let detailed = |uri: &str| {
+            PlayableItem::Track(Track {
+                uri: uri.into(),
+                id: util::uri_id(uri).map(str::to_owned),
+                name: "Song title".into(),
+                duration_ms: 180_000,
+                ..Default::default()
+            })
+        };
+        app.handle_api(ApiResponse::Queue {
+            seq: app.queue_seq,
+            result: Ok(Queue {
+                currently_playing: Some(detailed(now)),
+                queue: vec![detailed(&uris[0])],
+            }),
+        });
+        assert_eq!(app.queue_details_pending, uris[1..]);
+        app.handle_api(ApiResponse::QueueDetails { items: None });
+        app.tick(&ctx);
+        assert!(app.queue_details_pending.is_empty(), "the read waits");
+        app.queue_details_paused_until = Some(Instant::now() - Duration::from_millis(1));
+        app.tick(&ctx);
+        assert_eq!(app.queue_details_pending, uris[1..], "and then asks again");
     }
 
     #[test]

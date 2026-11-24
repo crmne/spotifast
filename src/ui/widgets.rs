@@ -1774,6 +1774,19 @@ fn track_row_contents(
     let (rect, response) = ui.allocate_exact_size(vec2(width, row_height), Sense::click_and_drag());
     let rect = rect.translate(vec2(0.0, row.shift));
     let unavailable = !app.row_playable(row.item);
+    // A queue row whose details are still on the way says so. The song keeps
+    // its empty name, so the menu has no title to copy yet.
+    let item = row.item;
+    let loading;
+    let title: &str = if queue_menu
+        && item.needs_queue_details()
+        && (item.name().is_empty() || item.name() == item.uri())
+    {
+        loading = gettext(app.locale, "Loading…");
+        &loading
+    } else {
+        item.name()
+    };
     response.widget_info(|| {
         egui::WidgetInfo::selected(
             egui::WidgetType::Button,
@@ -1784,7 +1797,7 @@ fn track_row_contents(
                 // Translators: {title} is a song or episode name, {subtitle} its artists or podcast.
                 "Play {title}, {subtitle}",
             )
-            .replace("{title}", row.item.name())
+            .replace("{title}", title)
             .replace("{subtitle}", &row.item.subtitle()),
         )
     });
@@ -2000,12 +2013,7 @@ fn track_row_contents(
         );
         child.set_clip_rect(title_rect.intersect(ui.clip_rect()));
         child.spacing_mut().item_spacing = vec2(6.0, 0.0);
-        theme::text(
-            &mut child,
-            row.item.name(),
-            theme::medium(14.0),
-            title_color,
-        );
+        theme::text(&mut child, title, theme::medium(14.0), title_color);
         match row.item {
             PlayableItem::Track(track) => {
                 if track.explicit {
@@ -2096,7 +2104,7 @@ fn track_row_contents(
         child.add_space(vertical_pad);
         child.horizontal(|ui| {
             ui.set_max_width(title_rect.width());
-            theme::text(ui, row.item.name(), theme::medium(14.5), title_color);
+            theme::text(ui, title, theme::medium(14.5), title_color);
         });
         child.horizontal(|ui| {
             ui.set_max_width(title_rect.width());
@@ -2397,11 +2405,24 @@ fn track_row_contents(
     let mut menu = egui::Popup::context_menu(&response);
     // Artist and album links take the click from the row. In the queue
     // panel, a secondary click over those links still opens the song menu.
-    if queue_menu
-        && ui.is_enabled()
-        && ui.rect_contains_pointer(rect)
-        && ui.input(|input| input.pointer.button_clicked(egui::PointerButton::Secondary))
-    {
+    // The release that made the click names the row, wherever the pointer
+    // moved after it within the frame.
+    let clip = ui.clip_rect();
+    let secondary_release_here = ui.input(|input| {
+        input.pointer.button_clicked(egui::PointerButton::Secondary)
+            && input.events.iter().any(|event| {
+                matches!(
+                    event,
+                    egui::Event::PointerButton {
+                        pos,
+                        button: egui::PointerButton::Secondary,
+                        pressed: false,
+                        ..
+                    } if rect.contains(*pos) && clip.contains(*pos)
+                )
+            })
+    });
+    if queue_menu && ui.is_enabled() && secondary_release_here {
         menu = menu.open_memory(egui::SetOpenCommand::Bool(true));
     }
     menu.frame(menu_frame(&palette)).show(|ui| {
