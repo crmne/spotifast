@@ -76,6 +76,14 @@ pub fn window_order(should_show: bool, is_visible: bool) -> Option<WindowOrder> 
     }
 }
 
+/// Whether the overlay, meant to be hidden, must drop what it was in the
+/// middle of: once when this sync hides it, and on any frame that finds it
+/// hidden with something still under way, as when AppKit hid it mid-expand.
+/// A hidden overlay with nothing under way is left alone.
+pub fn should_reset_hidden(should_show: bool, order: Option<WindowOrder>, busy: bool) -> bool {
+    order == Some(WindowOrder::Hide) || (!should_show && busy)
+}
+
 /// Pure helper to determine whether entering the notch area should schedule an expansion timer.
 pub fn should_schedule_expand(
     enabled: bool,
@@ -439,6 +447,21 @@ mod tests {
         assert_eq!(window_order(false, true), Some(WindowOrder::Hide));
         assert_eq!(window_order(true, true), None);
         assert_eq!(window_order(false, false), None);
+    }
+
+    /// Hiding the overlay drops its state, and so does finding it hidden
+    /// by AppKit with a card still expanded, so a later show starts from a
+    /// collapsed card. A hidden, settled overlay costs nothing per frame.
+    #[test]
+    fn a_hidden_overlay_drops_what_it_was_doing() {
+        assert!(should_reset_hidden(false, Some(WindowOrder::Hide), false));
+        assert!(
+            should_reset_hidden(false, None, true),
+            "hidden by AppKit mid-expand"
+        );
+        assert!(!should_reset_hidden(false, None, false));
+        assert!(!should_reset_hidden(true, None, true), "shown and expanded");
+        assert!(!should_reset_hidden(true, Some(WindowOrder::Show), false));
     }
 
     #[test]

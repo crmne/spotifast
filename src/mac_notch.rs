@@ -1170,11 +1170,9 @@ fn perform_collapse_locked(ctrl: &mut NotchController) {
     }
 }
 
-/// Takes the overlay off screen and drops whatever it was in the middle of.
-/// Nothing can start while it is hidden (no hover reaches it, its timers are
-/// cancelled here), so this runs once, when it hides.
-fn hide_locked(ctrl: &mut NotchController) {
-    ctrl.window.orderOut(None);
+/// Drops whatever the hidden overlay was in the middle of: an expanded or
+/// collapsing card, hover timers, a track fade.
+fn reset_hidden_locked(ctrl: &mut NotchController) {
     ctrl.pending_expand_at = None;
     ctrl.pending_collapse_at = None;
     cancel_hover_timers();
@@ -1503,10 +1501,20 @@ pub fn sync_state(enabled: bool, is_background: bool, track: Option<&NotchTrackI
     let in_foreground = is_in_foreground(ctrl);
     let should_show =
         crate::notch::should_show_notch_window(enabled, in_foreground, track.is_some(), has_notch);
-    match crate::notch::window_order(should_show, ctrl.window.isVisible()) {
+    let order = crate::notch::window_order(should_show, ctrl.window.isVisible());
+    match order {
         None => {}
         Some(crate::notch::WindowOrder::Show) => ctrl.window.orderFrontRegardless(),
-        Some(crate::notch::WindowOrder::Hide) => hide_locked(ctrl),
+        Some(crate::notch::WindowOrder::Hide) => ctrl.window.orderOut(None),
+    }
+    let busy = crate::notch::is_controller_active(
+        ctrl.expanded,
+        ctrl.pending_expand_at.is_some(),
+        ctrl.pending_collapse_at.is_some(),
+        ctrl.collapsing_until.is_some(),
+    ) || ctrl.track_flash_until.is_some();
+    if crate::notch::should_reset_hidden(should_show, order, busy) {
+        reset_hidden_locked(ctrl);
     }
 
     if let Some(mtm) = MainThreadMarker::new() {
