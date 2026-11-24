@@ -556,6 +556,9 @@ pub struct App {
     devices_fetched_at: Option<Instant>,
     /// When resting on a device button last fetched the list.
     devices_warmed_at: Option<Instant>,
+    /// The device read on the way was started by a rest on a device button,
+    /// so nobody is waiting for it and its failure stays quiet.
+    devices_warm_pending: bool,
     pub selected_device: Option<String>,
     pub queue: Loadable<Queue>,
     queue_fetched_at: Option<Instant>,
@@ -1325,6 +1328,7 @@ impl App {
             output_devices: Loadable::NotLoaded,
             devices_fetched_at: None,
             devices_warmed_at: None,
+            devices_warm_pending: false,
             selected_device: None,
             queue: match &session.last_track {
                 Some(current) if !session.last_queue_rows.is_empty() => {
@@ -3852,6 +3856,7 @@ impl App {
         self.control_devices_stale = true;
         self.devices_fetched_at = None;
         self.devices_warmed_at = None;
+        self.devices_warm_pending = false;
         self.search.results = Loadable::NotLoaded;
         self.search.committed.clear();
         self.search.committed_run = None;
@@ -6648,8 +6653,15 @@ impl App {
                     );
                 }
                 let page = self.album_pages.entry(id.clone()).or_default();
-                if page.album.needs_load() && self.network_reachable {
+                // A read a rest on its card started may still wait behind
+                // other background reads, so the visit asks in the foreground.
+                let preload_waiting = self.album_preloading.as_ref() == Some(&id)
+                    && matches!(page.album, Loadable::Loading);
+                if (page.album.needs_load() || preload_waiting) && self.network_reachable {
                     page.album = Loadable::Loading;
+                    if preload_waiting {
+                        self.album_preloading = None;
+                    }
                     self.backend.api(ApiRequest::Album { id: id.clone() });
                 }
                 if self.network_reachable {
@@ -7478,6 +7490,10 @@ impl App {
             return;
         }
         self.devices_warmed_at = Some(Instant::now());
+        // A read already on the way keeps the listener it has.
+        if !self.devices_loading {
+            self.devices_warm_pending = true;
+        }
         self.refresh_devices();
         self.backend.send(Command::DiscoverReceivers);
     }
@@ -8473,6 +8489,7 @@ impl App {
                 }
             },
             ApiResponse::Devices(result) => {
+                let warm = std::mem::take(&mut self.devices_warm_pending);
                 self.devices_loading = false;
                 self.devices_fetched_at = Some(Instant::now());
                 match result {
@@ -8528,12 +8545,7 @@ impl App {
                     }
                     // A rest on the button asked, not the listener, so its
                     // failure stays quiet and the click asks again.
-                    Err(_)
-                        if !self.show_devices
-                            && self
-                                .devices_warmed_at
-                                .is_some_and(|at| at.elapsed() < DEVICES_WARM) =>
-                    {
+                    Err(_) if warm && !self.show_devices => {
                         self.devices_warmed_at = None;
                     }
                     Err(error) => self.toast_error(
@@ -9905,6 +9917,15 @@ impl App {
                     .album_pages
                     .get(&id)
                     .is_some_and(|page| page.prerelease.is_some())
+                {
+                    return;
+                }
+                // Only a page that needs its album asks for it, so an answer
+                // for a loaded page is the preload a visit overtook.
+                if self
+                    .album_pages
+                    .get(&id)
+                    .is_some_and(|page| matches!(page.album, Loadable::Loaded(_)))
                 {
                     return;
                 }
@@ -13776,6 +13797,10 @@ impl App {
             }
             Action::ToggleDevicesPopup => {
                 self.show_devices = !self.show_devices;
+                if self.show_devices {
+                    // The open picker waits for a read a rest started.
+                    self.devices_warm_pending = false;
+                }
                 // A rest on the button has just fetched the list and searched.
                 let warmed = self
                     .devices_warmed_at
@@ -27633,6 +27658,63 @@ mod tests {
         assert_eq!(app.toasts.len(), toasts, "a rest that fails says nothing");
         app.apply(Action::ToggleDevicesPopup, &ctx);
         assert!(app.devices_loading, "the click asks again");
+    }
+
+    /// A read a rest started stays quiet however long it waits, and once the
+    /// picker opens on it, its failure is the listener's to see.
+    #[test]
+    fn a_slow_rest_on_a_device_button_fails_quietly_until_the_picker_opens() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.auth = AuthStatus::Connected {
+            username: "alice".into(),
+        };
+        app.apply(Action::WarmDevices, &ctx);
+        assert!(app.devices_loading);
+        app.devices_warmed_at = Some(Instant::now() - DEVICES_WARM);
+        let toasts = app.toasts.len();
+        app.handle_api(ApiResponse::Devices(Err(crate::api::ApiError::RateLimited)));
+        assert_eq!(app.toasts.len(), toasts, "nobody opened the picker");
+
+        app.devices_fetched_at = None;
+        app.devices_warmed_at = None;
+        app.apply(Action::WarmDevices, &ctx);
+        app.apply(Action::ToggleDevicesPopup, &ctx);
+        assert!(app.show_devices);
+        app.handle_api(ApiResponse::Devices(Err(crate::api::ApiError::RateLimited)));
+        assert_eq!(app.toasts.len(), toasts + 1, "the open picker reports it");
+    }
+
+    /// Opening an album whose preload still waits asks in the foreground, and
+    /// the preload's later answer leaves the page as the visit loaded it.
+    #[test]
+    fn opening_an_album_while_its_preload_waits_asks_in_the_foreground() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.user = Some(crate::api::models::User::default());
+        app.apply(Action::PreloadAlbum("a1".into()), &ctx);
+        assert_eq!(app.album_preloading.as_deref(), Some("a1"));
+        app.ensure_loaded(Page::Album("a1".into()));
+        assert_eq!(app.album_preloading, None, "the visit took the read over");
+        let album = |name: &str| crate::api::models::Album {
+            id: "a1".into(),
+            uri: "spotify:album:a1".into(),
+            name: name.into(),
+            ..Default::default()
+        };
+        app.handle_api(ApiResponse::Album {
+            id: "a1".into(),
+            result: Ok(album("Visited")),
+        });
+        app.handle_api(ApiResponse::Album {
+            id: "a1".into(),
+            result: Ok(album("Preloaded")),
+        });
+        let Some(Loadable::Loaded(album)) = app.album_pages.get("a1").map(|page| &page.album)
+        else {
+            panic!("the album loaded")
+        };
+        assert_eq!(album.name, "Visited");
     }
 
     /// The next song's cover fetched ahead is the rendition the player bar
