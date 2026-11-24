@@ -97,6 +97,8 @@ const REMOTE_RECHECK: Duration = Duration::from_millis(1200);
 const REMOTE_PUSH_SPACING: Duration = Duration::from_secs(1);
 /// Delay before checking the queue after a local change.
 const QUEUE_RECHECK: Duration = Duration::from_millis(700);
+/// A queue on show fetched this recently is current enough to keep.
+const QUEUE_FRESH: Duration = Duration::from_secs(20);
 /// Delay before reading a playlist's metadata again while Spotify still
 /// reports the snapshot from before a write.
 const PLAYLIST_SNAPSHOT_RECHECK: Duration = Duration::from_secs(1);
@@ -4792,7 +4794,7 @@ impl App {
                 && !self.queue.is_loading()
                 && self
                     .queue_fetched_at
-                    .is_none_or(|at| at.elapsed() > Duration::from_secs(20))
+                    .is_none_or(|at| at.elapsed() > QUEUE_FRESH)
             {
                 self.refresh_queue(false);
             }
@@ -7480,6 +7482,21 @@ impl App {
         );
         self.album_preloading = Some(id.clone());
         self.backend.api(ApiRequest::AlbumPreload { id });
+    }
+
+    /// The queue panel shows a current queue, and its Recent tab loads now
+    /// rather than when it is chosen. Both are Web API reads.
+    fn open_queue_panel(&mut self) {
+        if self
+            .queue_fetched_at
+            .is_none_or(|at| at.elapsed() > QUEUE_FRESH)
+            || self.queue.needs_load()
+        {
+            self.refresh_queue(false);
+        }
+        if !self.metered() && !self.recents.loaded_once && self.recents.error.is_none() {
+            self.load_recents(false);
+        }
     }
 
     fn refresh_queue(&mut self, force: bool) {
@@ -13651,7 +13668,7 @@ impl App {
                 if self.show_queue_panel {
                     self.show_lyrics_panel = false;
                     self.show_friends_panel = false;
-                    self.refresh_queue(true);
+                    self.open_queue_panel();
                 }
             }
             Action::ToggleLyricsPanel => {
@@ -24413,6 +24430,23 @@ mod tests {
             app.friends_generation, retried,
             "no repeated refresh on ready updates"
         );
+        app.backend.shutdown();
+    }
+
+    /// Opening the queue panel loads its Recent tab at once, so choosing the
+    /// tab shows it without a wait; a metered connection waits for the tab.
+    #[test]
+    fn opening_the_queue_panel_loads_recent_at_once() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        change_power(&app, |conditions| conditions.metered = true);
+        app.apply(Action::ToggleQueuePanel, &ctx);
+        assert!(app.show_queue_panel);
+        assert!(!app.recents.loading, "a metered connection waits");
+        app.apply(Action::ToggleQueuePanel, &ctx);
+        change_power(&app, |conditions| conditions.metered = false);
+        app.apply(Action::ToggleQueuePanel, &ctx);
+        assert!(app.recents.loading);
         app.backend.shutdown();
     }
 
