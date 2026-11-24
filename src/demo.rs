@@ -1689,11 +1689,10 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 });
             }
             "create" => {
-                app.dialog = Some(Dialog::CreatePlaylist {
-                    name: "Autumn drives".into(),
-                    public: false,
-                    add_uris: vec!["spotify:track:trk1".into()],
-                })
+                app.dialog = Some(Dialog::new_playlist(
+                    "Autumn drives".into(),
+                    vec!["spotify:track:trk1".into()],
+                ))
             }
             "duplicate" => {
                 app.dialog = Some(Dialog::ConfirmPlaylistDuplicates {
@@ -2299,6 +2298,33 @@ mod tests {
             .platform_output
             .accesskit_update
             .expect("screen-reader tree")
+    }
+
+    /// A long description scrolls inside New playlist, so Create and Cancel
+    /// stay in a short window.
+    #[test]
+    fn a_long_description_keeps_new_playlist_buttons_in_the_window() {
+        use egui::accesskit::Role;
+        let (ctx, mut app) = accessible_app("new-playlist-long-description");
+        let mut dialog = Dialog::new_playlist("Road trip".into(), Vec::new());
+        if let Dialog::CreatePlaylist { description, .. } = &mut dialog {
+            *description = "A line of the description.\n".repeat(60);
+        }
+        app.dialog = Some(dialog);
+        let height = 480.0;
+        accessible_frame_height(&ctx, &mut app, vec![], height);
+        let tree = accessible_frame_height(&ctx, &mut app, vec![], height);
+        for label in ["Create", "Cancel"] {
+            let button = accessible_node(&tree, label, Role::Button);
+            let bounds = tree
+                .nodes
+                .iter()
+                .find(|(id, _)| *id == button)
+                .and_then(|(_, node)| node.bounds())
+                .unwrap();
+            assert!(bounds.y1 <= f64::from(height), "{label} at {bounds:?}");
+        }
+        app.backend.shutdown();
     }
 
     #[test]
@@ -2954,6 +2980,7 @@ mod tests {
                 name,
                 public,
                 add_uris,
+                ..
             }) = &app.dialog
             else {
                 panic!("saving the translated queue must open the existing playlist dialog");
@@ -8632,18 +8659,18 @@ mod tests {
                                 cover: Default::default(),
                             }
                         } else {
-                            Dialog::CreatePlaylist {
-                                name: "Peak Masculinity".into(),
-                                public: false,
-                                add_uris: vec!["spotify:track:trk1".into()],
-                            }
+                            Dialog::new_playlist(
+                                "Peak Masculinity".into(),
+                                vec!["spotify:track:trk1".into()],
+                            )
                         });
                         for _ in 0..3 {
                             let mut output = ctx.run_ui(input.clone(), |ui| app.frame_ui(ui));
                             output.textures_delta.clear();
                         }
                         let dialog = app.dialog_rect.expect("playlist dialog");
-                        let limit = if edit { 600.0 } else { 360.0 };
+                        // New playlist has Edit's cover and description too.
+                        let limit = 600.0;
                         assert!(
                             dialog.height() <= limit,
                             "edit={edit}, busy={busy}, light={light}, size={size:?}: {dialog:?}"
@@ -10180,6 +10207,8 @@ mod tests {
                 name: "x".into(),
                 public: true,
                 add_uris: vec![],
+                cover: Default::default(),
+                description: String::new(),
             },
             Dialog::EditPlaylist {
                 cover: Default::default(),

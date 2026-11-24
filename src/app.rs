@@ -662,6 +662,9 @@ pub struct App {
     cover_uploads: HashMap<String, u64>,
     /// Successful uploads stay visible while Spotify propagates the new image.
     uploaded_covers: std::collections::HashMap<String, crate::playlist_cover::PendingCover>,
+    /// A cover that failed to upload with no Edit details open, as New
+    /// playlist's does, and why. The next Edit details offers it again.
+    failed_covers: HashMap<String, (crate::playlist_cover::Cover, String)>,
     pub show_queue_panel: bool,
     pub show_lyrics_panel: bool,
     /// Friend activity takes the right panel's place, so at most one of the
@@ -816,6 +819,7 @@ pub struct App {
     /// Context loads keep it; explicit skips consume their rows immediately.
     queue_start_pending: Option<Target>,
     pub playlist_busy: bool,
+    creating_playlist: Option<(Vec<String>, Option<crate::playlist_cover::Cover>)>,
     pub quit_requested: bool,
     /// Wheel step, Linux touchpad scale and glide, and the axis a gesture
     /// holds, for the window on screen.
@@ -1396,6 +1400,7 @@ impl App {
             cover_request: 0,
             cover_uploads: HashMap::new(),
             uploaded_covers: Default::default(),
+            failed_covers: HashMap::new(),
             show_queue_panel: session.queue_open.unwrap_or(false),
             show_lyrics_panel: false,
             show_friends_panel: false,
@@ -1477,6 +1482,7 @@ impl App {
             last_now_playing_sequence: 0,
             queue_start_pending: None,
             playlist_busy: false,
+            creating_playlist: None,
             quit_requested: false,
             scrolling: fastframe_scroll::Scrolling::default(),
             autoscroll: crate::autoscroll::Autoscroll::default(),
@@ -3742,6 +3748,11 @@ impl App {
         self.last_album_queue = None;
         self.cover_uploads.clear();
         self.uploaded_covers.clear();
+        self.failed_covers.clear();
+        // The signed-out account's playlist requests are cancelled with it,
+        // so none of them is still on its way.
+        self.creating_playlist = None;
+        self.playlist_busy = false;
         // Questions about the signed-out account's playlists go with it.
         self.duplicate_prompts.clear();
         if matches!(self.dialog, Some(Dialog::ConfirmPlaylistDuplicates { .. })) {
@@ -7617,11 +7628,8 @@ impl App {
             return;
         }
         let name = self.queue_playlist_name();
-        self.actions.push(Action::CreatePlaylist {
-            name,
-            public: false,
-            add_uris: uris,
-        });
+        self.actions
+            .push(Action::ShowDialog(Dialog::new_playlist(name, uris)));
     }
 
     /// Shows the head of Next up as playing before the engine confirms it.
@@ -8020,10 +8028,10 @@ impl App {
         request: u64,
         result: Result<Option<crate::playlist_cover::Cover>, String>,
     ) {
-        if let Some(Dialog::EditPlaylist {
-            id: current, cover, ..
-        }) = &mut self.dialog
-            && current == id
+        if let Some(cover) = self
+            .dialog
+            .as_mut()
+            .and_then(|dialog| dialog.cover_draft(id))
             && cover.request == Some(request)
         {
             cover.request = None;
@@ -9041,6 +9049,7 @@ impl App {
                 self.request_user_names(adders);
             }
             ApiResponse::PlaylistCreated(result) => {
+                let creation = self.creating_playlist.take();
                 self.playlist_busy = false;
                 match result {
                     Ok(playlist) => {
@@ -9057,15 +9066,34 @@ impl App {
                         });
                         self.saved.insert(playlist.uri.clone(), true);
                         self.store_library_cache();
-                        if let Some(Dialog::CreatePlaylist { add_uris, .. }) = self.dialog.take()
-                            && !add_uris.is_empty()
-                        {
-                            self.backend.api(ApiRequest::AddToPlaylist {
-                                playlist_id: playlist.id.clone(),
-                                playlist_name: playlist.name.clone(),
-                                uris: add_uris,
-                                position: None,
-                            });
+                        if matches!(self.dialog, Some(Dialog::CreatePlaylist { .. })) {
+                            self.dialog = None;
+                        }
+                        if let Some((uris, selected)) = creation {
+                            if !uris.is_empty() {
+                                self.backend.api(ApiRequest::AddToPlaylist {
+                                    playlist_id: playlist.id.clone(),
+                                    playlist_name: playlist.name.clone(),
+                                    uris,
+                                    position: None,
+                                });
+                            }
+                            if let Some(cover) = selected {
+                                self.cover_request = self.cover_request.wrapping_add(1);
+                                self.cover_uploads
+                                    .insert(playlist.id.clone(), self.cover_request);
+                                let previous_urls = playlist
+                                    .images
+                                    .iter()
+                                    .map(|image| image.url.clone())
+                                    .collect();
+                                self.backend.api(ApiRequest::UploadPlaylistCover {
+                                    id: playlist.id.clone(),
+                                    request: self.cover_request,
+                                    previous_urls,
+                                    cover,
+                                });
+                            }
                         }
                         self.open(Page::Playlist(playlist.id));
                     }
@@ -9089,7 +9117,7 @@ impl App {
                     return;
                 }
                 self.cover_uploads.remove(&id);
-                if let Some(Dialog::EditPlaylist {
+                let in_dialog = if let Some(Dialog::EditPlaylist {
                     id: current,
                     cover: draft,
                     ..
@@ -9104,10 +9132,18 @@ impl App {
                         .map(|error| cover_error(self.locale, error));
                     if result.is_ok() {
                         draft.selection = None;
+                    } else if draft.selection.is_none() {
+                        // Opened while New playlist's cover was uploading:
+                        // the image comes back to retry.
+                        draft.selection = Some(cover.clone());
                     }
-                }
+                    true
+                } else {
+                    false
+                };
                 match result {
                     Ok(()) => {
+                        self.failed_covers.remove(&id);
                         self.set_playlist_cover(&id, &cover);
                         self.uploaded_covers.insert(
                             id.clone(),
@@ -9128,7 +9164,15 @@ impl App {
                         }
                         self.toast(gettext(self.locale, "Playlist cover updated"));
                     }
-                    Err(error) => self.toast_error(cover_error(self.locale, &error)),
+                    Err(error) => {
+                        let message = cover_error(self.locale, &error);
+                        // No dialog holds the chosen image, so it waits for
+                        // the next Edit details instead of being lost.
+                        if !in_dialog {
+                            self.failed_covers.insert(id, (cover, message.clone()));
+                        }
+                        self.toast_error(message);
+                    }
                 }
             }
             ApiResponse::PlaylistUpdated { id, result } => {
@@ -13130,10 +13174,10 @@ impl App {
                 if self.cover_uploads.contains_key(&id) {
                     return;
                 }
-                if let Some(Dialog::EditPlaylist {
-                    id: current, cover, ..
-                }) = &mut self.dialog
-                    && *current == id
+                if let Some(cover) = self
+                    .dialog
+                    .as_mut()
+                    .and_then(|dialog| dialog.cover_draft(&id))
                     && cover.request.is_none()
                     && cover.uploading.is_none()
                 {
@@ -13190,10 +13234,14 @@ impl App {
                 }
             }
             Action::ShowDialog(mut dialog) => {
-                if let Dialog::EditPlaylist { id, cover, .. } = &mut dialog
-                    && let Some(request) = self.cover_uploads.get(id)
-                {
-                    cover.uploading = Some(*request);
+                if let Dialog::EditPlaylist { id, cover, .. } = &mut dialog {
+                    if let Some(request) = self.cover_uploads.get(id) {
+                        cover.uploading = Some(*request);
+                    } else if let Some((selected, error)) = self.failed_covers.remove(id) {
+                        // A cover that failed to upload is offered again.
+                        cover.selection = Some(selected);
+                        cover.error = Some(error);
+                    }
                 }
                 self.dialog = Some(dialog);
             }
@@ -13223,16 +13271,26 @@ impl App {
                 public,
                 add_uris,
             } => {
+                if self.creating_playlist.is_some() {
+                    return;
+                }
+                let (description, cover) = match self.dialog.as_ref() {
+                    Some(Dialog::CreatePlaylist {
+                        description, cover, ..
+                    }) => {
+                        if cover.request.is_some() {
+                            return;
+                        }
+                        (description.clone(), cover.selection.clone())
+                    }
+                    _ => (String::new(), None),
+                };
+                self.creating_playlist = Some((add_uris, cover));
                 self.playlist_busy = true;
-                self.dialog = Some(Dialog::CreatePlaylist {
-                    name: name.clone(),
-                    public,
-                    add_uris,
-                });
                 self.backend.api(ApiRequest::CreatePlaylist {
                     name,
                     public,
-                    description: String::new(),
+                    description,
                 });
             }
             Action::UpdatePlaylist {
@@ -23223,6 +23281,157 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// New playlist keeps the cover picked in it until Spotify has made the
+    /// playlist, then uploads it, and a second Create meanwhile is ignored.
+    #[test]
+    fn a_new_playlist_uploads_its_cover_once_created() {
+        let mut app = test_app("new-playlist-cover");
+        let ctx = egui::Context::default();
+        let songs = vec!["spotify:track:a".to_string()];
+        let mut dialog = Dialog::new_playlist("Road trip".into(), songs.clone());
+        if let Dialog::CreatePlaylist {
+            cover, description, ..
+        } = &mut dialog
+        {
+            cover.selection = Some(test_cover());
+            *description = "Night drive".into();
+        }
+        app.dialog = Some(dialog);
+        let create = || Action::CreatePlaylist {
+            name: "Road trip".into(),
+            public: false,
+            add_uris: vec!["spotify:track:a".into()],
+        };
+        app.apply(create(), &ctx);
+        assert!(app.playlist_busy);
+        assert!(matches!(
+            &app.creating_playlist,
+            Some((uris, Some(_))) if *uris == songs
+        ));
+        assert!(app.cover_uploads.is_empty(), "no playlist to upload to yet");
+        app.creating_playlist.as_mut().unwrap().1 = None;
+        app.apply(create(), &ctx);
+        assert!(
+            matches!(&app.creating_playlist, Some((_, None))),
+            "a second Create does not start another playlist"
+        );
+        app.creating_playlist.as_mut().unwrap().1 = Some(test_cover());
+
+        app.handle_api(ApiResponse::PlaylistCreated(Ok(Playlist {
+            id: "n".into(),
+            uri: "spotify:playlist:n".into(),
+            name: "Road trip".into(),
+            ..Playlist::default()
+        })));
+        assert!(app.creating_playlist.is_none());
+        assert!(!app.playlist_busy);
+        assert!(app.dialog.is_none());
+        assert!(app.cover_uploads.contains_key("n"));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn signing_out_while_creating_lets_the_next_playlist_be_created() {
+        let mut app = test_app("new-playlist-sign-out");
+        let ctx = egui::Context::default();
+        let create = || Action::CreatePlaylist {
+            name: "Road trip".into(),
+            public: false,
+            add_uris: Vec::new(),
+        };
+        app.apply(create(), &ctx);
+        assert!(app.creating_playlist.is_some());
+        // Signing out cancels the request, so no answer comes back.
+        app.reset_data();
+        assert!(app.creating_playlist.is_none());
+        assert!(!app.playlist_busy);
+        app.apply(create(), &ctx);
+        assert!(
+            app.creating_playlist.is_some(),
+            "the next Create starts a playlist"
+        );
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn a_new_playlist_cover_that_fails_to_upload_waits_for_edit_details() {
+        let mut app = test_app("new-playlist-cover-failed");
+        let ctx = egui::Context::default();
+        let cover = test_cover();
+        // New playlist has closed by the time its cover uploads.
+        app.cover_uploads.insert("n".into(), 1);
+        app.handle_api(ApiResponse::PlaylistCoverUploaded {
+            id: "n".into(),
+            request: 1,
+            previous_urls: vec![],
+            cover: cover.clone(),
+            result: Err(crate::api::ApiError::Status {
+                status: 500,
+                message: "Server error".into(),
+            }),
+        });
+        assert!(app.dialog.is_none());
+        app.apply(
+            Action::ShowDialog(Dialog::EditPlaylist {
+                cover: Default::default(),
+                id: "n".into(),
+                name: "Road trip".into(),
+                description: String::new(),
+                public: Some(false),
+            }),
+            &ctx,
+        );
+        let Some(Dialog::EditPlaylist { cover: draft, .. }) = &app.dialog else {
+            panic!("Edit details is open")
+        };
+        assert_eq!(
+            draft.selection.as_ref().map(|selected| &selected.uri),
+            Some(&cover.uri)
+        );
+        assert!(draft.error.is_some());
+        assert!(draft.uploading.is_none());
+        assert!(app.failed_covers.is_empty());
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn edit_details_opened_during_a_new_playlist_upload_keeps_a_failed_cover() {
+        let mut app = test_app("new-playlist-cover-failed-open");
+        let ctx = egui::Context::default();
+        let cover = test_cover();
+        app.cover_uploads.insert("n".into(), 1);
+        app.apply(
+            Action::ShowDialog(Dialog::EditPlaylist {
+                cover: Default::default(),
+                id: "n".into(),
+                name: "Road trip".into(),
+                description: String::new(),
+                public: Some(false),
+            }),
+            &ctx,
+        );
+        app.handle_api(ApiResponse::PlaylistCoverUploaded {
+            id: "n".into(),
+            request: 1,
+            previous_urls: vec![],
+            cover: cover.clone(),
+            result: Err(crate::api::ApiError::Status {
+                status: 500,
+                message: "Server error".into(),
+            }),
+        });
+        let Some(Dialog::EditPlaylist { cover: draft, .. }) = &app.dialog else {
+            panic!("Edit details is open")
+        };
+        assert_eq!(
+            draft.selection.as_ref().map(|selected| &selected.uri),
+            Some(&cover.uri)
+        );
+        assert!(draft.error.is_some());
+        assert!(draft.uploading.is_none());
+        app.backend.shutdown();
+    }
+
     #[test]
     fn cover_picker_cancellation_and_stale_completion_preserve_the_dialog() {
         let mut app = test_app("cover-picker");
@@ -26687,6 +26896,7 @@ mod tests {
                 name,
                 public: false,
                 add_uris,
+                ..
             }) => {
                 assert_eq!(name, "Song 3JA9Jsuxr4xgHXEawAdCp4 Radio");
                 assert_eq!(add_uris, &expected);
@@ -26961,7 +27171,7 @@ mod tests {
         assert!(
             app.actions.iter().any(|action| matches!(
                 action,
-                Action::CreatePlaylist { name, public: false, add_uris }
+                Action::ShowDialog(Dialog::CreatePlaylist { name, public: false, add_uris, .. })
                     if name == "Wish You Were Here Radio"
                         && add_uris == &["spotify:track:b".to_string(), "spotify:track:a".into()]
             )),
@@ -31002,11 +31212,10 @@ mod tests {
             .playable()
             .unwrap()
             .clone();
-        app.dialog = Some(Dialog::CreatePlaylist {
-            name: "Road trip".into(),
-            public: false,
-            add_uris: vec!["spotify:track:new".into()],
-        });
+        app.dialog = Some(Dialog::new_playlist(
+            "Road trip".into(),
+            vec!["spotify:track:new".into()],
+        ));
 
         app.handle_api(ApiResponse::PlaylistDuplicatesChecked {
             position: None,

@@ -3169,6 +3169,10 @@ msgstr "Caricamento della copertina…"
 msgid "Choosing cover…"
 msgstr "Scelta della copertina…"
 
+#: src/ui/dialogs.rs:387
+msgid "Choose cover"
+msgstr "Scegli copertina"
+
 #: src/ui/dialogs.rs:498
 msgid "Change cover"
 msgstr "Cambia copertina"

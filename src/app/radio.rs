@@ -176,7 +176,7 @@ impl App {
         }
     }
 
-    /// Saves the radio's songs, as shown, to a new playlist named after it.
+    /// Opens New playlist, named after the radio, for its songs as shown.
     pub(super) fn save_radio(&mut self, seed: &str) {
         let Some(songs) = self.radio_pages.get(seed).and_then(|page| page.songs.get()) else {
             return;
@@ -189,10 +189,7 @@ impl App {
             .radio_name(seed)
             .or_else(|| self.radio_pages.get(seed)?.name.clone())
             .unwrap_or_else(|| gettext(self.locale, "Radio").into_owned());
-        self.actions.push(Action::CreatePlaylist {
-            name,
-            public: false,
-            add_uris,
-        });
+        self.actions
+            .push(Action::ShowDialog(Dialog::new_playlist(name, add_uris)));
     }
 }

@@ -3136,6 +3136,10 @@ msgstr "カバーをアップロード中…"
 msgid "Choosing cover…"
 msgstr "カバーを選択中…"
 
+#: src/ui/dialogs.rs:387
+msgid "Choose cover"
+msgstr "カバーを選択"
+
 #: src/ui/dialogs.rs:498
 msgid "Change cover"
 msgstr "カバーを変更"

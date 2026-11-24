@@ -3131,6 +3131,10 @@ msgstr "Laddar upp omslag…"
 msgid "Choosing cover…"
 msgstr "Väljer omslag…"
 
+#: src/ui/dialogs.rs:387
+msgid "Choose cover"
+msgstr "Välj omslag"
+
 #: src/ui/dialogs.rs:498
 msgid "Change cover"
 msgstr "Byt omslag"

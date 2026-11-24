@@ -3184,6 +3184,10 @@ msgstr "Завантаження обкладинки…"
 msgid "Choosing cover…"
 msgstr "Вибір обкладинки…"
 
+#: src/ui/dialogs.rs:387
+msgid "Choose cover"
+msgstr "Вибрати обкладинку"
+
 #: src/ui/dialogs.rs:498
 msgid "Change cover"
 msgstr "Змінити обкладинку"
