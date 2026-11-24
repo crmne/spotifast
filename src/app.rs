@@ -14609,8 +14609,8 @@ impl App {
     }
 
     /// Whether the system reports the connection as metered or charged by
-    /// use, so automatic downloads wait.
-    fn metered(&self) -> bool {
+    /// use, so automatic downloads and fetching ahead wait.
+    pub(crate) fn metered(&self) -> bool {
         self.power.conditions().metered
     }
 
@@ -27314,6 +27314,37 @@ mod tests {
             app.backend.art().prefetch(&ctx, url),
             "nothing should have asked for it before"
         );
+    }
+
+    /// On a metered connection no cover is fetched ahead of a list: the
+    /// covers on screen are not even looked at.
+    #[test]
+    fn a_metered_connection_fetches_no_covers_ahead() {
+        let app = headless_app();
+        let ctx = egui::Context::default();
+        let warm = |metered: bool| {
+            change_power(&app, |conditions| conditions.metered = metered);
+            let asked = std::cell::Cell::new(0);
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(800.0, 400.0),
+                    )),
+                    ..Default::default()
+                },
+                |ui| {
+                    crate::ui::widgets::warm_card_covers(ui, &app, 40, 180.0, |index| {
+                        asked.set(asked.get() + 1);
+                        Some(format!("https://i.scdn.co/image/ahead{index}"))
+                    });
+                },
+            );
+            output.textures_delta.clear();
+            asked.get()
+        };
+        assert_eq!(warm(true), 0, "a metered connection waits");
+        assert!(warm(false) > 0, "the covers on screen are looked at");
     }
 
     /// The daily update check waits for a connection that is not metered,

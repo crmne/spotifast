@@ -969,6 +969,11 @@ fn table_contents(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
     let mut row_responses = Vec::new();
     let mut missing = None;
     let mut retry_shown = false;
+    if show_cover {
+        widgets::warm_row_covers(ui, app, rows, row_height, false, |row| {
+            item_index(row).map(|index| &table.items[index].0)
+        });
+    }
     widgets::virtual_rows(ui, rows, row_height, |ui, row| {
         let Some(index) = item_index(row) else {
             let unavailable = finite.is_some_and(|page| {
