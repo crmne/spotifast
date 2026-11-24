@@ -3069,6 +3069,43 @@ mod tests {
         }
     }
 
+    /// Sync lyrics returns to the playing line, so only timed lyrics have it,
+    /// in the side panel and in full screen.
+    #[test]
+    fn sync_lyrics_shows_only_for_timed_lyrics() {
+        use egui::accesskit::Role;
+        let (ctx, mut app) = accessible_app("sync-lyrics-timed-only");
+        app.show_lyrics_panel = true;
+        app.lyrics_uri = app.now_playing().map(|now| now.uri);
+        let has_sync = |tree: &egui::accesskit::TreeUpdate| {
+            tree.nodes
+                .iter()
+                .any(|(_, node)| node.label() == Some("Sync lyrics") && node.role() == Role::Button)
+        };
+        for fullscreen in [false, true] {
+            app.lyrics_fullscreen = fullscreen.then_some(false);
+            for synced in [true, false] {
+                let mut lyrics = sample_lyrics();
+                lyrics.synced = synced;
+                if !synced {
+                    for line in &mut lyrics.lines {
+                        line.at_ms = None;
+                    }
+                }
+                app.lyrics = Loadable::Loaded(Some(lyrics));
+                app.lyrics_following = false;
+                accessible_frame(&ctx, &mut app, vec![]);
+                let tree = accessible_frame(&ctx, &mut app, vec![]);
+                assert_eq!(
+                    has_sync(&tree),
+                    synced,
+                    "synced={synced}, fullscreen={fullscreen}"
+                );
+            }
+        }
+        app.backend.shutdown();
+    }
+
     #[test]
     fn translated_panel_states_keep_original_lyrics_and_failure_details() {
         use crate::i18n::{Locale, gettext};

@@ -977,9 +977,14 @@ fn fullscreen_header(app: &mut App, ui: &mut egui::Ui, controls: f32) {
     });
 }
 
+/// Sync lyrics picks timed lyrics back up after scrolling by hand. Untimed
+/// lyrics have no playing line to return to, so they get no button.
 fn sync_button(app: &mut App, ui: &mut egui::Ui, room: Rect, palette: &theme::Palette) {
     if app.lyrics_following
-        || !matches!(&app.lyrics, Loadable::Loaded(Some(lyrics)) if !lyrics.instrumental)
+        || !matches!(
+            &app.lyrics,
+            Loadable::Loaded(Some(lyrics)) if lyrics.synced && !lyrics.instrumental
+        )
     {
         return;
     }
@@ -988,7 +993,13 @@ fn sync_button(app: &mut App, ui: &mut egui::Ui, room: Rect, palette: &theme::Pa
             .max_rect(room.shrink2(vec2(0.0, 8.0)))
             .layout(Layout::bottom_up(Align::Center)),
     );
-    if theme::pill_button(&mut button, palette, &gettext(app.locale, "Sync lyrics"), true).clicked()
+    if theme::pill_button(
+        &mut button,
+        palette,
+        &gettext(app.locale, "Sync lyrics"),
+        true,
+    )
+    .clicked()
     {
         app.actions.push(Action::FollowLyrics);
     }
