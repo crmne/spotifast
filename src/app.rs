@@ -689,6 +689,8 @@ pub struct App {
     pub softened_covers: crate::images::SoftenedCovers,
     /// The track the lyrics below are for.
     pub lyrics_uri: Option<String>,
+    /// Lyrics on either side of the playing song, including an outstanding read.
+    adjacent_lyrics: Vec<(String, Loadable<Option<crate::lyrics::Lyrics>>)>,
     /// How many of `LYRICS_RETRIES` this song has used.
     lyrics_retries: usize,
     /// When to ask again for lyrics a busy service didn't answer for.
@@ -1419,6 +1421,7 @@ impl App {
             lyrics_backdrop: Default::default(),
             softened_covers: Default::default(),
             lyrics_uri: None,
+            adjacent_lyrics: Vec::new(),
             lyrics_retries: 0,
             lyrics_retry_at: None,
             lyrics: Loadable::NotLoaded,
@@ -3072,6 +3075,10 @@ impl App {
                             Ok(found) => Loadable::Loaded(found),
                             Err(error) => self.lyrics_failed(error, Instant::now()),
                         };
+                    } else if let Some((_, state)) =
+                        self.adjacent_lyrics.iter_mut().find(|(id, _)| id == &uri)
+                    {
+                        *state = Loadable::from_result(result);
                     }
                 }
                 Event::PlaylistCache {
@@ -3743,6 +3750,7 @@ impl App {
 
     /// Clears account data while preserving request serials that reject late answers.
     fn reset_data(&mut self) {
+        self.adjacent_lyrics.clear();
         self.pending_remote_volume = None;
         self.local_transfer_sequence = None;
         self.queue_start_pending = None;
@@ -4391,6 +4399,7 @@ impl App {
         }
         if matches!(self.page(), Page::Queue)
             || self.show_queue_panel
+            || (!self.metered() && (self.show_lyrics_panel || self.lyrics_fullscreen.is_some()))
             || (self.settings.winamp_window && self.settings.playlist_open)
         {
             self.refresh_queue(true);
@@ -4474,13 +4483,29 @@ impl App {
         {
             return;
         }
+        let mut prepared = None;
         if self.lyrics_uri.as_deref() != Some(now.uri.as_str()) {
+            prepared = self
+                .adjacent_lyrics
+                .iter()
+                .position(|(uri, _)| uri == &now.uri)
+                .map(|at| self.adjacent_lyrics.remove(at).1);
+            if let Some(uri) = self.lyrics_uri.take()
+                && matches!(self.lyrics, Loadable::Loaded(_))
+            {
+                let lyrics = std::mem::take(&mut self.lyrics);
+                self.remember_adjacent_lyrics(uri, lyrics);
+            }
             self.lyrics_retries = 0;
             self.lyrics_retry_at = None;
         }
         self.lyrics_uri = Some(now.uri.clone());
         self.lyrics_following = true;
         self.lyrics_line_shown = None;
+        if let Some(state @ (Loadable::Loaded(_) | Loadable::Loading)) = prepared {
+            self.lyrics = state;
+            return;
+        }
         if now.is_episode || self.offline {
             self.lyrics = Loadable::Loaded(None);
             return;
@@ -4499,6 +4524,95 @@ impl App {
                 album: now.album_name,
                 duration_ms: now.duration_ms,
             },
+            local_file,
+        })));
+    }
+
+    fn remember_adjacent_lyrics(
+        &mut self,
+        uri: String,
+        state: Loadable<Option<crate::lyrics::Lyrics>>,
+    ) {
+        self.adjacent_lyrics.retain(|(held, _)| *held != uri);
+        // Keep the previous song and the next one.
+        if self.adjacent_lyrics.len() == 2 {
+            self.adjacent_lyrics.remove(0);
+        }
+        self.adjacent_lyrics.push((uri, state));
+    }
+
+    /// Readies the song after the playing one while it plays: its cover,
+    /// and its lyrics while they are on show, so both are there when it
+    /// starts. Waits for the playing song's cover, and for a connection
+    /// that is not metered.
+    fn prepare_next_song(&mut self, ctx: &egui::Context) {
+        let reading = self.show_lyrics_panel || self.lyrics_fullscreen.is_some();
+        let Some(now) = &self.frame_now else {
+            return;
+        };
+        // The playing song's own lookup comes first. A track change, or
+        // opening the lyrics, starts it.
+        if reading && self.lyrics_uri.as_deref() != Some(now.uri.as_str()) {
+            return;
+        }
+        if now.loading || now.resuming || self.offline || self.metered() || !self.network_reachable
+        {
+            return;
+        }
+        let Some(queue) = self.queue.get() else {
+            return;
+        };
+        if queue.currently_playing.as_ref().map(PlayableItem::uri) != Some(now.uri.as_str()) {
+            return;
+        }
+        let Some(item @ PlayableItem::Track(track)) = queue.queue.first() else {
+            return;
+        };
+        if track.uri == now.uri || !self.row_playable(item) {
+            return;
+        }
+        let art = self.backend.art();
+        let fullscreen = self.lyrics_fullscreen.is_some();
+        let size = if fullscreen { 320.0 } else { 56.0 };
+        if self
+            .small_art(now, size)
+            .is_some_and(|url| !art.is_settled(url))
+        {
+            return;
+        }
+        let pixels = if fullscreen { 640 } else { self.art_px(size) };
+        if let Some(url) = self.item_image(item, pixels) {
+            art.prefetch(ctx, &url);
+        }
+        if !reading
+            || !matches!(self.lyrics, Loadable::Loaded(_))
+            || self
+                .adjacent_lyrics
+                .iter()
+                .any(|(uri, state)| uri == &track.uri || state.is_loading())
+        {
+            return;
+        }
+        let uri = track.uri.clone();
+        let query = crate::lyrics::Query {
+            artist: track
+                .artists
+                .first()
+                .map(|artist| artist.name.clone())
+                .unwrap_or_default(),
+            title: track.name.clone(),
+            album: track
+                .album
+                .as_ref()
+                .map(|album| album.name.clone())
+                .unwrap_or_default(),
+            duration_ms: track.duration_ms,
+        };
+        let local_file = self.local_file(&uri).map(std::path::Path::to_path_buf);
+        self.remember_adjacent_lyrics(uri.clone(), Loadable::Loading);
+        self.backend.send(Command::Lyrics(Box::new(LyricsRequest {
+            uri,
+            query,
             local_file,
         })));
     }
@@ -4669,7 +4783,12 @@ impl App {
                 self.refresh_devices();
             }
             let playlist_open = self.settings.winamp_window && self.settings.playlist_open;
-            if (self.show_queue_panel || matches!(self.page(), Page::Queue) || playlist_open)
+            let reading =
+                !self.metered() && (self.show_lyrics_panel || self.lyrics_fullscreen.is_some());
+            if (self.show_queue_panel
+                || matches!(self.page(), Page::Queue)
+                || playlist_open
+                || reading)
                 && !self.queue.is_loading()
                 && self
                     .queue_fetched_at
@@ -14983,6 +15102,7 @@ impl App {
         let ctx = &ctx;
         self.pixels_per_point = ctx.pixels_per_point();
         self.refresh_frame_now();
+        self.prepare_next_song(ctx);
         self.apply_theme(ctx);
         let autoscroll_on = crate::autoscroll::enabled(self.settings.middle_click_autoscroll);
         self.autoscroll.begin(ctx, autoscroll_on);
@@ -17355,6 +17475,48 @@ mod tests {
         app.request_lyrics();
         assert!(app.lyrics_retry_at.is_none(), "the next song starts clean");
         assert_eq!(app.lyrics_retries, 0);
+        app.backend.shutdown();
+    }
+
+    /// Lyrics read ahead for the next song show the moment it plays, and
+    /// the song before keeps its answer for a skip back.
+    #[test]
+    fn lyrics_prepared_for_the_next_song_show_when_it_plays() {
+        let mut app = headless_app();
+        let play = |app: &mut App, uri: &str| {
+            app.local.track = Some(crate::player::LocalTrack {
+                uri: uri.into(),
+                ..Default::default()
+            });
+            app.request_lyrics();
+        };
+        app.local.playback = Playback::Playing;
+        play(&mut app, "spotify:track:a");
+        assert!(matches!(app.lyrics, Loadable::Loading));
+        app.handle_backend_events(vec![Event::Lyrics {
+            uri: "spotify:track:a".into(),
+            result: Ok(None),
+        }]);
+        assert!(matches!(app.lyrics, Loadable::Loaded(None)));
+        app.remember_adjacent_lyrics("spotify:track:b".into(), Loadable::Loading);
+        app.handle_backend_events(vec![Event::Lyrics {
+            uri: "spotify:track:b".into(),
+            result: Ok(Some(crate::lyrics::Lyrics::default())),
+        }]);
+        assert!(
+            matches!(app.lyrics, Loadable::Loaded(None)),
+            "the playing song keeps its own"
+        );
+        play(&mut app, "spotify:track:b");
+        assert!(
+            matches!(app.lyrics, Loadable::Loaded(Some(_))),
+            "shown without asking again"
+        );
+        play(&mut app, "spotify:track:a");
+        assert!(
+            matches!(app.lyrics, Loadable::Loaded(None)),
+            "the song before kept its answer"
+        );
         app.backend.shutdown();
     }
 
