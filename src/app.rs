@@ -27691,6 +27691,9 @@ mod tests {
     fn opening_an_album_while_its_preload_waits_asks_in_the_foreground() {
         let ctx = egui::Context::default();
         let mut app = headless_app();
+        app.auth = AuthStatus::Connected {
+            username: "alice".into(),
+        };
         app.user = Some(crate::api::models::User::default());
         app.apply(Action::PreloadAlbum("a1".into()), &ctx);
         assert_eq!(app.album_preloading.as_deref(), Some("a1"));
