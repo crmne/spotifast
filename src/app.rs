@@ -7840,6 +7840,15 @@ impl App {
         self.queue_edit_allowed(true)
     }
 
+    /// Whether the playing device can move rows of its queue at all, even
+    /// while an edit is still being sent. A Next up row dropped on the Queue
+    /// button then moves, or waits for that edit, rather than being added
+    /// again as a copy.
+    pub fn queue_moves_rows(&self) -> bool {
+        self.queue_locally_reorderable()
+            || self.queue_player_view().is_some_and(|view| view.can_reorder)
+    }
+
     fn queue_edit_allowed(&self, insert: bool) -> bool {
         if self
             .queue_target
@@ -21883,6 +21892,37 @@ mod tests {
         app.note_local_queue(view);
         assert!(app.can_edit_play_order());
         assert_eq!(app.local.playback, Playback::Playing);
+    }
+
+    /// A song still being added holds the queue's edits, not its kind, so
+    /// the Queue button still moves a Next up row instead of copying it.
+    #[test]
+    fn a_pending_addition_leaves_an_editable_queue_moving_rows() {
+        let mut app = app_with_local_manual_queue();
+        app.offline = false;
+        app.local_device_id = Some("this-computer".into());
+        let now = app.current_track_uri().unwrap();
+        app.local_queue = Some(crate::player::RemoteQueueView {
+            device: app.local_device_id.clone().unwrap(),
+            track: "spotify:track:previous".into(),
+            can_reorder: true,
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        let mut view = app.local_queue.clone().unwrap();
+        view.track = now;
+        app.note_local_queue(view);
+        assert!(app.can_edit_play_order());
+        assert!(app.queue_moves_rows());
+        app.pending_queue_adds.push(PendingQueueAdd {
+            item: queued_song("spotify:track:added"),
+            at: Instant::now(),
+            manual_index: app.manual_queue.len(),
+            required_count: 1,
+            write: None,
+        });
+        assert!(!app.can_edit_play_order(), "edits wait for the addition");
+        assert!(app.queue_moves_rows(), "the queue still moves rows");
     }
 
     #[test]

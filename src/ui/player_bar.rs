@@ -1082,9 +1082,10 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_
     if let Some(track) = queue_button.dnd_release_payload::<DragTrack>()
         && !track.is_queued_or_playing()
     {
-        // A device that cannot edit its queue still adds the song, as
-        // before Next up rows could move.
-        if app.can_edit_play_order()
+        // A device that cannot move rows still adds the song, as before
+        // Next up rows could move. One busy with another edit refuses the
+        // move until it lands.
+        if app.queue_moves_rows()
             && track
                 .from
                 .as_ref()
