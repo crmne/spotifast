@@ -363,106 +363,114 @@ fn create_playlist(app: &mut App, ui: &mut egui::Ui) {
         palette.text,
     );
     ui.add_space(12.0);
-    // The cover is picked now and uploaded once the playlist exists.
-    ui.horizontal(|ui| {
-        if let Some(selected) = &cover.selection {
-            ui.ctx()
-                .include_bytes(selected.uri.clone(), selected.jpeg.clone());
-            ui.add(
-                egui::Image::new(selected.uri.clone())
-                    .texture_options(crate::images::COVER_TEXTURE)
-                    .fit_to_exact_size(egui::vec2(72.0, 72.0))
-                    .alt_text(gettext(locale, "Selected playlist cover")),
-            );
-        }
-        if cover.request.is_some() {
-            theme::spinner(ui, 18.0, palette.accent);
+    let choosing = cover.request.is_some();
+    // A long description scrolls; Create and Cancel stay in the window.
+    let field = egui::ScrollArea::vertical()
+        .max_height((ui.ctx().content_rect().height() - 210.0).max(100.0))
+        .show(ui, |ui| {
+            // The cover is picked now and uploaded once the playlist exists.
+            ui.horizontal(|ui| {
+                if let Some(selected) = &cover.selection {
+                    ui.ctx()
+                        .include_bytes(selected.uri.clone(), selected.jpeg.clone());
+                    ui.add(
+                        egui::Image::new(selected.uri.clone())
+                            .texture_options(crate::images::COVER_TEXTURE)
+                            .fit_to_exact_size(egui::vec2(72.0, 72.0))
+                            .alt_text(gettext(locale, "Selected playlist cover")),
+                    );
+                }
+                if cover.request.is_some() {
+                    theme::spinner(ui, 18.0, palette.accent);
+                    theme::text(
+                        ui,
+                        gettext(locale, "Choosing cover…"),
+                        theme::regular(13.0),
+                        palette.secondary,
+                    );
+                } else if !busy
+                    && theme::pill_button(ui, &palette, &gettext(locale, "Choose cover"), false)
+                        .clicked()
+                {
+                    app.actions.push(Action::ChoosePlaylistCover(String::new()));
+                }
+            });
+            if let Some(error) = &cover.error {
+                ui.add(egui::Label::new(egui::RichText::new(error).color(palette.text)).wrap());
+            }
+            ui.add_space(10.0);
             theme::text(
                 ui,
-                gettext(locale, "Choosing cover…"),
-                theme::regular(13.0),
+                gettext(locale, "Name"),
+                theme::medium(13.0),
                 palette.secondary,
             );
-        } else if !busy
-            && theme::pill_button(ui, &palette, &gettext(locale, "Choose cover"), false).clicked()
-        {
-            app.actions.push(Action::ChoosePlaylistCover(String::new()));
-        }
-    });
-    if let Some(error) = &cover.error {
-        ui.add(egui::Label::new(egui::RichText::new(error).color(palette.text)).wrap());
-    }
-    let choosing = cover.request.is_some();
-    ui.add_space(10.0);
-    theme::text(
-        ui,
-        gettext(locale, "Name"),
-        theme::medium(13.0),
-        palette.secondary,
-    );
-    let field = text_field(
-        ui,
-        &palette,
-        locale,
-        "playlist-name",
-        name,
-        &gettext(locale, "My playlist"),
-        true,
-    );
-    ui.add_space(10.0);
-    theme::text(
-        ui,
-        gettext(locale, "Description"),
-        theme::medium(13.0),
-        palette.secondary,
-    );
-    Frame::new()
-        .fill(palette.surface)
-        .corner_radius(CornerRadius::same(6))
-        .inner_margin(Margin::symmetric(12, 8))
-        .show(ui, |ui| {
-            super::widgets::text_edit(
+            let field = text_field(
                 ui,
+                &palette,
                 locale,
-                egui::TextEdit::multiline(description)
-                    .id(egui::Id::new("new-playlist-description"))
-                    .hint_text(
-                        egui::RichText::new(gettext(locale, "Optional description"))
-                            .color(palette.dim),
-                    )
-                    .font(theme::regular(14.0))
-                    .frame(egui::Frame::NONE)
-                    .desired_rows(2)
-                    .desired_width(f32::INFINITY),
+                "playlist-name",
+                name,
+                &gettext(locale, "My playlist"),
+                true,
             );
-        });
-    ui.add_space(10.0);
-    ui.horizontal(|ui| {
-        super::widgets::switch(ui, &palette, &gettext(locale, "Public playlist"), public);
-        theme::text(
-            ui,
-            gettext(locale, "Public playlist"),
-            theme::regular(14.0),
-            palette.text,
-        );
-    });
-    if !add_uris.is_empty() {
-        ui.add_space(6.0);
-        let count = add_uris.len();
-        theme::text(
-            ui,
-            ngettext(
-                locale,
-                // Translators: {count} is the number of songs.
-                "{count} song will be added.",
-                "{count} songs will be added.",
-                count as u32,
-            )
-            .replace("{count}", &count.to_string()),
-            theme::regular(13.0),
-            palette.secondary,
-        );
-    }
+            ui.add_space(10.0);
+            theme::text(
+                ui,
+                gettext(locale, "Description"),
+                theme::medium(13.0),
+                palette.secondary,
+            );
+            Frame::new()
+                .fill(palette.surface)
+                .corner_radius(CornerRadius::same(6))
+                .inner_margin(Margin::symmetric(12, 8))
+                .show(ui, |ui| {
+                    super::widgets::text_edit(
+                        ui,
+                        locale,
+                        egui::TextEdit::multiline(description)
+                            .id(egui::Id::new("new-playlist-description"))
+                            .hint_text(
+                                egui::RichText::new(gettext(locale, "Optional description"))
+                                    .color(palette.dim),
+                            )
+                            .font(theme::regular(14.0))
+                            .frame(egui::Frame::NONE)
+                            .desired_rows(2)
+                            .desired_width(f32::INFINITY),
+                    );
+                });
+            ui.add_space(10.0);
+            ui.horizontal(|ui| {
+                super::widgets::switch(ui, &palette, &gettext(locale, "Public playlist"), public);
+                theme::text(
+                    ui,
+                    gettext(locale, "Public playlist"),
+                    theme::regular(14.0),
+                    palette.text,
+                );
+            });
+            if !add_uris.is_empty() {
+                ui.add_space(6.0);
+                let count = add_uris.len();
+                theme::text(
+                    ui,
+                    ngettext(
+                        locale,
+                        // Translators: {count} is the number of songs.
+                        "{count} song will be added.",
+                        "{count} songs will be added.",
+                        count as u32,
+                    )
+                    .replace("{count}", &count.to_string()),
+                    theme::regular(13.0),
+                    palette.secondary,
+                );
+            }
+            field
+        })
+        .inner;
     ui.add_space(20.0);
     let submit = field.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
     let name_value = name.trim().to_string();

@@ -2300,6 +2300,33 @@ mod tests {
             .expect("screen-reader tree")
     }
 
+    /// A long description scrolls inside New playlist, so Create and Cancel
+    /// stay in a short window.
+    #[test]
+    fn a_long_description_keeps_new_playlist_buttons_in_the_window() {
+        use egui::accesskit::Role;
+        let (ctx, mut app) = accessible_app("new-playlist-long-description");
+        let mut dialog = Dialog::new_playlist("Road trip".into(), Vec::new());
+        if let Dialog::CreatePlaylist { description, .. } = &mut dialog {
+            *description = "A line of the description.\n".repeat(60);
+        }
+        app.dialog = Some(dialog);
+        let height = 480.0;
+        accessible_frame_height(&ctx, &mut app, vec![], height);
+        let tree = accessible_frame_height(&ctx, &mut app, vec![], height);
+        for label in ["Create", "Cancel"] {
+            let button = accessible_node(&tree, label, Role::Button);
+            let bounds = tree
+                .nodes
+                .iter()
+                .find(|(id, _)| *id == button)
+                .and_then(|(_, node)| node.bounds())
+                .unwrap();
+            assert!(bounds.y1 <= f64::from(height), "{label} at {bounds:?}");
+        }
+        app.backend.shutdown();
+    }
+
     #[test]
     fn artist_upcoming_card_opens_countdown_without_saving_or_playing() {
         let (ctx, mut app) = accessible_app("artist-upcoming");

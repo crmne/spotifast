@@ -662,6 +662,9 @@ pub struct App {
     cover_uploads: HashMap<String, u64>,
     /// Successful uploads stay visible while Spotify propagates the new image.
     uploaded_covers: std::collections::HashMap<String, crate::playlist_cover::PendingCover>,
+    /// A cover that failed to upload with no Edit details open, as New
+    /// playlist's does, and why. The next Edit details offers it again.
+    failed_covers: HashMap<String, (crate::playlist_cover::Cover, String)>,
     pub show_queue_panel: bool,
     pub show_lyrics_panel: bool,
     /// Friend activity takes the right panel's place, so at most one of the
@@ -1397,6 +1400,7 @@ impl App {
             cover_request: 0,
             cover_uploads: HashMap::new(),
             uploaded_covers: Default::default(),
+            failed_covers: HashMap::new(),
             show_queue_panel: session.queue_open.unwrap_or(false),
             show_lyrics_panel: false,
             show_friends_panel: false,
@@ -3744,6 +3748,11 @@ impl App {
         self.last_album_queue = None;
         self.cover_uploads.clear();
         self.uploaded_covers.clear();
+        self.failed_covers.clear();
+        // The signed-out account's playlist requests are cancelled with it,
+        // so none of them is still on its way.
+        self.creating_playlist = None;
+        self.playlist_busy = false;
         // Questions about the signed-out account's playlists go with it.
         self.duplicate_prompts.clear();
         if matches!(self.dialog, Some(Dialog::ConfirmPlaylistDuplicates { .. })) {
@@ -9108,7 +9117,7 @@ impl App {
                     return;
                 }
                 self.cover_uploads.remove(&id);
-                if let Some(Dialog::EditPlaylist {
+                let in_dialog = if let Some(Dialog::EditPlaylist {
                     id: current,
                     cover: draft,
                     ..
@@ -9124,9 +9133,13 @@ impl App {
                     if result.is_ok() {
                         draft.selection = None;
                     }
-                }
+                    true
+                } else {
+                    false
+                };
                 match result {
                     Ok(()) => {
+                        self.failed_covers.remove(&id);
                         self.set_playlist_cover(&id, &cover);
                         self.uploaded_covers.insert(
                             id.clone(),
@@ -9147,7 +9160,15 @@ impl App {
                         }
                         self.toast(gettext(self.locale, "Playlist cover updated"));
                     }
-                    Err(error) => self.toast_error(cover_error(self.locale, &error)),
+                    Err(error) => {
+                        let message = cover_error(self.locale, &error);
+                        // No dialog holds the chosen image, so it waits for
+                        // the next Edit details instead of being lost.
+                        if !in_dialog {
+                            self.failed_covers.insert(id, (cover, message.clone()));
+                        }
+                        self.toast_error(message);
+                    }
                 }
             }
             ApiResponse::PlaylistUpdated { id, result } => {
@@ -13209,10 +13230,14 @@ impl App {
                 }
             }
             Action::ShowDialog(mut dialog) => {
-                if let Dialog::EditPlaylist { id, cover, .. } = &mut dialog
-                    && let Some(request) = self.cover_uploads.get(id)
-                {
-                    cover.uploading = Some(*request);
+                if let Dialog::EditPlaylist { id, cover, .. } = &mut dialog {
+                    if let Some(request) = self.cover_uploads.get(id) {
+                        cover.uploading = Some(*request);
+                    } else if let Some((selected, error)) = self.failed_covers.remove(id) {
+                        // A cover that failed to upload is offered again.
+                        cover.selection = Some(selected);
+                        cover.error = Some(error);
+                    }
                 }
                 self.dialog = Some(dialog);
             }
@@ -23298,6 +23323,70 @@ mod tests {
         assert!(!app.playlist_busy);
         assert!(app.dialog.is_none());
         assert!(app.cover_uploads.contains_key("n"));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn signing_out_while_creating_lets_the_next_playlist_be_created() {
+        let mut app = test_app("new-playlist-sign-out");
+        let ctx = egui::Context::default();
+        let create = || Action::CreatePlaylist {
+            name: "Road trip".into(),
+            public: false,
+            add_uris: Vec::new(),
+        };
+        app.apply(create(), &ctx);
+        assert!(app.creating_playlist.is_some());
+        // Signing out cancels the request, so no answer comes back.
+        app.reset_data();
+        assert!(app.creating_playlist.is_none());
+        assert!(!app.playlist_busy);
+        app.apply(create(), &ctx);
+        assert!(
+            app.creating_playlist.is_some(),
+            "the next Create starts a playlist"
+        );
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn a_new_playlist_cover_that_fails_to_upload_waits_for_edit_details() {
+        let mut app = test_app("new-playlist-cover-failed");
+        let ctx = egui::Context::default();
+        let cover = test_cover();
+        // New playlist has closed by the time its cover uploads.
+        app.cover_uploads.insert("n".into(), 1);
+        app.handle_api(ApiResponse::PlaylistCoverUploaded {
+            id: "n".into(),
+            request: 1,
+            previous_urls: vec![],
+            cover: cover.clone(),
+            result: Err(crate::api::ApiError::Status {
+                status: 500,
+                message: "Server error".into(),
+            }),
+        });
+        assert!(app.dialog.is_none());
+        app.apply(
+            Action::ShowDialog(Dialog::EditPlaylist {
+                cover: Default::default(),
+                id: "n".into(),
+                name: "Road trip".into(),
+                description: String::new(),
+                public: Some(false),
+            }),
+            &ctx,
+        );
+        let Some(Dialog::EditPlaylist { cover: draft, .. }) = &app.dialog else {
+            panic!("Edit details is open")
+        };
+        assert_eq!(
+            draft.selection.as_ref().map(|selected| &selected.uri),
+            Some(&cover.uri)
+        );
+        assert!(draft.error.is_some());
+        assert!(draft.uploading.is_none());
+        assert!(app.failed_covers.is_empty());
         app.backend.shutdown();
     }
 
