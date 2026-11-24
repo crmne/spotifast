@@ -23252,6 +23252,55 @@ mod tests {
         app.backend.shutdown();
     }
 
+    /// New playlist keeps the cover picked in it until Spotify has made the
+    /// playlist, then uploads it, and a second Create meanwhile is ignored.
+    #[test]
+    fn a_new_playlist_uploads_its_cover_once_created() {
+        let mut app = test_app("new-playlist-cover");
+        let ctx = egui::Context::default();
+        let songs = vec!["spotify:track:a".to_string()];
+        let mut dialog = Dialog::new_playlist("Road trip".into(), songs.clone());
+        if let Dialog::CreatePlaylist {
+            cover, description, ..
+        } = &mut dialog
+        {
+            cover.selection = Some(test_cover());
+            *description = "Night drive".into();
+        }
+        app.dialog = Some(dialog);
+        let create = || Action::CreatePlaylist {
+            name: "Road trip".into(),
+            public: false,
+            add_uris: vec!["spotify:track:a".into()],
+        };
+        app.apply(create(), &ctx);
+        assert!(app.playlist_busy);
+        assert!(matches!(
+            &app.creating_playlist,
+            Some((uris, Some(_))) if *uris == songs
+        ));
+        assert!(app.cover_uploads.is_empty(), "no playlist to upload to yet");
+        app.creating_playlist.as_mut().unwrap().1 = None;
+        app.apply(create(), &ctx);
+        assert!(
+            matches!(&app.creating_playlist, Some((_, None))),
+            "a second Create does not start another playlist"
+        );
+        app.creating_playlist.as_mut().unwrap().1 = Some(test_cover());
+
+        app.handle_api(ApiResponse::PlaylistCreated(Ok(Playlist {
+            id: "n".into(),
+            uri: "spotify:playlist:n".into(),
+            name: "Road trip".into(),
+            ..Playlist::default()
+        })));
+        assert!(app.creating_playlist.is_none());
+        assert!(!app.playlist_busy);
+        assert!(app.dialog.is_none());
+        assert!(app.cover_uploads.contains_key("n"));
+        app.backend.shutdown();
+    }
+
     #[test]
     fn cover_picker_cancellation_and_stale_completion_preserve_the_dialog() {
         let mut app = test_app("cover-picker");
