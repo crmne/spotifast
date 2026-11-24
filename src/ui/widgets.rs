@@ -3400,8 +3400,9 @@ pub fn thin_slider(
         let fill = if active { palette.accent } else { palette.text };
         ui.painter().rect_filled(filled, 2.0, fill);
         if active {
+            let radius = (width / 24.0).clamp(3.5, 6.0);
             ui.painter()
-                .circle_filled(pos2(filled.right(), bar.center().y), 6.0, palette.text);
+                .circle_filled(pos2(filled.right(), bar.center().y), radius, palette.text);
         }
     }
     event

@@ -13408,9 +13408,11 @@ mod tests {
                     output
                 };
                 frame(vec![]);
-                let tree = frame(vec![])
+                let mut resting = frame(vec![]);
+                let tree = resting
                     .platform_output
                     .accesskit_update
+                    .take()
                     .expect("screen-reader tree");
                 let bounds = tree
                     .nodes
@@ -13428,23 +13430,45 @@ mod tests {
                 frame(vec![egui::Event::PointerMoved(centre)]);
                 let output = frame(vec![egui::Event::PointerMoved(centre)]);
                 // Icons are textured rects tinted by their fill.
-                let tints: Vec<_> = output
-                    .shapes
-                    .iter()
-                    .filter_map(|shape| match &shape.shape {
-                        egui::Shape::Rect(rect)
-                            if rect.brush.is_some() && rect.rect.contains(centre) =>
-                        {
-                            Some(rect.fill)
-                        }
-                        _ => None,
-                    })
-                    .collect();
+                let icons = |output: &egui::FullOutput| -> Vec<(egui::Color32, f32)> {
+                    output
+                        .shapes
+                        .iter()
+                        .filter_map(|shape| match &shape.shape {
+                            egui::Shape::Rect(rect)
+                                if rect.brush.is_some() && rect.rect.contains(centre) =>
+                            {
+                                Some((rect.fill, rect.rect.width()))
+                            }
+                            _ => None,
+                        })
+                        .collect()
+                };
+                let tints: Vec<_> = icons(&output).into_iter().map(|(tint, _)| tint).collect();
+                // The player bar's toggles keep their colour and grow instead.
+                let saved = if place == "player bar" {
+                    app.palette.accent
+                } else {
+                    app.palette.accent_hover
+                };
                 assert!(
-                    tints.contains(&app.palette.accent_hover),
+                    tints.contains(&saved),
                     "a hovered {place} button in {theme} must still look saved: {tints:?}"
                 );
                 assert!(!tints.contains(&app.palette.text), "{place} in {theme}");
+                if place == "player bar" {
+                    let width = |output: &egui::FullOutput| {
+                        icons(output)
+                            .into_iter()
+                            .filter(|(tint, _)| *tint == saved)
+                            .map(|(_, width)| width)
+                            .fold(0.0, f32::max)
+                    };
+                    assert!(
+                        width(&output) > width(&resting),
+                        "a hovered {place} toggle in {theme} grows"
+                    );
+                }
                 app.backend.shutdown();
             }
         }

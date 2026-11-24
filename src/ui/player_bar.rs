@@ -609,19 +609,16 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
 
     if !now.is_episode {
         let saved = app.is_saved(&now.uri).unwrap_or(false);
-        // A liked heart stays green under the pointer, like shuffle.
-        let (icon, color, hover, tooltip) = if saved {
+        let (icon, color, tooltip) = if saved {
             (
                 Icon::HeartFilled,
                 palette.accent,
-                palette.accent_hover,
                 gettext(app.locale, "Add to playlist"),
             )
         } else {
             (
                 Icon::Heart,
                 palette.secondary,
-                palette.text,
                 gettext(app.locale, "Save to Liked Songs"),
             )
         };
@@ -634,7 +631,7 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
                 .max_rect(heart_rect)
                 .layout(Layout::centered_and_justified(egui::Direction::LeftToRight)),
         );
-        let response = theme::icon_button(&mut heart_ui, icon, 17.0, color, hover, &tooltip);
+        let response = theme::toggle_icon_button(&mut heart_ui, icon, 17.0, color, &tooltip);
         let popup_id = egui::Id::new(LIKED_POPUP_ID);
         let query_id = popup_id.with("query");
         let checks_id = popup_id.with("checks");
@@ -762,16 +759,11 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
 
     let shuffle_color = if shuffle { palette.accent } else { dim };
     let mut cell = centered(ui, slot(widths[0]));
-    let shuffle_button = theme::icon_button(
+    let shuffle_button = theme::toggle_icon_button(
         &mut cell,
         Icon::Shuffle,
         17.0,
         shuffle_color,
-        if shuffle {
-            palette.accent_hover
-        } else {
-            palette.text
-        },
         &gettext(app.locale, "Shuffle"),
     );
     shuffle_button.widget_info(|| {
@@ -869,20 +861,7 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
         ),
     };
     let mut cell = centered(ui, slot(widths[4]));
-    if theme::icon_button(
-        &mut cell,
-        repeat_icon,
-        17.0,
-        repeat_color,
-        if repeat == RepeatMode::Off {
-            palette.text
-        } else {
-            palette.accent_hover
-        },
-        &tooltip,
-    )
-    .clicked()
-    {
+    if theme::toggle_icon_button(&mut cell, repeat_icon, 17.0, repeat_color, &tooltip).clicked() {
         app.actions.push(Action::CycleRepeat);
     }
 
@@ -1051,7 +1030,7 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_
         .filter(|_| remote)
         .and_then(|now| now.device_kind.as_deref())
         .map_or(Icon::Speaker, super::devices::device_icon);
-    let devices = theme::icon_button(
+    let devices = theme::toggle_icon_button(
         ui,
         icon,
         18.0,
@@ -1060,7 +1039,6 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_
         } else {
             palette.secondary
         },
-        palette.text,
         &gettext(app.locale, "Connect to a device"),
     );
     ui.ctx().data_mut(|data| {
@@ -1070,7 +1048,7 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_
         app.actions.push(Action::ToggleDevicesPopup);
     }
     let queue_open = app.show_queue_panel || matches!(app.page(), Page::Queue);
-    let queue_button = theme::icon_button(
+    let queue_button = theme::toggle_icon_button(
         ui,
         Icon::ListVideo,
         18.0,
@@ -1079,7 +1057,6 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_
         } else {
             palette.secondary
         },
-        palette.text,
         &gettext(app.locale, "Queue"),
     );
     if queue_button.clicked() {
@@ -1096,7 +1073,7 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_
                 .collect(),
         });
     }
-    if theme::icon_button(
+    if theme::toggle_icon_button(
         ui,
         Icon::MicVocal,
         18.0,
@@ -1105,7 +1082,6 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_
         } else {
             palette.secondary
         },
-        palette.text,
         &gettext(app.locale, "Lyrics"),
     )
     .clicked()

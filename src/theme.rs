@@ -586,6 +586,28 @@ pub fn icon_button(
     hover: Color32,
     tooltip: &str,
 ) -> Response {
+    draw_icon_button(ui, icon, size, color, Some(hover), tooltip)
+}
+
+/// A toggle keeps its state colour and grows slightly under the pointer.
+pub fn toggle_icon_button(
+    ui: &mut egui::Ui,
+    icon: Icon,
+    size: f32,
+    color: Color32,
+    tooltip: &str,
+) -> Response {
+    draw_icon_button(ui, icon, size, color, None, tooltip)
+}
+
+fn draw_icon_button(
+    ui: &mut egui::Ui,
+    icon: Icon,
+    size: f32,
+    color: Color32,
+    hover: Option<Color32>,
+    tooltip: &str,
+) -> Response {
     let edge = size + ICON_BUTTON_PAD;
     let (rect, response) = ui.allocate_exact_size(Vec2::splat(edge), Sense::click());
     response.widget_info(|| {
@@ -593,12 +615,14 @@ pub fn icon_button(
     });
     if ui.is_rect_visible(rect) {
         let tint = if response.hovered() || response.has_focus() {
-            hover
+            hover.unwrap_or(color)
         } else {
             color
         };
         let scale = if response.is_pointer_button_down_on() {
             0.92
+        } else if hover.is_none() && response.hovered() {
+            1.1
         } else {
             1.0
         };
