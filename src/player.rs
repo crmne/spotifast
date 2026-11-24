@@ -773,7 +773,7 @@ impl Engine {
             Ok(bytes) => {
                 let (json, outcome) = read_lyrics(&bytes);
                 log::info!("spotify lyrics {track_uri}: {outcome}");
-                Ok(json)
+                lyrics_answer(json, &outcome)
             }
             // A redirect lands here too: librespot files it under not found,
             // and only the status in the error tells them apart.
@@ -1450,6 +1450,16 @@ fn read_lyrics(bytes: &[u8]) -> (Option<serde_json::Value>, String) {
         None => format!("no lines in the answer, {} bytes", bytes.len()),
     };
     (Some(json), outcome)
+}
+
+/// An answer that does not parse is a failed request, not a song without
+/// lyrics, so it is never remembered as one.
+fn lyrics_answer(
+    json: Option<serde_json::Value>,
+    outcome: &str,
+) -> Result<Option<serde_json::Value>> {
+    json.map(Some)
+        .ok_or_else(|| anyhow!("spotify lyrics: {outcome}"))
 }
 
 #[cfg(test)]
@@ -2179,6 +2189,17 @@ mod tests {
         let elsewhere = ClusterView::of(&cluster("sonos", "spotify:track:b", true, 20_000));
         assert!(ours.changed_elsewhere(&elsewhere, "this"));
         assert!(elsewhere.changed_elsewhere(&ours, "this"));
+    }
+
+    /// A body that does not parse fails the request, so the cache keeps no
+    /// "none" for it and older finds stand in; a parsed body is an answer.
+    #[test]
+    fn an_unparseable_lyrics_answer_fails_rather_than_saying_none() {
+        let (json, outcome) = read_lyrics(b"<html>secret</html>");
+        let error = lyrics_answer(json, &outcome).unwrap_err().to_string();
+        assert!(!error.contains("secret"), "{error}");
+        let (json, outcome) = read_lyrics(br#"{"lyrics":{"lines":[]}}"#);
+        assert!(lyrics_answer(json, &outcome).unwrap().is_some());
     }
 
     /// The log says which of the ways to no lyrics it was, without the words.
