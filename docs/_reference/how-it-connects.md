@@ -453,6 +453,48 @@ run when Home refreshes: on opening Home, at most once every ten minutes, and
 on a manual refresh. A rate limit, exhausted quota or expired sign-in stops the
 remaining shows for that refresh; the shelf keeps what it showed before.
 
+## Artist discographies
+
+**Show all** on an artist page opens the artist's discography. Its releases
+come from the request the artist page uses, read page after page until the
+list is complete, because Spotify lists albums before singles and
+compilations instead of by date; the page orders them itself. A list the
+artist page already holds in full needs no request. While the page is open,
+songs load for the releases on screen first, going no further below them
+than a play could reach, and a play that needs releases not read yet asks
+for them first. Leaving the page stops reading further releases; a read
+already on its way finishes, and so does a play still waiting for its songs.
+Liked and saved states and EP labels are asked for only for the releases on
+screen.
+
+With local playback ready, the songs come over the verified account's
+playback session, as on the New releases page: in batches of up to 50
+releases and about 250 songs, each two batched metadata reads, one for the
+releases' track lists and one for their songs, which use no Web API quota.
+One batch is read at a time, and one more for a play still waiting. A
+different account's playback session never supplies these songs. A release
+the session lists no songs for, or fewer than it has (as when Spotify no
+longer has a song or withholds it for legal reasons), is read from the Web
+API on its own, as below, which keeps each song's place.
+
+Without local playback, and for two minutes after the session fails a batch
+or takes longer than eight seconds over one (or until local playback is next
+ready), each release's songs come from the album-track endpoint in pages of
+50, with the normal personal/shared app routing: at most two releases at a
+time, or four for a play still waiting. A rate limit, an exhausted quota, an
+expired sign-in, a network failure or a Spotify server error on these reads
+stops all of the page's song lists until **Retry**; a release Spotify cannot
+list fails alone and offers its own **Retry**.
+
+Songs that have not come two minutes after they were asked for are asked for
+again, and after an expired sign-in **Retry**, on the page or on a release,
+also asks again for every release still waiting on the Web API, so an answer
+that never arrives cannot stop the page loading. Offline the page asks for
+nothing; when the network comes back, the open page reads what it lacks,
+including song lists a failure stopped, and a play still waiting asks for
+the songs it needs. A page restored at startup asks for the artist once to
+show their name.
+
 ## Album queueing
 
 Since 0.9.0, adding an album, single, or EP to the queue resolves
