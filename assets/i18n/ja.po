@@ -361,8 +361,8 @@ msgstr "再生待ちに追加した曲がここに表示されます。"
 msgid "Playing next"
 msgstr "次に再生"
 
-#. Translators: Upcoming songs from the current playlist or album, after manually queued songs.
-#: src/ui/queue.rs:584
+#. Translators: Upcoming songs after manually queued songs, when they come from no named playlist or album.
+#: src/ui/queue.rs:694
 msgid "Next up"
 msgstr "このあと再生"
 
@@ -4262,6 +4262,55 @@ msgstr ""
 "この PC または仮想マシンにはありません。グラフィックドライバーをインストール"
 "するか、仮想マシンの GPU アクセラレーションを有効にしてください。詳しくは "
 "{url} を開きますか？"
+
+#. Translators: Songs added manually, before the current playlist or album continues.
+#: src/ui/queue.rs:583
+msgid "Next in queue"
+msgstr "再生待ちリストの次の曲"
+
+#. Translators: Followed by the name of the playlist, album or radio the next songs come from.
+#: src/ui/queue.rs:669
+msgid "Next from:"
+msgstr "次の再生元:"
+
+#. Translators: Shown when the playing song is dragged from the queue's Now playing row onto the queue.
+#: src/app.rs:8390
+msgid "This song is already playing"
+msgstr "この曲はすでに再生中です"
+
+#: src/app.rs:8420
+msgid "Play a song to reorder the queue"
+msgstr "再生待ちリストを並べ替えるには曲を再生してください"
+
+#: src/app.rs:8424 src/app.rs:8449
+msgid "The queue is still updating. Try again in a moment."
+msgstr "再生待ちリストを更新しています。しばらくしてからもう一度お試しください。"
+
+#: src/app.rs:8429
+msgid "Spotifast has not seen this device's queue yet. Try again in a moment."
+msgstr "Spotifast はこのデバイスの再生待ちリストをまだ受け取っていません。しばらくしてからもう一度お試しください。"
+
+#: src/app.rs:8444
+msgid "The songs just added are still on their way. Try again in a moment."
+msgstr "追加したばかりの曲がまだ反映されていません。しばらくしてからもう一度お試しください。"
+
+#: src/app.rs:8439
+msgid "This device does not let Spotifast reorder its queue"
+msgstr "このデバイスでは Spotifast が再生待ちリストを並べ替えることはできません"
+
+#: src/app.rs:8434
+msgid "This device does not let Spotifast insert into its queue"
+msgstr "このデバイスでは Spotifast が再生待ちリストに曲を挿入することはできません"
+
+#: src/app.rs:7885
+msgid "The queue changed. Drag the song again."
+msgstr "再生待ちリストが変更されました。曲をもう一度ドラッグしてください。"
+
+#. Translators: {error} is the reason the queue edit failed.
+#: src/app.rs:11267
+#, rust-format
+msgid "Couldn't change the queue: {error}"
+msgstr "再生待ちリストを変更できませんでした: {error}"
 
 #~ msgid "Otherwise it installs the next time Spotifast starts."
 #~ msgstr ""

@@ -1222,8 +1222,6 @@ fn item_menu_at(
             label: label.clone(),
         });
     }
-    // Only a song the user queued, and only on this computer's queue: the
-    // context's rows play themselves, and no other queue can be rewritten.
     if let (Some(RowContext::Queue), Some(index)) = (context, index)
         && app.can_remove_from_queue(index)
         && menu_item(
@@ -1718,11 +1716,24 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) -> Option<RowPic
     track_row_response(ui, app, row).1
 }
 
+pub(crate) fn queue_track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) {
+    track_row_with_menu(ui, app, row, true);
+}
+
 /// Also exposes the row body so a collection can navigate between whole songs.
 pub(crate) fn track_row_response(
     ui: &mut Ui,
     app: &mut App,
     row: TrackRow<'_>,
+) -> (egui::Response, Option<RowPick>) {
+    track_row_with_menu(ui, app, row, false)
+}
+
+fn track_row_with_menu(
+    ui: &mut Ui,
+    app: &mut App,
+    row: TrackRow<'_>,
+    queue_menu: bool,
 ) -> (egui::Response, Option<RowPick>) {
     // Virtual lists reuse the visible slots as they scroll. Keep focus and
     // accessibility actions attached to the song and its occurrence instead.
@@ -1739,7 +1750,7 @@ pub(crate) fn track_row_response(
             .unwrap_or(row.index),
     ));
     ui.scope_builder(UiBuilder::new().id(id), |ui| {
-        track_row_contents(ui, app, row)
+        track_row_contents(ui, app, row, queue_menu)
     })
     .inner
 }
@@ -1748,6 +1759,7 @@ fn track_row_contents(
     ui: &mut Ui,
     app: &mut App,
     row: TrackRow<'_>,
+    queue_menu: bool,
 ) -> (egui::Response, Option<RowPick>) {
     let palette = app.palette;
     let row_height = if row.thin {
@@ -1794,18 +1806,23 @@ fn track_row_contents(
             } => Some(id.clone()),
             _ => None,
         };
-        // Keep the source index for moves within an editable playlist, or
-        // within the manually queued section while it can be rewritten.
+        // Keep the source index for moves within an editable playlist. A
+        // queue row always names the section it left, whether or not the
+        // queue can be rewritten now, so a row of Next in queue dropped
+        // back on the queue never queues another copy of it.
         let from = (items.len() == 1)
             .then(|| match row.context {
                 RowContext::Context {
                     editable_playlist: Some((id, _)),
                     ..
                 } => Some((id.clone(), row.index as u32)),
-                RowContext::Queue
-                    if row.index < app.queued_rows_len() && app.queue_locally_reorderable() =>
-                {
-                    Some(("queue".to_string(), row.index as u32))
+                RowContext::Queue => {
+                    let origin = if row.index < app.queued_rows_len() {
+                        crate::model::QUEUED_ROW
+                    } else {
+                        crate::model::UPCOMING_ROW
+                    };
+                    Some((origin.to_string(), row.index as u32))
                 }
                 _ => None,
             })
@@ -1819,6 +1836,9 @@ fn track_row_contents(
                 items,
                 from,
                 source_playlist,
+                queue_origin: matches!(row.context, RowContext::Queue)
+                    .then(|| app.queue_origin())
+                    .flatten(),
             },
         );
     }
@@ -2271,14 +2291,17 @@ fn track_row_contents(
     }
 
     // Duration.
-    let duration_rect = Rect::from_min_size(pos2(x, rect.top()), vec2(cols.duration, row_height));
-    painter.text(
-        pos2(duration_rect.right() - 6.0, duration_rect.center().y),
-        egui::Align2::RIGHT_CENTER,
-        util::format_duration_ms(row.item.duration_ms()),
-        theme::regular(13.0),
-        palette.secondary,
-    );
+    if !queue_menu || !row.item.needs_queue_details() {
+        let duration_rect =
+            Rect::from_min_size(pos2(x, rect.top()), vec2(cols.duration, row_height));
+        painter.text(
+            pos2(duration_rect.right() - 6.0, duration_rect.center().y),
+            egui::Align2::RIGHT_CENTER,
+            util::format_duration_ms(row.item.duration_ms()),
+            theme::regular(13.0),
+            palette.secondary,
+        );
+    }
     x += cols.duration;
 
     // More.
@@ -2370,39 +2393,47 @@ fn track_row_contents(
             });
         }
     }
-    egui::Popup::context_menu(&response)
-        .frame(menu_frame(&palette))
-        .show(|ui| {
-            // Right-clicking one of several picked rows acts on all of
-            // them; on anything else it is the ordinary single-song menu,
-            // including a picked row that is the only one picked.
-            if row.picked && row.picked_songs.len() > 1 {
-                // Every picked row shares this table's context, so one
-                // editable playlist covers the whole selection, including
-                // a sorted or filtered view where removal stays URI-based.
-                let editable = match row.context {
-                    RowContext::Context {
-                        editable_playlist: Some(playlist),
-                        ..
-                    }
-                    | RowContext::View {
-                        editable_playlist: Some(playlist),
-                        ..
-                    } => Some(playlist),
-                    _ => None,
-                };
-                picked_menu(ui, app, row.picked_songs, row.picked_positions, editable);
-            } else {
-                item_menu_at(
-                    ui,
-                    app,
-                    row.item,
-                    Some(row.context),
-                    Some(row.index),
-                    row.position,
-                );
-            }
-        });
+    let mut menu = egui::Popup::context_menu(&response);
+    // Artist and album links take the click from the row. In the queue,
+    // a secondary click over those links still opens the song menu.
+    if queue_menu
+        && ui.is_enabled()
+        && ui.rect_contains_pointer(rect)
+        && ui.input(|input| input.pointer.button_clicked(egui::PointerButton::Secondary))
+    {
+        menu = menu.open_memory(egui::SetOpenCommand::Bool(true));
+    }
+    menu.frame(menu_frame(&palette)).show(|ui| {
+        // Right-clicking one of several picked rows acts on all of
+        // them; on anything else it is the ordinary single-song menu,
+        // including a picked row that is the only one picked.
+        if row.picked && row.picked_songs.len() > 1 {
+            // Every picked row shares this table's context, so one
+            // editable playlist covers the whole selection, including
+            // a sorted or filtered view where removal stays URI-based.
+            let editable = match row.context {
+                RowContext::Context {
+                    editable_playlist: Some(playlist),
+                    ..
+                }
+                | RowContext::View {
+                    editable_playlist: Some(playlist),
+                    ..
+                } => Some(playlist),
+                _ => None,
+            };
+            picked_menu(ui, app, row.picked_songs, row.picked_positions, editable);
+        } else {
+            item_menu_at(
+                ui,
+                app,
+                row.item,
+                Some(row.context),
+                Some(row.index),
+                row.position,
+            );
+        }
+    });
     crate::autoscroll::row(ui, &response);
     (response, pick)
 }
@@ -4865,6 +4896,7 @@ mod tests {
                 }),
             ],
             from: None,
+            queue_origin: None,
             source_playlist: None,
         };
         assert_eq!(drag_label(Locale::English, &track), "Kora Panna + 1 more");

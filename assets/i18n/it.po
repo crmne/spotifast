@@ -365,8 +365,8 @@ msgstr "I brani in coda appaiono qui."
 msgid "Playing next"
 msgstr "In coda"
 
-#. Translators: Upcoming songs from the current playlist or album, after manually queued songs.
-#: src/ui/queue.rs:584
+#. Translators: Upcoming songs after manually queued songs, when they come from no named playlist or album.
+#: src/ui/queue.rs:694
 msgid "Next up"
 msgstr "Successivi"
 
@@ -4295,6 +4295,55 @@ msgstr ""
 "questo PC o macchina virtuale non lo fornisce. Installa il driver grafico, "
 "oppure attiva l’accelerazione GPU della macchina virtuale. Aprire {url} per "
 "saperne di più?"
+
+#. Translators: Songs added manually, before the current playlist or album continues.
+#: src/ui/queue.rs:583
+msgid "Next in queue"
+msgstr "Successivi in coda"
+
+#. Translators: Followed by the name of the playlist, album or radio the next songs come from.
+#: src/ui/queue.rs:669
+msgid "Next from:"
+msgstr "Successivi da:"
+
+#. Translators: Shown when the playing song is dragged from the queue's Now playing row onto the queue.
+#: src/app.rs:8390
+msgid "This song is already playing"
+msgstr "Questo brano è già in riproduzione"
+
+#: src/app.rs:8420
+msgid "Play a song to reorder the queue"
+msgstr "Riproduci un brano per riordinare la coda"
+
+#: src/app.rs:8424 src/app.rs:8449
+msgid "The queue is still updating. Try again in a moment."
+msgstr "La coda è ancora in aggiornamento. Riprova tra un momento."
+
+#: src/app.rs:8429
+msgid "Spotifast has not seen this device's queue yet. Try again in a moment."
+msgstr "Spotifast non ha ancora ricevuto la coda di questo dispositivo. Riprova tra un momento."
+
+#: src/app.rs:8444
+msgid "The songs just added are still on their way. Try again in a moment."
+msgstr "I brani appena aggiunti sono ancora in arrivo. Riprova tra un momento."
+
+#: src/app.rs:8439
+msgid "This device does not let Spotifast reorder its queue"
+msgstr "Questo dispositivo non consente a Spotifast di riordinare la sua coda"
+
+#: src/app.rs:8434
+msgid "This device does not let Spotifast insert into its queue"
+msgstr "Questo dispositivo non consente a Spotifast di inserire brani nella sua coda"
+
+#: src/app.rs:7885
+msgid "The queue changed. Drag the song again."
+msgstr "La coda è cambiata. Trascina di nuovo il brano."
+
+#. Translators: {error} is the reason the queue edit failed.
+#: src/app.rs:11267
+#, rust-format
+msgid "Couldn't change the queue: {error}"
+msgstr "Impossibile modificare la coda: {error}"
 
 #~ msgid "Otherwise it installs the next time Spotifast starts."
 #~ msgstr "Altrimenti si installa al prossimo avvio di Spotifast."

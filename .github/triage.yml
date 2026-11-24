@@ -125,7 +125,7 @@ instructions: |
   to winit upstream first (#windowing). A pull request that signs in with
   another project's Spotify Client ID or redirect path is closed
   (#other-projects-spotify-apps). Before welcoming a feature pull
-  request, check the guides for the feature: the queue's "Playing from" line
+  request, check the guides for the feature: the queue's "Next from" heading
   already opens the page that is playing.
 
   The maintainer waives visual evidence for an interface change that shows

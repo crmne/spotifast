@@ -365,8 +365,8 @@ msgstr "Nummers in de wachtrij verschijnen hier."
 msgid "Playing next"
 msgstr "Hierna"
 
-#. Translators: Upcoming songs from the current playlist or album, after manually queued songs.
-#: src/ui/queue.rs:584
+#. Translators: Upcoming songs after manually queued songs, when they come from no named playlist or album.
+#: src/ui/queue.rs:694
 msgid "Next up"
 msgstr "Daarna"
 
@@ -4288,6 +4288,55 @@ msgstr ""
 "en deze pc of virtuele machine biedt dat niet. Installeer het grafische "
 "stuurprogramma of zet GPU-versnelling aan voor de virtuele machine. {url} "
 "openen voor meer informatie?"
+
+#. Translators: Songs added manually, before the current playlist or album continues.
+#: src/ui/queue.rs:583
+msgid "Next in queue"
+msgstr "Volgende in wachtrij"
+
+#. Translators: Followed by the name of the playlist, album or radio the next songs come from.
+#: src/ui/queue.rs:669
+msgid "Next from:"
+msgstr "Volgende uit:"
+
+#. Translators: Shown when the playing song is dragged from the queue's Now playing row onto the queue.
+#: src/app.rs:8390
+msgid "This song is already playing"
+msgstr "Dit nummer wordt al afgespeeld"
+
+#: src/app.rs:8420
+msgid "Play a song to reorder the queue"
+msgstr "Speel een nummer af om de wachtrij te herschikken"
+
+#: src/app.rs:8424 src/app.rs:8449
+msgid "The queue is still updating. Try again in a moment."
+msgstr "De wachtrij wordt nog bijgewerkt. Probeer het zo opnieuw."
+
+#: src/app.rs:8429
+msgid "Spotifast has not seen this device's queue yet. Try again in a moment."
+msgstr "Spotifast heeft de wachtrij van dit apparaat nog niet ontvangen. Probeer het zo opnieuw."
+
+#: src/app.rs:8444
+msgid "The songs just added are still on their way. Try again in a moment."
+msgstr "De zojuist toegevoegde nummers zijn nog onderweg. Probeer het zo opnieuw."
+
+#: src/app.rs:8439
+msgid "This device does not let Spotifast reorder its queue"
+msgstr "Op dit apparaat kan Spotifast de wachtrij niet herschikken"
+
+#: src/app.rs:8434
+msgid "This device does not let Spotifast insert into its queue"
+msgstr "Op dit apparaat kan Spotifast geen nummers in de wachtrij invoegen"
+
+#: src/app.rs:7885
+msgid "The queue changed. Drag the song again."
+msgstr "De wachtrij is gewijzigd. Sleep het nummer opnieuw."
+
+#. Translators: {error} is the reason the queue edit failed.
+#: src/app.rs:11267
+#, rust-format
+msgid "Couldn't change the queue: {error}"
+msgstr "Kan de wachtrij niet wijzigen: {error}"
 
 #~ msgid "Otherwise it installs the next time Spotifast starts."
 #~ msgstr ""

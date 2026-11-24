@@ -365,8 +365,8 @@ msgstr "Låtar i kön visas här."
 msgid "Playing next"
 msgstr "Härnäst"
 
-#. Translators: Upcoming songs from the current playlist or album, after manually queued songs.
-#: src/ui/queue.rs:584
+#. Translators: Upcoming songs after manually queued songs, when they come from no named playlist or album.
+#: src/ui/queue.rs:694
 msgid "Next up"
 msgstr "Sedan"
 
@@ -4254,6 +4254,55 @@ msgstr ""
 "här datorn eller virtuella maskinen har ingen. Installera grafikdrivrutinen "
 "eller slå på GPU-acceleration för den virtuella maskinen. Öppna {url} för "
 "att läsa mer?"
+
+#. Translators: Songs added manually, before the current playlist or album continues.
+#: src/ui/queue.rs:583
+msgid "Next in queue"
+msgstr "Härnäst i kön"
+
+#. Translators: Followed by the name of the playlist, album or radio the next songs come from.
+#: src/ui/queue.rs:669
+msgid "Next from:"
+msgstr "Härnäst från:"
+
+#. Translators: Shown when the playing song is dragged from the queue's Now playing row onto the queue.
+#: src/app.rs:8390
+msgid "This song is already playing"
+msgstr "Den här låten spelas redan"
+
+#: src/app.rs:8420
+msgid "Play a song to reorder the queue"
+msgstr "Spela en låt för att ordna om kön"
+
+#: src/app.rs:8424 src/app.rs:8449
+msgid "The queue is still updating. Try again in a moment."
+msgstr "Kön uppdateras fortfarande. Försök igen om en stund."
+
+#: src/app.rs:8429
+msgid "Spotifast has not seen this device's queue yet. Try again in a moment."
+msgstr "Spotifast har inte fått den här enhetens kö än. Försök igen om en stund."
+
+#: src/app.rs:8444
+msgid "The songs just added are still on their way. Try again in a moment."
+msgstr "Låtarna du just lade till är fortfarande på väg. Försök igen om en stund."
+
+#: src/app.rs:8439
+msgid "This device does not let Spotifast reorder its queue"
+msgstr "Den här enheten låter inte Spotifast ordna om sin kö"
+
+#: src/app.rs:8434
+msgid "This device does not let Spotifast insert into its queue"
+msgstr "Den här enheten låter inte Spotifast infoga låtar i sin kö"
+
+#: src/app.rs:7885
+msgid "The queue changed. Drag the song again."
+msgstr "Kön har ändrats. Dra låten igen."
+
+#. Translators: {error} is the reason the queue edit failed.
+#: src/app.rs:11267
+#, rust-format
+msgid "Couldn't change the queue: {error}"
+msgstr "Det gick inte att ändra kön: {error}"
 
 #~ msgid "Otherwise it installs the next time Spotifast starts."
 #~ msgstr "Annars installeras den nästa gång Spotifast startar."

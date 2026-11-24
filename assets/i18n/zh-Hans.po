@@ -361,8 +361,8 @@ msgstr "加入队列的歌曲会显示在这里。"
 msgid "Playing next"
 msgstr "接下来播放"
 
-#. Translators: Upcoming songs from the current playlist or album, after manually queued songs.
-#: src/ui/queue.rs:584
+#. Translators: Upcoming songs after manually queued songs, when they come from no named playlist or album.
+#: src/ui/queue.rs:694
 msgid "Next up"
 msgstr "后续曲目"
 
@@ -4122,6 +4122,55 @@ msgstr ""
 "Spotifast 需要支持 OpenGL 2.0 或更高版本的显卡驱动程序，而这台电脑或虚拟机没"
 "有提供。请安装显卡驱动程序，或为虚拟机开启 GPU 加速。要打开 {url} 了解更多"
 "吗？"
+
+#. Translators: Songs added manually, before the current playlist or album continues.
+#: src/ui/queue.rs:583
+msgid "Next in queue"
+msgstr "队列中的下一首"
+
+#. Translators: Followed by the name of the playlist, album or radio the next songs come from.
+#: src/ui/queue.rs:669
+msgid "Next from:"
+msgstr "接下来来自："
+
+#. Translators: Shown when the playing song is dragged from the queue's Now playing row onto the queue.
+#: src/app.rs:8390
+msgid "This song is already playing"
+msgstr "这首歌曲已在播放"
+
+#: src/app.rs:8420
+msgid "Play a song to reorder the queue"
+msgstr "播放一首歌曲后才能调整队列顺序"
+
+#: src/app.rs:8424 src/app.rs:8449
+msgid "The queue is still updating. Try again in a moment."
+msgstr "队列仍在更新。请稍后重试。"
+
+#: src/app.rs:8429
+msgid "Spotifast has not seen this device's queue yet. Try again in a moment."
+msgstr "Spotifast 尚未收到此设备的队列。请稍后重试。"
+
+#: src/app.rs:8444
+msgid "The songs just added are still on their way. Try again in a moment."
+msgstr "刚添加的歌曲仍在同步中。请稍后重试。"
+
+#: src/app.rs:8439
+msgid "This device does not let Spotifast reorder its queue"
+msgstr "此设备不允许 Spotifast 调整其队列顺序"
+
+#: src/app.rs:8434
+msgid "This device does not let Spotifast insert into its queue"
+msgstr "此设备不允许 Spotifast 向其队列插入歌曲"
+
+#: src/app.rs:7885
+msgid "The queue changed. Drag the song again."
+msgstr "队列已更改。请重新拖动歌曲。"
+
+#. Translators: {error} is the reason the queue edit failed.
+#: src/app.rs:11267
+#, rust-format
+msgid "Couldn't change the queue: {error}"
+msgstr "无法更改队列：{error}"
 
 #~ msgid "Otherwise it installs the next time Spotifast starts."
 #~ msgstr "否则会在下次启动 Spotifast 时安装。"

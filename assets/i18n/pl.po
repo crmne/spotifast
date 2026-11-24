@@ -370,8 +370,8 @@ msgstr "Tutaj pojawią się utwory dodane do kolejki."
 msgid "Playing next"
 msgstr "Następne z kolejki"
 
-#. Translators: Upcoming songs from the current playlist or album, after manually queued songs.
-#: src/ui/queue.rs:584
+#. Translators: Upcoming songs after manually queued songs, when they come from no named playlist or album.
+#: src/ui/queue.rs:694
 msgid "Next up"
 msgstr "Dalej"
 
@@ -4309,6 +4309,55 @@ msgstr ""
 "komputer lub ta maszyna wirtualna go nie zapewnia. Zainstaluj sterownik "
 "graficzny albo włącz akcelerację GPU maszyny wirtualnej. Otworzyć {url}, aby "
 "dowiedzieć się więcej?"
+
+#. Translators: Songs added manually, before the current playlist or album continues.
+#: src/ui/queue.rs:583
+msgid "Next in queue"
+msgstr "Następne w kolejce"
+
+#. Translators: Followed by the name of the playlist, album or radio the next songs come from.
+#: src/ui/queue.rs:669
+msgid "Next from:"
+msgstr "Następne z:"
+
+#. Translators: Shown when the playing song is dragged from the queue's Now playing row onto the queue.
+#: src/app.rs:8390
+msgid "This song is already playing"
+msgstr "Ten utwór jest już odtwarzany"
+
+#: src/app.rs:8420
+msgid "Play a song to reorder the queue"
+msgstr "Odtwórz utwór, aby zmienić kolejność w kolejce"
+
+#: src/app.rs:8424 src/app.rs:8449
+msgid "The queue is still updating. Try again in a moment."
+msgstr "Kolejka wciąż się aktualizuje. Spróbuj ponownie za chwilę."
+
+#: src/app.rs:8429
+msgid "Spotifast has not seen this device's queue yet. Try again in a moment."
+msgstr "Spotifast nie otrzymał jeszcze kolejki z tego urządzenia. Spróbuj ponownie za chwilę."
+
+#: src/app.rs:8444
+msgid "The songs just added are still on their way. Try again in a moment."
+msgstr "Właśnie dodane utwory są jeszcze w drodze. Spróbuj ponownie za chwilę."
+
+#: src/app.rs:8439
+msgid "This device does not let Spotifast reorder its queue"
+msgstr "To urządzenie nie pozwala Spotifast zmieniać kolejności w swojej kolejce"
+
+#: src/app.rs:8434
+msgid "This device does not let Spotifast insert into its queue"
+msgstr "To urządzenie nie pozwala Spotifast wstawiać utworów do swojej kolejki"
+
+#: src/app.rs:7885
+msgid "The queue changed. Drag the song again."
+msgstr "Kolejka się zmieniła. Przeciągnij utwór ponownie."
+
+#. Translators: {error} is the reason the queue edit failed.
+#: src/app.rs:11267
+#, rust-format
+msgid "Couldn't change the queue: {error}"
+msgstr "Nie udało się zmienić kolejki: {error}"
 
 #~ msgid "Otherwise it installs the next time Spotifast starts."
 #~ msgstr ""

@@ -564,6 +564,28 @@ Web API controls has no such command and gets one Next per row down to the
 song, the song's own row included (one for the top row), each sent after the
 one before it is answered.
 
+Reordering, removing and clearing the songs queued on another device go over
+the Connect route to any device, restricted or not, as one `set_queue` command:
+the device's queued rows from the latest cluster push, uids kept, in the new
+order, then its other next tracks and its previous tracks unchanged, with the
+push's `queue_revision`. The app offers these edits only while that push's
+restrictions allow `set_queue` and the reorder or removal, and the push's
+`queue` provider rows decide which songs show under Next in queue. Each
+command logs one line with counts.
+
+Positional queue drags and removal of an individual upcoming song use the
+rows published by the built-in player or the active Connect device. The Web
+API supplies track details. A failed metadata refresh keeps the loaded rows;
+a matching player snapshot can also supply the list without that response.
+If its queue response covers fewer songs than
+the player's list, Spotifast looks up the missing details in batches over
+the same-account playback session. It reuses known details, limits the
+lookup to one batch at a time, and waits before retrying a failed lookup.
+Each edit appears immediately. Spotifast sends a
+`set_queue` command and waits for the player to publish the new queue before
+sending the next edit with its revision. Receivers that restrict these edits,
+including Soloist through its documented API, omit those controls.
+
 Individual and album queue additions use the same Connect route, one song at
 a time. A later addition waits for the whole album, repeated songs keep their
 places, and a failed write stops the remaining songs. Signing out cancels
