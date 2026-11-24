@@ -9132,6 +9132,10 @@ impl App {
                         .map(|error| cover_error(self.locale, error));
                     if result.is_ok() {
                         draft.selection = None;
+                    } else if draft.selection.is_none() {
+                        // Opened while New playlist's cover was uploading:
+                        // the image comes back to retry.
+                        draft.selection = Some(cover.clone());
                     }
                     true
                 } else {
@@ -23387,6 +23391,44 @@ mod tests {
         assert!(draft.error.is_some());
         assert!(draft.uploading.is_none());
         assert!(app.failed_covers.is_empty());
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn edit_details_opened_during_a_new_playlist_upload_keeps_a_failed_cover() {
+        let mut app = test_app("new-playlist-cover-failed-open");
+        let ctx = egui::Context::default();
+        let cover = test_cover();
+        app.cover_uploads.insert("n".into(), 1);
+        app.apply(
+            Action::ShowDialog(Dialog::EditPlaylist {
+                cover: Default::default(),
+                id: "n".into(),
+                name: "Road trip".into(),
+                description: String::new(),
+                public: Some(false),
+            }),
+            &ctx,
+        );
+        app.handle_api(ApiResponse::PlaylistCoverUploaded {
+            id: "n".into(),
+            request: 1,
+            previous_urls: vec![],
+            cover: cover.clone(),
+            result: Err(crate::api::ApiError::Status {
+                status: 500,
+                message: "Server error".into(),
+            }),
+        });
+        let Some(Dialog::EditPlaylist { cover: draft, .. }) = &app.dialog else {
+            panic!("Edit details is open")
+        };
+        assert_eq!(
+            draft.selection.as_ref().map(|selected| &selected.uri),
+            Some(&cover.uri)
+        );
+        assert!(draft.error.is_some());
+        assert!(draft.uploading.is_none());
         app.backend.shutdown();
     }
 
