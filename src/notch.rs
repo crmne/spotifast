@@ -55,6 +55,35 @@ pub fn should_show_notch_window(
     enabled && !in_foreground && has_track && has_notch
 }
 
+/// A change to the overlay window's place on screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WindowOrder {
+    Show,
+    Hide,
+}
+
+/// What the overlay window needs, given whether it should show and whether
+/// it is on screen now. The notch syncs every frame, and ordering a window
+/// is a round trip to the WindowServer, so a window already where it belongs
+/// is left alone. Its real visibility, not a remembered one, decides: if
+/// AppKit hides or shows it behind the app's back, the next frame puts it
+/// right.
+pub fn window_order(should_show: bool, is_visible: bool) -> Option<WindowOrder> {
+    match (should_show, is_visible) {
+        (true, false) => Some(WindowOrder::Show),
+        (false, true) => Some(WindowOrder::Hide),
+        _ => None,
+    }
+}
+
+/// Whether the overlay, meant to be hidden, must drop what it was in the
+/// middle of: once when this sync hides it, and on any frame that finds it
+/// hidden with something still under way, as when AppKit hid it mid-expand.
+/// A hidden overlay with nothing under way is left alone.
+pub fn should_reset_hidden(should_show: bool, order: Option<WindowOrder>, busy: bool) -> bool {
+    order == Some(WindowOrder::Hide) || (!should_show && busy)
+}
+
 /// Pure helper to determine whether entering the notch area should schedule an expansion timer.
 pub fn should_schedule_expand(
     enabled: bool,
@@ -407,6 +436,32 @@ mod tests {
 
         // If display lacks a physical notch (clamshell mode or external monitor), never show
         assert!(!should_show_notch_window(true, false, true, false));
+    }
+
+    /// The window is ordered only when it is not where it belongs: a frame
+    /// that finds it already shown or already hidden leaves the WindowServer
+    /// alone, which every visualizer frame used to call.
+    #[test]
+    fn the_overlay_is_ordered_only_when_its_visibility_changes() {
+        assert_eq!(window_order(true, false), Some(WindowOrder::Show));
+        assert_eq!(window_order(false, true), Some(WindowOrder::Hide));
+        assert_eq!(window_order(true, true), None);
+        assert_eq!(window_order(false, false), None);
+    }
+
+    /// Hiding the overlay drops its state, and so does finding it hidden
+    /// by AppKit with a card still expanded, so a later show starts from a
+    /// collapsed card. A hidden, settled overlay costs nothing per frame.
+    #[test]
+    fn a_hidden_overlay_drops_what_it_was_doing() {
+        assert!(should_reset_hidden(false, Some(WindowOrder::Hide), false));
+        assert!(
+            should_reset_hidden(false, None, true),
+            "hidden by AppKit mid-expand"
+        );
+        assert!(!should_reset_hidden(false, None, false));
+        assert!(!should_reset_hidden(true, None, true), "shown and expanded");
+        assert!(!should_reset_hidden(true, Some(WindowOrder::Show), false));
     }
 
     #[test]
