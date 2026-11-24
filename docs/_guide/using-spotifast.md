@@ -351,7 +351,8 @@ for its own text.
 Repeat cycles through off, the whole list, and one song. As in Spotify's own
 apps, choosing another song while one song repeats (Next, Previous, or playing
 a song) turns Repeat One back into repeating the whole list. Previous that
-restarts the song keeps it repeating.
+restarts the song keeps it repeating. Hover over the Repeat button to see what
+repeats now and what a click changes it to.
 
 ## Controlling it from the command line
 
@@ -512,7 +513,7 @@ has no place in Spotify's playlist tree. Returning to **Local custom order**
 restores its saved position. Dragging a song onto Liked Songs still saves that
 song, wherever the row sits.
 
-**Player bar visualizer** in **Settings > Appearance** shows the song moving
+**Player bar visualiser** in **Settings > Appearance** shows the song moving
 behind the player bar's controls: **Spectrum** draws glowing bars from bass
 to treble with peaks that hang and fall, and **Waveform** draws the sound's
 wave as a glowing line. With **Colour from album art** on, both sweep from
@@ -521,7 +522,8 @@ and its greys after, so a black and white cover moves in grey; with it off,
 they take the accent colour. It follows the equalizer, not the volume, and moves only while the
 song plays on this computer. It is off by default. Clicking the player
 bar's empty space switches it, as Winamp's visualizer did: off, then
-Spectrum, then Waveform, then off again. **Frame rate** in **Settings >
+Spectrum, then Waveform, then off again. While it is off, that space offers
+no tooltip. **Frame rate** in **Settings >
 Appearance** sets how often it and the mini player's analyser draw: 30, 60
 (the default), the rate of the screen showing the window, or Uncapped,
 which follows the display. They draw at half that rate while Spotifast's
@@ -529,7 +531,7 @@ window is out of focus, at most 30 frames a second while the system saves
 energy, and not at all while nobody can see the window: minimised, in the
 tray, with the display off or the screen locked. MilkDrop has its own frame
 rate. Disable **Click player bar to change
-visualizer** in **Settings > Appearance** to prevent accidental changes.
+visualiser** in **Settings > Appearance** to prevent accidental changes.
 
 Spotifast follows the system when it asks for less motion: **Animation
 effects** turned off in Windows, **Reduce motion** on macOS, or GNOME's
@@ -732,8 +734,8 @@ volume for Spotifast alone.
 
 ## Listening activity
 
-The people button in the player bar, beside Queue and Lyrics, opens what the
-people you follow on Spotify are listening to. It takes the place of the
+The people button in the top bar, beside Settings, opens what the people you
+follow on Spotify are listening to. It takes the place of the
 Queue or Lyrics panel on the right, and they take its place in turn. While
 it is open it refreshes every 15 seconds.
 
@@ -744,8 +746,8 @@ album, the artist opens their page, and the line below opens the playlist,
 album or artist it plays from.
 
 The panel needs playback on this computer, since only that session can read
-it. In a very narrow window the people button gives way so the playback
-controls keep their room; widen the window to bring it back.
+it. In a very narrow window the people button gives way so the search field
+keeps its reading size; widen the window to bring it back.
 
 ## Sleep while playing
 

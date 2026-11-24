@@ -6820,12 +6820,17 @@ mod tests {
     }
 
     /// The empty space's tooltip belongs to the empty space: once shown, it
-    /// closes when the pointer moves onto a control drawn over the bar.
+    /// closes when the pointer moves onto a control drawn over the bar. While
+    /// the music plays on another device, it says the visualiser shows only
+    /// music on this computer.
     #[cfg(feature = "demo")]
     #[test]
     fn the_visualizer_tooltip_stays_off_the_player_bar_controls() {
         let (ctx, mut app) = accessible_app("player-bar-tooltip");
         ctx.global_style_mut(|style| style.interaction.tooltip_delay = 0.0);
+        app.settings.player_bar_vis = crate::settings::PlayerBarVis::Spectrum;
+        play_here(&mut app);
+        app.local.playback = crate::player::Playback::Playing;
         let mut time = 0.0;
         let mut draw = |app: &mut App, pos: egui::Pos2| {
             time += 1.0;
@@ -6858,7 +6863,7 @@ mod tests {
                 .for_each(|clipped| texts(&clipped.shape, &mut found));
             found
         };
-        let tip = "Click to change the visualizer";
+        let tip = "Click to change the visualiser";
 
         // #given the tooltip shown over the empty margin beside the cover
         let empty = egui::pos2(6.0, 796.0);
@@ -6876,6 +6881,118 @@ mod tests {
         // #then the tooltip is gone
         let shown = draw(&mut app, play);
         assert!(!shown.iter().any(|text| text == tip), "{shown:?}");
+
+        // #and with the visualiser off, the empty space offers no tooltip
+        app.settings.player_bar_vis = crate::settings::PlayerBarVis::Off;
+        for _ in 0..3 {
+            draw(&mut app, empty);
+        }
+        let shown = draw(&mut app, empty);
+        assert!(!shown.iter().any(|text| text == tip), "{shown:?}");
+
+        // #and with the music on another device, it says the visualiser shows
+        // only music playing here
+        app.settings.player_bar_vis = crate::settings::PlayerBarVis::Spectrum;
+        app.local.playback = crate::player::Playback::Stopped;
+        for _ in 0..3 {
+            draw(&mut app, empty);
+        }
+        let shown = draw(&mut app, empty);
+        let elsewhere = "The visualiser shows only music playing on this computer";
+        assert!(shown.iter().any(|text| text == elsewhere), "{shown:?}");
+        assert!(!shown.iter().any(|text| text == tip), "{shown:?}");
+        app.backend.shutdown();
+    }
+
+    /// A screen reader hears the Repeat button named by what a click does,
+    /// and its tooltip also says what repeats now.
+    #[cfg(feature = "demo")]
+    #[test]
+    fn the_repeat_button_says_what_repeats_and_what_a_click_does() {
+        use crate::player::RepeatMode;
+        let (ctx, mut app) = accessible_app("repeat-tooltip");
+        ctx.global_style_mut(|style| style.interaction.tooltip_delay = 0.0);
+        play_here(&mut app);
+        app.local.playback = crate::player::Playback::Playing;
+        let mut time = 0.0;
+        let mut draw = |app: &mut App, pos: egui::Pos2| {
+            time += 1.0;
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 800.0),
+                    )),
+                    time: Some(time),
+                    events: vec![egui::Event::PointerMoved(pos)],
+                    ..Default::default()
+                },
+                |ui| crate::ui::player_bar::show(app, ui),
+            );
+            output.textures_delta.clear();
+            fn texts(shape: &egui::epaint::Shape, found: &mut Vec<String>) {
+                match shape {
+                    egui::epaint::Shape::Text(text) => found.push(text.galley.job.text.clone()),
+                    egui::epaint::Shape::Vec(shapes) => {
+                        shapes.iter().for_each(|shape| texts(shape, found));
+                    }
+                    _ => {}
+                }
+            }
+            let mut found = Vec::new();
+            output
+                .shapes
+                .iter()
+                .for_each(|clipped| texts(&clipped.shape, &mut found));
+            (found, output.platform_output.accesskit_update)
+        };
+        for (mode, name, tip) in [
+            (
+                RepeatMode::Off,
+                "Repeat",
+                "Repeat is off. Click to repeat all.",
+            ),
+            (
+                RepeatMode::Context,
+                "Repeat one",
+                "Repeating all. Click to repeat this song.",
+            ),
+            (
+                RepeatMode::Track,
+                "Repeat off",
+                "Repeating this song. Click to turn repeat off.",
+            ),
+        ] {
+            // #given the song repeating in `mode`
+            app.local.repeat = mode;
+            let away = egui::pos2(640.0, 20.0);
+            draw(&mut app, away);
+            let (_, tree) = draw(&mut app, away);
+
+            // #then the button is named by what a click does
+            let bounds = tree
+                .expect("screen-reader tree")
+                .nodes
+                .iter()
+                .find(|(_, node)| {
+                    node.label() == Some(name) && node.role() == egui::accesskit::Role::Button
+                })
+                .and_then(|(_, node)| node.bounds())
+                .unwrap_or_else(|| panic!("missing {name:?}"));
+
+            // #when the pointer rests on it
+            let centre = egui::pos2(
+                (bounds.x0 + bounds.x1) as f32 / 2.0,
+                (bounds.y0 + bounds.y1) as f32 / 2.0,
+            );
+            for _ in 0..3 {
+                draw(&mut app, centre);
+            }
+
+            // #then the tooltip says what repeats now and what a click does
+            let (shown, _) = draw(&mut app, centre);
+            assert!(shown.iter().any(|text| text == tip), "{name}: {shown:?}");
+        }
         app.backend.shutdown();
     }
 
@@ -9379,7 +9496,7 @@ mod tests {
                 "Audio cache",
                 "Equalizer",
                 "MilkDrop",
-                "Player bar visualizer",
+                "Player bar visualiser",
             ] {
                 let text = settings_text(&ctx, &mut app, title);
                 assert_eq!(
@@ -9436,7 +9553,7 @@ mod tests {
         let (ctx, mut app) = accessible_app("soloist-processing");
         app.settings.soloist_enabled = true;
         app.soloist_audio = true;
-        for title in ["Equalizer", "MilkDrop", "Player bar visualizer"] {
+        for title in ["Equalizer", "MilkDrop", "Player bar visualiser"] {
             let text = settings_text(&ctx, &mut app, title);
             // Windows can observe the owned process but cannot apply EQ to
             // its audible output. Keep the visualizers without promising EQ.
@@ -13383,9 +13500,11 @@ mod tests {
                     output
                 };
                 frame(vec![]);
-                let tree = frame(vec![])
+                let mut resting = frame(vec![]);
+                let tree = resting
                     .platform_output
                     .accesskit_update
+                    .take()
                     .expect("screen-reader tree");
                 let bounds = tree
                     .nodes
@@ -13403,23 +13522,45 @@ mod tests {
                 frame(vec![egui::Event::PointerMoved(centre)]);
                 let output = frame(vec![egui::Event::PointerMoved(centre)]);
                 // Icons are textured rects tinted by their fill.
-                let tints: Vec<_> = output
-                    .shapes
-                    .iter()
-                    .filter_map(|shape| match &shape.shape {
-                        egui::Shape::Rect(rect)
-                            if rect.brush.is_some() && rect.rect.contains(centre) =>
-                        {
-                            Some(rect.fill)
-                        }
-                        _ => None,
-                    })
-                    .collect();
+                let icons = |output: &egui::FullOutput| -> Vec<(egui::Color32, f32)> {
+                    output
+                        .shapes
+                        .iter()
+                        .filter_map(|shape| match &shape.shape {
+                            egui::Shape::Rect(rect)
+                                if rect.brush.is_some() && rect.rect.contains(centre) =>
+                            {
+                                Some((rect.fill, rect.rect.width()))
+                            }
+                            _ => None,
+                        })
+                        .collect()
+                };
+                let tints: Vec<_> = icons(&output).into_iter().map(|(tint, _)| tint).collect();
+                // The player bar's toggles keep their colour and grow instead.
+                let saved = if place == "player bar" {
+                    app.palette.accent
+                } else {
+                    app.palette.accent_hover
+                };
                 assert!(
-                    tints.contains(&app.palette.accent_hover),
+                    tints.contains(&saved),
                     "a hovered {place} button in {theme} must still look saved: {tints:?}"
                 );
                 assert!(!tints.contains(&app.palette.text), "{place} in {theme}");
+                if place == "player bar" {
+                    let width = |output: &egui::FullOutput| {
+                        icons(output)
+                            .into_iter()
+                            .filter(|(tint, _)| *tint == saved)
+                            .map(|(_, width)| width)
+                            .fold(0.0, f32::max)
+                    };
+                    assert!(
+                        width(&output) > width(&resting),
+                        "a hovered {place} toggle in {theme} grows"
+                    );
+                }
                 app.backend.shutdown();
             }
         }

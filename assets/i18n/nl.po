@@ -222,8 +222,12 @@ msgstr "{name}, map, samengevouwen"
 msgid "{name}, folder, expanded"
 msgstr "{name}, map, uitgevouwen"
 
-#: src/ui/player_bar.rs:81
-msgid "Click to change the visualizer"
+#: src/ui/player_bar.rs:88
+msgid "The visualiser shows only music playing on this computer"
+msgstr "De visualisatie toont alleen muziek die op deze computer speelt"
+
+#: src/ui/player_bar.rs:91
+msgid "Click to change the visualiser"
 msgstr "Klik om de visualisatie te wisselen"
 
 #: src/ui/player_bar.rs:440 src/ui/lyrics.rs:134 src/ui/lyrics.rs:808
@@ -270,17 +274,29 @@ msgstr "Pauzeren"
 msgid "Next"
 msgstr "Volgende"
 
-#: src/ui/player_bar.rs:849
+#: src/ui/player_bar.rs:854
 msgid "Repeat"
 msgstr "Herhalen"
 
-#: src/ui/player_bar.rs:853
+#: src/ui/player_bar.rs:860
 msgid "Repeat one"
 msgstr "Eén nummer herhalen"
 
-#: src/ui/player_bar.rs:858
+#: src/ui/player_bar.rs:866
 msgid "Repeat off"
 msgstr "Herhalen uit"
+
+#: src/ui/player_bar.rs:855
+msgid "Repeat is off. Click to repeat all."
+msgstr "Herhalen staat uit. Klik om alles te herhalen."
+
+#: src/ui/player_bar.rs:861
+msgid "Repeating all. Click to repeat this song."
+msgstr "Alles wordt herhaald. Klik om dit nummer te herhalen."
+
+#: src/ui/player_bar.rs:867
+msgid "Repeating this song. Click to turn repeat off."
+msgstr "Dit nummer wordt herhaald. Klik om herhalen uit te zetten."
 
 #: src/ui/player_bar.rs:919
 msgid "Playback position (%)"
@@ -1705,11 +1721,11 @@ msgid "Custom title bar"
 msgstr "Aangepaste titelbalk"
 
 #: src/ui/settings.rs:1205
-msgid "Player bar visualizer"
+msgid "Player bar visualiser"
 msgstr "Visualisatie in de spelerbalk"
 
 #: src/ui/settings.rs:1206
-msgid "Click player bar to change visualizer"
+msgid "Click player bar to change visualiser"
 msgstr "Klik op de afspeelbalk om de visualisatie te wijzigen"
 
 #: src/ui/settings.rs:1215
@@ -1793,13 +1809,15 @@ msgstr ""
 
 #: src/ui/settings.rs:1306
 msgid ""
-"Show the song moving behind the player bar's controls while it plays here."
+"Show the song moving behind the player bar's controls. It shows only music "
+"playing on this computer, not on a speaker or another device."
 msgstr ""
-"Toont het nummer in beweging achter de knoppen van de spelerbalk terwijl het "
-"hier speelt."
+"Toont het nummer in beweging achter de knoppen van de spelerbalk. Alleen "
+"muziek die op deze computer speelt, niet op een speaker of een ander "
+"apparaat."
 
 #: src/ui/settings.rs:1311
-msgid "Allow clicks on empty player bar space to cycle the visualizer."
+msgid "Allow clicks on empty player bar space to cycle the visualiser."
 msgstr ""
 "Sta toe dat klikken op lege ruimte in de afspeelbalk de visualisatie wisselt."
 
@@ -1809,7 +1827,7 @@ msgstr "Framerate"
 
 #: src/ui/settings.rs:1317
 msgid ""
-"How often the player bar and mini player visualizers draw. Lower rates use "
+"How often the player bar and mini player visualisers draw. Lower rates use "
 "fewer resources. MilkDrop has its own."
 msgstr ""
 "Hoe vaak de visualisaties van de spelerbalk en de minispeler tekenen. Lagere "

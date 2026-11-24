@@ -218,8 +218,12 @@ msgstr "{name}，文件夹，已折叠"
 msgid "{name}, folder, expanded"
 msgstr "{name}，文件夹，已展开"
 
-#: src/ui/player_bar.rs:81
-msgid "Click to change the visualizer"
+#: src/ui/player_bar.rs:88
+msgid "The visualiser shows only music playing on this computer"
+msgstr "可视化效果只显示在这台电脑上播放的音乐"
+
+#: src/ui/player_bar.rs:91
+msgid "Click to change the visualiser"
 msgstr "点击切换可视化效果"
 
 #: src/ui/player_bar.rs:440 src/ui/lyrics.rs:134 src/ui/lyrics.rs:808
@@ -266,17 +270,29 @@ msgstr "暂停"
 msgid "Next"
 msgstr "下一首"
 
-#: src/ui/player_bar.rs:849
+#: src/ui/player_bar.rs:854
 msgid "Repeat"
 msgstr "列表循环"
 
-#: src/ui/player_bar.rs:853
+#: src/ui/player_bar.rs:860
 msgid "Repeat one"
 msgstr "单曲循环"
 
-#: src/ui/player_bar.rs:858
+#: src/ui/player_bar.rs:866
 msgid "Repeat off"
 msgstr "关闭循环"
+
+#: src/ui/player_bar.rs:855
+msgid "Repeat is off. Click to repeat all."
+msgstr "循环已关闭。点击以列表循环。"
+
+#: src/ui/player_bar.rs:861
+msgid "Repeating all. Click to repeat this song."
+msgstr "正在列表循环。点击以单曲循环。"
+
+#: src/ui/player_bar.rs:867
+msgid "Repeating this song. Click to turn repeat off."
+msgstr "正在单曲循环。点击以关闭循环。"
 
 #: src/ui/player_bar.rs:919
 msgid "Playback position (%)"
@@ -1649,11 +1665,11 @@ msgid "Custom title bar"
 msgstr "自定义标题栏"
 
 #: src/ui/settings.rs:1205
-msgid "Player bar visualizer"
+msgid "Player bar visualiser"
 msgstr "播放栏可视化效果"
 
 #: src/ui/settings.rs:1206
-msgid "Click player bar to change visualizer"
+msgid "Click player bar to change visualiser"
 msgstr "点击播放栏切换可视化效果"
 
 #: src/ui/settings.rs:1215
@@ -1729,11 +1745,14 @@ msgstr "使用 Spotifast 自己的标题栏和窗口按钮，而不是桌面环�
 
 #: src/ui/settings.rs:1306
 msgid ""
-"Show the song moving behind the player bar's controls while it plays here."
-msgstr "歌曲在本机播放时，在播放栏控件后方显示它的律动。"
+"Show the song moving behind the player bar's controls. It shows only music "
+"playing on this computer, not on a speaker or another device."
+msgstr ""
+"在播放栏控件后方显示歌曲的律动。只显示在这台电脑上播放的音乐，不显示音箱或其"
+"他设备上的音乐。"
 
 #: src/ui/settings.rs:1311
-msgid "Allow clicks on empty player bar space to cycle the visualizer."
+msgid "Allow clicks on empty player bar space to cycle the visualiser."
 msgstr "允许点击播放栏的空白区域来切换可视化效果。"
 
 #: src/ui/settings.rs:1314 src/ui/settings.rs:2104
@@ -1742,7 +1761,7 @@ msgstr "帧率"
 
 #: src/ui/settings.rs:1317
 msgid ""
-"How often the player bar and mini player visualizers draw. Lower rates use "
+"How often the player bar and mini player visualisers draw. Lower rates use "
 "fewer resources. MilkDrop has its own."
 msgstr ""
 "播放栏和迷你播放器可视化效果的绘制频率。帧率越低占用资源越少。MilkDrop 有单独"

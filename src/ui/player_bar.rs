@@ -74,12 +74,22 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 );
                 // An open tooltip stays while the pointer is inside its widget's
                 // rect, and this one spans the bar: offer it only while the empty
-                // space itself is hovered, not the controls over it.
-                let empty = if empty.hovered() {
-                    empty.on_hover_text_at_pointer(gettext(
-                        app.locale,
-                        "Click to change the visualizer",
-                    ))
+                // space itself is hovered, not the controls over it, and only
+                // while a visualiser is showing. A click still turns it on.
+                // Music on a speaker or another device never reaches it, so it
+                // says so rather than offering a change that shows nothing.
+                let showing = app.settings.player_bar_vis != crate::settings::PlayerBarVis::Off;
+                let elsewhere = now.as_ref().is_some_and(|now| !now.local)
+                    && !(app.soloist_audio && app.targets_own_soloist());
+                let empty = if showing && empty.hovered() {
+                    empty.on_hover_text_at_pointer(if elsewhere {
+                        gettext(
+                            app.locale,
+                            "The visualiser shows only music playing on this computer",
+                        )
+                    } else {
+                        gettext(app.locale, "Click to change the visualiser")
+                    })
                 } else {
                     empty
                 };
@@ -599,19 +609,16 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
 
     if !now.is_episode {
         let saved = app.is_saved(&now.uri).unwrap_or(false);
-        // A liked heart stays green under the pointer, like shuffle.
-        let (icon, color, hover, tooltip) = if saved {
+        let (icon, color, tooltip) = if saved {
             (
                 Icon::HeartFilled,
                 palette.accent,
-                palette.accent_hover,
                 gettext(app.locale, "Add to playlist"),
             )
         } else {
             (
                 Icon::Heart,
                 palette.secondary,
-                palette.text,
                 gettext(app.locale, "Save to Liked Songs"),
             )
         };
@@ -624,7 +631,7 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
                 .max_rect(heart_rect)
                 .layout(Layout::centered_and_justified(egui::Direction::LeftToRight)),
         );
-        let response = theme::icon_button(&mut heart_ui, icon, 17.0, color, hover, &tooltip);
+        let response = theme::toggle_icon_button(&mut heart_ui, icon, 17.0, color, &tooltip);
         let popup_id = egui::Id::new(LIKED_POPUP_ID);
         let query_id = popup_id.with("query");
         let checks_id = popup_id.with("checks");
@@ -752,16 +759,11 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
 
     let shuffle_color = if shuffle { palette.accent } else { dim };
     let mut cell = centered(ui, slot(widths[0]));
-    let shuffle_button = theme::icon_button(
+    let shuffle_button = theme::toggle_icon_button(
         &mut cell,
         Icon::Shuffle,
         17.0,
         shuffle_color,
-        if shuffle {
-            palette.accent_hover
-        } else {
-            palette.text
-        },
         &gettext(app.locale, "Shuffle"),
     );
     shuffle_button.widget_info(|| {
@@ -845,34 +847,35 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
         app.actions.push(Action::Next);
     }
 
-    let (repeat_icon, repeat_color, tooltip) = match repeat {
-        RepeatMode::Off => (Icon::Repeat, dim, gettext(app.locale, "Repeat")),
+    let (repeat_icon, repeat_color, name, tooltip) = match repeat {
+        RepeatMode::Off => (
+            Icon::Repeat,
+            dim,
+            gettext(app.locale, "Repeat"),
+            gettext(app.locale, "Repeat is off. Click to repeat all."),
+        ),
         RepeatMode::Context => (
             Icon::Repeat,
             palette.accent,
             gettext(app.locale, "Repeat one"),
+            gettext(app.locale, "Repeating all. Click to repeat this song."),
         ),
         RepeatMode::Track => (
             Icon::Repeat1,
             palette.accent,
             gettext(app.locale, "Repeat off"),
+            gettext(app.locale, "Repeating this song. Click to turn repeat off."),
         ),
     };
     let mut cell = centered(ui, slot(widths[4]));
-    if theme::icon_button(
-        &mut cell,
-        repeat_icon,
-        17.0,
-        repeat_color,
-        if repeat == RepeatMode::Off {
-            palette.text
-        } else {
-            palette.accent_hover
-        },
-        &tooltip,
-    )
-    .clicked()
-    {
+    let repeat_button =
+        theme::toggle_icon_button(&mut cell, repeat_icon, 17.0, repeat_color, &tooltip);
+    // A screen reader names the button by what a click does; the tooltip
+    // also says what repeats now.
+    repeat_button.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, cell.is_enabled(), &*name)
+    });
+    if repeat_button.clicked() {
         app.actions.push(Action::CycleRepeat);
     }
 
@@ -965,7 +968,7 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_
     // change it.
     let adjustable = !app.soloist_waiting() && now.is_none_or(|now| now.can_set_volume);
     // The bar's last control, right of the volume, like Spotify's. It gives
-    // way before anything else, once Listening activity has; **F** stays.
+    // way before anything else; **F** stays.
     let room = ui.max_rect().right() - transport_right;
     if full_screen_button_fits(room) {
         let inside = app.lyrics_fullscreen.is_some();
@@ -1041,7 +1044,7 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_
         .filter(|_| remote)
         .and_then(|now| now.device_kind.as_deref())
         .map_or(Icon::Speaker, super::devices::device_icon);
-    let devices = theme::icon_button(
+    let devices = theme::toggle_icon_button(
         ui,
         icon,
         18.0,
@@ -1050,7 +1053,6 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_
         } else {
             palette.secondary
         },
-        palette.text,
         &gettext(app.locale, "Connect to a device"),
     );
     ui.ctx().data_mut(|data| {
@@ -1060,7 +1062,7 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_
         app.actions.push(Action::ToggleDevicesPopup);
     }
     let queue_open = app.show_queue_panel || matches!(app.page(), Page::Queue);
-    let queue_button = theme::icon_button(
+    let queue_button = theme::toggle_icon_button(
         ui,
         Icon::ListVideo,
         18.0,
@@ -1069,7 +1071,6 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_
         } else {
             palette.secondary
         },
-        palette.text,
         &gettext(app.locale, "Queue"),
     );
     if queue_button.clicked() {
@@ -1086,41 +1087,20 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_
                 .collect(),
         });
     }
-    if theme::icon_button(
+    if theme::toggle_icon_button(
         ui,
-        Icon::Mic,
+        Icon::MicVocal,
         18.0,
         if app.show_lyrics_panel {
             palette.accent
         } else {
             palette.secondary
         },
-        palette.text,
         &gettext(app.locale, "Lyrics"),
     )
     .clicked()
     {
         app.actions.push(Action::ToggleLyricsPanel);
-    }
-    // The Listening activity button is the first to go in a narrow window,
-    // so it never crowds the transport.
-    let left = ui.min_rect().left() - ui.spacing().item_spacing.x - (18.0 + theme::ICON_BUTTON_PAD);
-    if left - transport_right >= TRANSPORT_GAP
-        && theme::icon_button(
-            ui,
-            Icon::Users,
-            18.0,
-            if app.show_friends_panel {
-                palette.accent
-            } else {
-                palette.secondary
-            },
-            palette.text,
-            &gettext(app.locale, "Listening activity"),
-        )
-        .clicked()
-    {
-        app.actions.push(Action::ToggleFriendsPanel);
     }
 }
 

@@ -227,8 +227,12 @@ msgstr "{name}, папка, згорнута"
 msgid "{name}, folder, expanded"
 msgstr "{name}, папка, розгорнута"
 
-#: src/ui/player_bar.rs:81
-msgid "Click to change the visualizer"
+#: src/ui/player_bar.rs:88
+msgid "The visualiser shows only music playing on this computer"
+msgstr "Візуалізатор показує лише музику, що відтворюється на цьому комп’ютері"
+
+#: src/ui/player_bar.rs:91
+msgid "Click to change the visualiser"
 msgstr "Натисніть, щоб змінити візуалізатор"
 
 #: src/ui/player_bar.rs:440 src/ui/lyrics.rs:134 src/ui/lyrics.rs:808
@@ -275,17 +279,29 @@ msgstr "Призупинити"
 msgid "Next"
 msgstr "Наступний"
 
-#: src/ui/player_bar.rs:849
+#: src/ui/player_bar.rs:854
 msgid "Repeat"
 msgstr "Увімкнути повтор"
 
-#: src/ui/player_bar.rs:853
+#: src/ui/player_bar.rs:860
 msgid "Repeat one"
 msgstr "Повторювати один трек"
 
-#: src/ui/player_bar.rs:858
+#: src/ui/player_bar.rs:866
 msgid "Repeat off"
 msgstr "Вимкнути повтор"
+
+#: src/ui/player_bar.rs:855
+msgid "Repeat is off. Click to repeat all."
+msgstr "Повтор вимкнено. Натисніть, щоб повторювати все."
+
+#: src/ui/player_bar.rs:861
+msgid "Repeating all. Click to repeat this song."
+msgstr "Повторюється все. Натисніть, щоб повторювати цей трек."
+
+#: src/ui/player_bar.rs:867
+msgid "Repeating this song. Click to turn repeat off."
+msgstr "Повторюється цей трек. Натисніть, щоб вимкнути повтор."
 
 #: src/ui/player_bar.rs:919
 msgid "Playback position (%)"
@@ -1708,11 +1724,11 @@ msgid "Custom title bar"
 msgstr "Власний рядок заголовка"
 
 #: src/ui/settings.rs:1205
-msgid "Player bar visualizer"
+msgid "Player bar visualiser"
 msgstr "Візуалізатор на панелі плеєра"
 
 #: src/ui/settings.rs:1206
-msgid "Click player bar to change visualizer"
+msgid "Click player bar to change visualiser"
 msgstr "Натискання на панель відтворення змінює візуалізацію"
 
 #: src/ui/settings.rs:1215
@@ -1798,13 +1814,15 @@ msgstr ""
 
 #: src/ui/settings.rs:1306
 msgid ""
-"Show the song moving behind the player bar's controls while it plays here."
+"Show the song moving behind the player bar's controls. It shows only music "
+"playing on this computer, not on a speaker or another device."
 msgstr ""
-"Показувати візуалізацію пісні за елементами керування на панелі плеєра, коли "
-"вона відтворюється на цьому комп’ютері."
+"Показувати візуалізацію пісні за елементами керування на панелі плеєра. Лише "
+"для музики, що відтворюється на цьому комп’ютері, а не на колонці чи іншому "
+"пристрої."
 
 #: src/ui/settings.rs:1311
-msgid "Allow clicks on empty player bar space to cycle the visualizer."
+msgid "Allow clicks on empty player bar space to cycle the visualiser."
 msgstr ""
 "Дозволити перемикати візуалізацію натисканням на порожнє місце панелі "
 "відтворення."
@@ -1815,7 +1833,7 @@ msgstr "Частота кадрів"
 
 #: src/ui/settings.rs:1317
 msgid ""
-"How often the player bar and mini player visualizers draw. Lower rates use "
+"How often the player bar and mini player visualisers draw. Lower rates use "
 "fewer resources. MilkDrop has its own."
 msgstr ""
 "Як часто малюють візуалізації панелі плеєра та мініплеєра. Нижча частота "

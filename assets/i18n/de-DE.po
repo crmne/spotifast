@@ -222,8 +222,12 @@ msgstr "{name}, Ordner, eingeklappt"
 msgid "{name}, folder, expanded"
 msgstr "{name}, Ordner, ausgeklappt"
 
-#: src/ui/player_bar.rs:81
-msgid "Click to change the visualizer"
+#: src/ui/player_bar.rs:88
+msgid "The visualiser shows only music playing on this computer"
+msgstr "Der Visualizer zeigt nur Musik, die auf diesem Computer läuft"
+
+#: src/ui/player_bar.rs:91
+msgid "Click to change the visualiser"
 msgstr "Klicken, um den Visualizer zu wechseln"
 
 #: src/ui/player_bar.rs:440 src/ui/lyrics.rs:134 src/ui/lyrics.rs:808
@@ -270,17 +274,29 @@ msgstr "Pause"
 msgid "Next"
 msgstr "Weiter"
 
-#: src/ui/player_bar.rs:849
+#: src/ui/player_bar.rs:854
 msgid "Repeat"
 msgstr "Wiederholen"
 
-#: src/ui/player_bar.rs:853
+#: src/ui/player_bar.rs:860
 msgid "Repeat one"
 msgstr "Einen Titel wiederholen"
 
-#: src/ui/player_bar.rs:858
+#: src/ui/player_bar.rs:866
 msgid "Repeat off"
 msgstr "Wiederholen aus"
+
+#: src/ui/player_bar.rs:855
+msgid "Repeat is off. Click to repeat all."
+msgstr "Wiederholen ist aus. Klicken, um alles zu wiederholen."
+
+#: src/ui/player_bar.rs:861
+msgid "Repeating all. Click to repeat this song."
+msgstr "Alles wird wiederholt. Klicken, um diesen Titel zu wiederholen."
+
+#: src/ui/player_bar.rs:867
+msgid "Repeating this song. Click to turn repeat off."
+msgstr "Dieser Titel wird wiederholt. Klicken, um Wiederholen auszuschalten."
 
 #: src/ui/player_bar.rs:919
 msgid "Playback position (%)"
@@ -1707,11 +1723,11 @@ msgid "Custom title bar"
 msgstr "Eigene Titelleiste"
 
 #: src/ui/settings.rs:1205
-msgid "Player bar visualizer"
+msgid "Player bar visualiser"
 msgstr "Visualizer in der Wiedergabeleiste"
 
 #: src/ui/settings.rs:1206
-msgid "Click player bar to change visualizer"
+msgid "Click player bar to change visualiser"
 msgstr "Klick auf die Wiedergabeleiste ändert die Visualisierung"
 
 #: src/ui/settings.rs:1215
@@ -1799,13 +1815,15 @@ msgstr ""
 
 #: src/ui/settings.rs:1306
 msgid ""
-"Show the song moving behind the player bar's controls while it plays here."
+"Show the song moving behind the player bar's controls. It shows only music "
+"playing on this computer, not on a speaker or another device."
 msgstr ""
-"Zeigt den Song in Bewegung hinter den Steuerelementen der Wiedergabeleiste, "
-"während er hier läuft."
+"Zeigt den Song in Bewegung hinter den Steuerelementen der Wiedergabeleiste. "
+"Nur Musik, die auf diesem Computer läuft, nicht auf einem Lautsprecher oder "
+"einem anderen Gerät."
 
 #: src/ui/settings.rs:1311
-msgid "Allow clicks on empty player bar space to cycle the visualizer."
+msgid "Allow clicks on empty player bar space to cycle the visualiser."
 msgstr ""
 "Klicks auf freie Bereiche der Wiedergabeleiste wechseln die Visualisierung."
 
@@ -1815,7 +1833,7 @@ msgstr "Bildrate"
 
 #: src/ui/settings.rs:1317
 msgid ""
-"How often the player bar and mini player visualizers draw. Lower rates use "
+"How often the player bar and mini player visualisers draw. Lower rates use "
 "fewer resources. MilkDrop has its own."
 msgstr ""
 "Wie oft die Visualisierungen der Wiedergabeleiste und des Mini-Players "
