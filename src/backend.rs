@@ -6431,18 +6431,24 @@ async fn spotify_lyrics(
     cache_dir: &std::path::Path,
 ) -> Option<crate::lyrics::Lyrics> {
     let id = uri.strip_prefix("spotify:track:")?;
-    // Answers from before the request named the cover are kept only for what
-    // they found: nearly all their "none"s were the request's doing.
-    let path = cache_dir.join(format!("spotify-v2-{id}.json"));
-    let before = cache_dir.join(format!("spotify-{id}.json"));
+    // Older answers left out the instrumental breaks, so they are asked
+    // again, and only what they found stands in while Spotify cannot be
+    // reached. Nearly all the first version's "none"s were the request's
+    // doing, as it did not name the cover.
+    let path = cache_dir.join(format!("spotify-v3-{id}.json"));
+    let older = [
+        cache_dir.join(format!("spotify-v2-{id}.json")),
+        cache_dir.join(format!("spotify-{id}.json")),
+    ];
     if let Some(cached) = crate::lyrics::cached(&path) {
         return cached;
     }
-    if let Some(Some(found)) = crate::lyrics::cached(&before) {
-        return Some(found);
-    }
     let found_before = || {
-        crate::lyrics::previously_found(&path).or_else(|| crate::lyrics::previously_found(&before))
+        crate::lyrics::previously_found(&path).or_else(|| {
+            older
+                .iter()
+                .find_map(|before| crate::lyrics::previously_found(before))
+        })
     };
     let Some(engine) = engine else {
         return found_before();
@@ -10002,12 +10008,13 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
-    /// Old "none"s stop counting, old finds keep working, and a new "none"
-    /// asks again after a week.
+    /// Old "none"s stop counting, old finds stand in while Spotify cannot be
+    /// reached, the current version's answer wins, and a new "none" asks
+    /// again after a week.
     #[tokio::test]
     async fn spotify_lyrics_answers_are_versioned_and_a_none_is_short_lived() {
         let root = std::env::temp_dir().join(format!(
-            "spotifast-spotify-lyrics-v2-{}",
+            "spotifast-spotify-lyrics-v3-{}",
             std::process::id()
         ));
         std::fs::create_dir_all(&root).unwrap();
@@ -10019,6 +10026,19 @@ mod tests {
             found
         );
 
+        let older = crate::lyrics::from_text("[00:02.00] An older line");
+        crate::lyrics::store(&root.join("spotify-v2-older.json"), &older);
+        assert_eq!(
+            spotify_lyrics(None, "spotify:track:older", &root).await,
+            older
+        );
+        let current = crate::lyrics::from_text("[00:03.00] A current line");
+        crate::lyrics::store(&root.join("spotify-v3-older.json"), &current);
+        assert_eq!(
+            spotify_lyrics(None, "spotify:track:older", &root).await,
+            current
+        );
+
         let old_none = root.join("spotify-gone.json");
         crate::lyrics::store(&old_none, &None);
         assert_eq!(crate::lyrics::cached(&old_none), Some(None), "as it was");
@@ -10028,7 +10048,7 @@ mod tests {
                 .is_none()
         );
 
-        let none = root.join("spotify-v2-none.json");
+        let none = root.join("spotify-v3-none.json");
         crate::lyrics::store(&none, &None);
         assert_eq!(crate::lyrics::cached(&none), Some(None), "fresh");
         let eight_days = std::time::SystemTime::now() - Duration::from_secs(60 * 60 * 24 * 8);

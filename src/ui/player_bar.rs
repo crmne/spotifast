@@ -43,6 +43,9 @@ pub(crate) fn end_tint_session(ctx: &egui::Context) {
     ctx.data_mut(|data| data.remove::<u64>(egui::Id::new(TINT_SESSION_ID)));
 }
 
+/// The bar's side margins, inside its fill.
+const SIDE_MARGIN: i8 = 16;
+
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     let fill = eased_fill(ui.ctx(), palette.panel, app.now_playing_tint());
@@ -53,71 +56,94 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         .frame(
             Frame::new()
                 .fill(fill)
-                .inner_margin(Margin::symmetric(16, 0)),
+                .inner_margin(Margin::symmetric(SIDE_MARGIN, 0)),
         )
-        .show(ui, |ui| {
-            let rect = ui.max_rect();
-            let now = app.now_playing();
-            // The whole bar, margins included, behind everything else.
-            let behind = rect.expand2(vec2(16.0, 0.0));
-            if visualizer(app, ui, behind, now.as_ref()) {
-                theme::visualiser_frame(ui.ctx(), app.visualiser_fps());
-            }
-            // Its empty space is the visualizer's control, as Winamp's
-            // visualizer was: a click moves to the next mode. The controls
-            // drawn after it take their own clicks.
-            if app.settings.player_bar_vis_click && app.visualizers_available() {
-                let empty = ui.interact(
-                    behind,
-                    ui.id().with("player-bar-visualizer"),
-                    Sense::click(),
-                );
-                // An open tooltip stays while the pointer is inside its widget's
-                // rect, and this one spans the bar: offer it only while the empty
-                // space itself is hovered, not the controls over it.
-                let empty = if empty.hovered() {
-                    empty.on_hover_text_at_pointer(gettext(
-                        app.locale,
-                        "Click to change the visualizer",
-                    ))
-                } else {
-                    empty
-                };
-                if empty.clicked() {
-                    app.actions.push(Action::CyclePlayerBarVis);
-                }
-            }
-            ui.painter().hline(
-                rect.x_range(),
-                rect.top() + 0.5,
-                egui::Stroke::new(1.0, palette.outline),
-            );
-            let width = rect.width();
-            let side = (width * 0.3).clamp(200.0, 420.0);
-            let cy = rect.center().y;
-            let left = Rect::from_min_max(rect.min, pos2(rect.left() + side, rect.bottom()));
-            let center = Rect::from_min_max(
-                pos2(rect.left() + side, rect.top()),
-                pos2(rect.right() - side, rect.bottom()),
-            );
+        .show(ui, |ui| contents(app, ui));
+}
 
-            // egui's cross-axis centring is unreliable across nested layouts of
-            // mixed heights, so each region is placed in an explicit band that
-            // is sized to its content and centred on the bar's midline.
-            now_playing_block(app, ui, left, now.as_ref());
+/// The bar over the bottom of full screen lyrics, lowered by `hidden` of
+/// its height (0 shows it whole, 1 puts it just below the window). It
+/// takes no room from the view under it, so the lyrics never move while
+/// it comes and goes. Drawn after the view, it is on top of it.
+pub fn overlay(app: &mut App, ui: &mut egui::Ui, hidden: f32) {
+    let viewport = ui.ctx().viewport_rect();
+    if hidden >= 1.0 {
+        return;
+    }
+    let height = theme::PLAYER_BAR_HEIGHT;
+    let top = viewport.bottom() - height * (1.0 - hidden.clamp(0.0, 1.0));
+    let outer = Rect::from_min_size(pos2(viewport.left(), top), vec2(viewport.width(), height));
+    let fill = eased_fill(ui.ctx(), app.palette.panel, app.now_playing_tint());
+    let mut bar = ui.new_child(
+        UiBuilder::new()
+            .id_salt("player-bar-overlay")
+            .max_rect(outer.shrink2(vec2(f32::from(SIDE_MARGIN), 0.0))),
+    );
+    bar.set_clip_rect(outer.intersect(viewport));
+    bar.painter().rect_filled(outer, 0.0, fill);
+    contents(app, &mut bar);
+}
 
-            transport(app, ui, now.as_ref(), center);
+/// Everything in the bar, laid out across `ui`'s rect.
+fn contents(app: &mut App, ui: &mut egui::Ui) {
+    let palette = app.palette;
+    let rect = ui.max_rect();
+    let now = app.now_playing();
+    // The whole bar, margins included, behind everything else.
+    let behind = rect.expand2(vec2(16.0, 0.0));
+    if visualizer(app, ui, behind, now.as_ref()) {
+        theme::visualiser_frame(ui.ctx(), app.visualiser_fps());
+    }
+    // Its empty space is the visualizer's control, as Winamp's
+    // visualizer was: a click moves to the next mode. The controls
+    // drawn after it take their own clicks.
+    if app.settings.player_bar_vis_click && app.visualizers_available() {
+        let empty = ui.interact(
+            behind,
+            ui.id().with("player-bar-visualizer"),
+            Sense::click(),
+        );
+        // An open tooltip stays while the pointer is inside its widget's
+        // rect, and this one spans the bar: offer it only while the empty
+        // space itself is hovered, not the controls over it.
+        let empty = if empty.hovered() {
+            empty.on_hover_text_at_pointer(gettext(app.locale, "Click to change the visualizer"))
+        } else {
+            empty
+        };
+        if empty.clicked() {
+            app.actions.push(Action::CyclePlayerBarVis);
+        }
+    }
+    ui.painter().hline(
+        rect.x_range(),
+        rect.top() + 0.5,
+        egui::Stroke::new(1.0, palette.outline),
+    );
+    let width = rect.width();
+    let side = (width * 0.3).clamp(200.0, 420.0);
+    let cy = rect.center().y;
+    let left = Rect::from_min_max(rect.min, pos2(rect.left() + side, rect.bottom()));
+    let center = Rect::from_min_max(
+        pos2(rect.left() + side, rect.top()),
+        pos2(rect.right() - side, rect.bottom()),
+    );
 
-            let right_band =
-                Rect::from_min_size(pos2(rect.right() - side, cy - 15.0), vec2(side, 30.0));
-            let mut right_ui = ui.new_child(
-                UiBuilder::new()
-                    .max_rect(right_band)
-                    .layout(Layout::right_to_left(Align::Center)),
-            );
-            let transport_right = center.center().x + transport_width() / 2.0;
-            extras(app, &mut right_ui, now.as_ref(), transport_right);
-        });
+    // egui's cross-axis centring is unreliable across nested layouts of
+    // mixed heights, so each region is placed in an explicit band that
+    // is sized to its content and centred on the bar's midline.
+    now_playing_block(app, ui, left, now.as_ref());
+
+    transport(app, ui, now.as_ref(), center);
+
+    let right_band = Rect::from_min_size(pos2(rect.right() - side, cy - 15.0), vec2(side, 30.0));
+    let mut right_ui = ui.new_child(
+        UiBuilder::new()
+            .max_rect(right_band)
+            .layout(Layout::right_to_left(Align::Center)),
+    );
+    let transport_right = center.center().x + transport_width() / 2.0;
+    extras(app, &mut right_ui, now.as_ref(), transport_right);
 }
 
 /// Draws the chosen spectrum or waveform of the song playing on this
@@ -1090,7 +1116,7 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_
         ui,
         Icon::Mic,
         18.0,
-        if app.show_lyrics_panel {
+        if lyrics_lit(app) {
             palette.accent
         } else {
             palette.secondary
@@ -1122,6 +1148,12 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_
     {
         app.actions.push(Action::ToggleFriendsPanel);
     }
+}
+
+/// Whether the lyrics button shows lyrics as open: in the side panel or in
+/// full screen, where the queue column can hold the side panel instead.
+pub(crate) fn lyrics_lit(app: &App) -> bool {
+    app.show_lyrics_panel || app.lyrics_fullscreen.is_some()
 }
 
 #[cfg(test)]

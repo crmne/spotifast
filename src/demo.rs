@@ -3122,7 +3122,7 @@ mod tests {
                     let painted = view_frame(&ctx, &mut app, vec![], view);
                     for message in messages {
                         assert!(
-                            painted.iter().any(|(text, _)| text == &message),
+                            painted.iter().any(|(text, _)| one_line(text) == message),
                             "{locale:?}: missing {message}"
                         );
                     }
@@ -5179,6 +5179,11 @@ mod tests {
         frame_events(ctx, app, Vec::new());
     }
 
+    /// A lyric line drawn on its rows, read back as the one line it is.
+    fn one_line(text: &str) -> String {
+        text.replace('\n', " ")
+    }
+
     /// Where a line of lyrics was drawn, in a frame of full screen lyrics.
     fn lyric_at(ctx: &egui::Context, app: &mut App, line: &str) -> egui::Pos2 {
         let input = egui::RawInput {
@@ -5194,7 +5199,7 @@ mod tests {
             .shapes
             .iter()
             .find_map(|shape| match &shape.shape {
-                egui::Shape::Text(text) if text.galley.job.text == line => {
+                egui::Shape::Text(text) if one_line(&text.galley.job.text) == line => {
                     Some(text.pos + text.galley.size() / 2.0)
                 }
                 _ => None,
@@ -5277,7 +5282,10 @@ mod tests {
             timed_output(ctx, app, t, events)
         };
         let (text, _) = step(&ctx, &mut app, vec![egui::Event::PointerMoved(cover)]);
-        assert!(text.iter().any(|text| text == LINE), "lyrics to begin with");
+        assert!(
+            text.iter().any(|text| one_line(text) == LINE),
+            "lyrics to begin with"
+        );
         step(&ctx, &mut app, Vec::new());
         step(&ctx, &mut app, pointer_click(cover, Primary));
         assert!(
@@ -5309,7 +5317,7 @@ mod tests {
         assert!(!app.immersive());
         assert!(!app.milkdrop_behind_lyrics(), "off as it was, not toggled");
         let text = timed(&ctx, &mut app, 41.2, Vec::new());
-        assert!(text.iter().any(|text| text == LINE));
+        assert!(text.iter().any(|text| one_line(text) == LINE));
 
         // With the backdrop on, it stays on.
         app.actions.push(Action::ToggleLyricsMilkdrop);
@@ -9335,7 +9343,7 @@ mod tests {
                         .iter()
                         .find_map(|shape| {
                             if let egui::Shape::Text(text) = &shape.shape
-                                && text.galley.job.text
+                                && one_line(&text.galley.job.text)
                                     == "Streetlights blinking down the river road"
                             {
                                 sung = text.galley.job.sections.first().map(|s| s.format.color);
@@ -10170,8 +10178,12 @@ mod tests {
         app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
         app.show_lyrics_panel = true;
         frame(&ctx, &mut app);
+        let palette = app.palette;
         app.lyrics_fullscreen = Some(false);
         frame(&ctx, &mut app);
+        // The queue beside full screen lyrics borrows dark colours only
+        // while it draws.
+        assert_eq!(app.palette, palette);
         app.lyrics_fullscreen = None;
         app.show_lyrics_panel = false;
         for dialog in [

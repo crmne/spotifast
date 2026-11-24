@@ -61,6 +61,18 @@ pub struct Lyrics {
 }
 
 impl Lyrics {
+    /// Leaves off the music notes after the last sung line. The song ends
+    /// there, so a note would only stand for its closing seconds.
+    pub fn without_closing_notes(mut self) -> Self {
+        if self.synced {
+            while self.lines.len() > 1 && self.lines.last().is_some_and(|line| line.text.is_empty())
+            {
+                self.lines.pop();
+            }
+        }
+        self
+    }
+
     /// The line being sung at `position_ms`, or `None` before the first one
     /// starts and for lyrics without timing.
     pub fn active_line(&self, position_ms: u32) -> Option<usize> {
@@ -78,15 +90,21 @@ impl Lyrics {
 pub fn from_spotify(json: &serde_json::Value) -> Option<Lyrics> {
     let lyrics = json.get("lyrics")?;
     let synced = lyrics.get("syncType").and_then(|value| value.as_str()) == Some("LINE_SYNCED");
-    let lines: Vec<Line> = lyrics
+    let mut lines: Vec<Line> = lyrics
         .get("lines")?
         .as_array()?
         .iter()
         .filter_map(|line| {
             let text = line.get("words")?.as_str()?.trim();
-            if text.is_empty() || text == "\u{266a}" {
+            // Spotify marks a stretch without singing with a line of "♪"
+            // (sometimes an empty one). Timed, it stays as a line without
+            // words, which the panels draw as a music note that lights up
+            // while the band plays on. Untimed, it marks nothing.
+            let gap = text.is_empty() || text == "\u{266a}";
+            if gap && !synced {
                 return None;
             }
+            let text = if gap { "" } else { text };
             let at_ms = line
                 .get("startTimeMs")
                 .and_then(|value| {
@@ -102,10 +120,15 @@ pub fn from_spotify(json: &serde_json::Value) -> Option<Lyrics> {
             })
         })
         .collect();
-    if lines.is_empty() {
+    // One note per stretch: a repeated mark adds nothing to follow.
+    lines.dedup_by(|next, previous| next.text.is_empty() && previous.text.is_empty());
+    if lines.iter().all(|line| line.text.is_empty()) {
         return None;
     }
     let synced = synced && lines.iter().all(|line| line.at_ms.is_some());
+    if !synced {
+        lines.retain(|line| !line.text.is_empty());
+    }
     Some(Lyrics {
         lines,
         synced,
@@ -1088,5 +1111,45 @@ mod tests {
         assert_eq!(plain.lines.len(), 1);
         let nothing = Record::default();
         assert!(nothing.lyrics().is_none());
+    }
+
+    fn words(of: &Lyrics) -> Vec<&str> {
+        of.lines.iter().map(|line| line.text.as_str()).collect()
+    }
+
+    #[test]
+    fn spotify_gaps_turn_into_one_note_each_only_with_timing() {
+        let answer = |sync: &str| {
+            let lines: Vec<serde_json::Value> = [
+                ("0", "\u{266a}"),
+                ("1000", "First"),
+                ("5000", "\u{266a}"),
+                ("6000", ""),
+                ("9000", "Second"),
+                ("12000", "\u{266a}"),
+            ]
+            .into_iter()
+            .map(|(at, text)| serde_json::json!({ "startTimeMs": at, "words": text }))
+            .collect();
+            serde_json::json!({ "lyrics": { "syncType": sync, "lines": lines } })
+        };
+
+        let timed = from_spotify(&answer("LINE_SYNCED")).unwrap();
+        assert!(timed.synced);
+        assert_eq!(words(&timed), ["", "First", "", "Second", ""]);
+        assert_eq!(timed.lines[2].at_ms, Some(5_000));
+        let sung = timed.without_closing_notes();
+        assert_eq!(words(&sung), ["", "First", "", "Second"]);
+
+        let plain = from_spotify(&answer("UNSYNCED")).unwrap();
+        assert!(!plain.synced);
+        assert_eq!(words(&plain), ["First", "Second"]);
+        assert_eq!(words(&plain.without_closing_notes()), ["First", "Second"]);
+
+        let notes = serde_json::json!({ "lyrics": {
+            "syncType": "LINE_SYNCED",
+            "lines": [{ "startTimeMs": "0", "words": "\u{266a}" }]
+        } });
+        assert!(from_spotify(&notes).is_none());
     }
 }

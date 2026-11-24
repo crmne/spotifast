@@ -850,6 +850,8 @@ beside it, or in its own tags, and the cover in its tags; otherwise lyrics come
 from LRCLIB by its artist, title, album and length.
 Synced lyrics follow the playing line automatically. Scroll to pause following,
 choose **Follow** to resume it, or choose a line to jump to that part of the song.
+Where Spotify's synced lyrics mark a stretch without singing, a music note
+stands in for it and lights up while the band plays on.
 
 The expand button in the lyrics panel or at the right of the player bar, or
 **F** when no text field has focus, opens lyrics in full screen. A narrow
@@ -859,7 +861,13 @@ scroll smoothly and highlight the playing line automatically. Scrolling by
 hand pauses following; choose **Follow** to resume. Since 0.11.0, a wide
 window shows the song's cover beside the lyrics, the two centred together,
 and a song without words, such as an instrumental, shows just its cover in
-the middle of the screen.
+the middle of the screen. The song's title above the lyrics opens its
+album, and each artist their page, as in the player bar.
+
+The player bar slides away after three seconds without input and comes back
+over the lyrics when you move the mouse, scroll, click or press a key. It
+stays while the pointer rests on it or one of its menus is open. Press **Q**
+for the queue beside the lyrics, on a dark pane in either theme.
 
 Press **V** in full screen lyrics, or click anywhere that isn't a line of
 lyrics or a control, to put MilkDrop behind the words instead of the cover's

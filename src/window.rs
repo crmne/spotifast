@@ -90,6 +90,37 @@ pub fn minimize_window(ctx: &egui::Context) {
     let _ = ctx;
 }
 
+/// Keep the drop shadow of a window without decorations out of full screen
+/// on Windows. Call it every frame with whether the window is undecorated.
+///
+/// winit makes that shadow by leaving the window's top pixel row out of its
+/// client area. egui-winit turns the shadow off for a window created in full
+/// screen, but not for one that enters it later, so full screen kept a strip
+/// along the top of the screen the app never paints: white, or whatever the
+/// window last showed there. egui-winit decides the shadow again on every
+/// Decorations command, so one goes out each time full screen starts or ends.
+pub fn keep_shadow_out_of_fullscreen(ctx: &egui::Context, undecorated: bool) {
+    #[cfg(windows)]
+    {
+        let Some(fullscreen) = ctx.input(|input| input.viewport().fullscreen) else {
+            return;
+        };
+        let id = egui::Id::new("window-fullscreen-shadow");
+        let before = ctx.data(|data| data.get_temp::<bool>(id));
+        if before == Some(fullscreen) {
+            return;
+        }
+        ctx.data_mut(|data| data.insert_temp(id, fullscreen));
+        // The first frame only records: egui-winit chose the shadow for the
+        // mode the window was created in.
+        if before.is_some() && undecorated {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(false));
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = (ctx, undecorated);
+}
+
 /// The active backend matters: a Wayland session can also host X11 windows.
 /// winit's Wayland backend cannot change a window's stacking level.
 pub fn supports_window_level(display: raw_window_handle::RawDisplayHandle) -> bool {
