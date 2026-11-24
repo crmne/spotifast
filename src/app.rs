@@ -7846,7 +7846,9 @@ impl App {
     /// again as a copy.
     pub fn queue_moves_rows(&self) -> bool {
         self.queue_locally_reorderable()
-            || self.queue_player_view().is_some_and(|view| view.can_reorder)
+            || self
+                .queue_player_view()
+                .is_some_and(|view| view.can_reorder)
     }
 
     fn queue_edit_allowed(&self, insert: bool) -> bool {
