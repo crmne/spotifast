@@ -4295,6 +4295,18 @@ msgstr ""
 "controlador gráfico ou ative a aceleração por GPU da máquina virtual. Abrir "
 "{url} para saber mais?"
 
+#: src/ui/lyrics.rs:991
+msgid "Sync lyrics"
+msgstr "Sincronizar letra"
+
+#: src/ui/lyrics.rs:970
+msgid "Toggle MilkDrop background (V)"
+msgstr "Ativar ou desativar o fundo do MilkDrop (V)"
+
+#: src/ui/topbar.rs:589
+msgid "Show MilkDrop only"
+msgstr "Mostrar apenas o MilkDrop"
+
 #~ msgid "Otherwise it installs the next time Spotifast starts."
 #~ msgstr ""
 #~ "Caso contrário, será instalada da próxima vez que o Spotifast iniciar."

@@ -4255,6 +4255,18 @@ msgstr ""
 "eller slå på GPU-acceleration för den virtuella maskinen. Öppna {url} för "
 "att läsa mer?"
 
+#: src/ui/lyrics.rs:991
+msgid "Sync lyrics"
+msgstr "Synka låttext"
+
+#: src/ui/lyrics.rs:970
+msgid "Toggle MilkDrop background (V)"
+msgstr "Slå på eller av MilkDrop-bakgrunden (V)"
+
+#: src/ui/topbar.rs:589
+msgid "Show MilkDrop only"
+msgstr "Visa bara MilkDrop"
+
 #~ msgid "Otherwise it installs the next time Spotifast starts."
 #~ msgstr "Annars installeras den nästa gång Spotifast startar."
 

@@ -4278,6 +4278,18 @@ msgstr ""
 "sürücüsünü yükleyin veya sanal makine için GPU hızlandırmayı açın. Daha "
 "fazlasını okumak için {url} açılsın mı?"
 
+#: src/ui/lyrics.rs:991
+msgid "Sync lyrics"
+msgstr "Şarkı sözlerini eşitle"
+
+#: src/ui/lyrics.rs:970
+msgid "Toggle MilkDrop background (V)"
+msgstr "MilkDrop arka planını aç/kapat (V)"
+
+#: src/ui/topbar.rs:589
+msgid "Show MilkDrop only"
+msgstr "Yalnızca MilkDrop’u göster"
+
 #~ msgid "Otherwise it installs the next time Spotifast starts."
 #~ msgstr "Aksi halde Spotifast bir sonraki açılışta yüklenir."
 

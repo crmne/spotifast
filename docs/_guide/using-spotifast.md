@@ -849,7 +849,7 @@ A local file from a playlist shows the words in a `.lrc` file of the same name
 beside it, or in its own tags, and the cover in its tags; otherwise lyrics come
 from LRCLIB by its artist, title, album and length.
 Synced lyrics follow the playing line automatically. Scroll to pause following,
-choose **Follow** to resume it, or choose a line to jump to that part of the song.
+choose **Sync lyrics** to resume it, or choose a line to jump to that part of the song.
 Where Spotify's synced lyrics mark a stretch without singing, a music note
 stands in for it and lights up while the band plays on.
 
@@ -858,7 +858,7 @@ The expand button in the lyrics panel or at the right of the player bar, or
 window has no room for the player bar's button. Press **F** or **Esc**, or
 choose the shrink button, to return to your previous window size. Full-screen lyrics
 scroll smoothly and highlight the playing line automatically. Scrolling by
-hand pauses following; choose **Follow** to resume. Since 0.11.0, a wide
+hand pauses following; choose **Sync lyrics** to resume. Since 0.11.0, a wide
 window shows the song's cover beside the lyrics, the two centred together,
 and a song without words, such as an instrumental, shows just its cover in
 the middle of the screen. The song's title above the lyrics opens its
@@ -866,23 +866,23 @@ album, and each artist their page, as in the player bar.
 
 The player bar slides away after three seconds without input and comes back
 over the lyrics when you move the mouse, scroll, click or press a key. It
-stays while the pointer rests on it or one of its menus is open. Press **Q**
+stays while the pointer rests on it or one of its menus is open. The
+**Lyrics** title and **Leave full screen** button fade with it, and the
+pointer hides as they start to go. Press **Q**
 for the queue beside the lyrics, on a dark pane in either theme.
 
-Press **V** in full screen lyrics, or click anywhere that isn't a line of
-lyrics or a control, to put MilkDrop behind the words instead of the cover's
-art, and do the same again to bring the art back; Spotifast remembers which you
+Click the MilkDrop icon or press **V** in full screen lyrics to put MilkDrop
+behind the words in place of the cover's art. Do the same again to bring the art back; Spotifast remembers which you
 chose. **N** and **P** change the preset there. The picture is dimmed as far as
 it takes to keep the words clear, and holds still while the music is paused.
 It uses the presets you have: with none, the art stays. It follows the sound
 after the equalizer and before the volume, like every visualizer.
 
-Click the album art in full screen lyrics to leave MilkDrop alone on the
-screen, edge to edge and at full brightness, even if it was off. Move the mouse
-to see the player's controls for a few seconds; the cursor hides with them.
-Any other click brings everything back as it was, and **Esc** leaves full
-screen. **V**, **N** and **P** still work. A song with no art, or a computer
-with no MilkDrop to show, stays as it is.
+To watch MilkDrop on its own, right-click the visualiser button in the
+main window and choose **Show MilkDrop only**. Move the mouse to reveal the
+player controls. Click the animation or press **Esc** to return to the
+main window. You can also open the visualiser window and double-click it
+or press **F** for full screen.
 
 Since 0.10.0, quitting while lyrics are full screen no longer leaves
 the next launch stuck in full screen: the window returns to its previous size.

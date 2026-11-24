@@ -79,7 +79,7 @@ Spotify lyrics without changing players.
 | **Themes** | Choose light, dark, system appearance, or custom colours, with one theme for light mode and one for dark mode that switch with the system. On Omarchy, follow your desktop theme, in the panel, selection and muted shades each theme defines ([details](https://spotifast.rocks/settings-and-files/#follow-an-omarchy-theme)). |
 | **Desktop controls** | Use keyboard shortcuts and media keys. Keep music playing from the tray when supported by your desktop and settings, and start Spotifast with your computer, with its window or in the tray. |
 | **Winamp mini player** | Use classic skins with an equalizer, playlist, and animated sound displays. |
-| **MilkDrop** | Watch music-reactive visuals in a separate window or full screen. See platform availability below. |
+| **MilkDrop** | Watch music-reactive visuals in a separate window, full screen, or behind full screen lyrics. See platform availability below. |
 
 ## Install
 
