@@ -2654,13 +2654,26 @@ impl App {
         crate::api::models::art_target(self.pixels_per_point, points)
     }
 
+    /// The rendition the playing art takes for a cover drawn `points` wide:
+    /// the 64 pixel one while it is sharp enough, else the 640 pixel one, the
+    /// two the playing song keeps. The next song's cover is fetched ahead in
+    /// the same one.
+    pub fn playing_art_px(&self, points: f32) -> u32 {
+        let small = crate::api::models::SMALL_ART_WIDTH;
+        if self.art_px(points) > small {
+            640
+        } else {
+            small
+        }
+    }
+
     /// The playing art for a cover drawn `points` wide: the small rendition
     /// while it is sharp enough, the large one once the display needs more
     /// pixels than the small one has.
     pub fn small_art<'a>(&self, now: &'a NowPlaying, points: f32) -> Option<&'a str> {
         let small = now.art_small.as_deref();
         let large = now.art_url.as_deref();
-        if self.art_px(points) > crate::api::models::SMALL_ART_WIDTH {
+        if self.playing_art_px(points) > crate::api::models::SMALL_ART_WIDTH {
             large.or(small)
         } else {
             small.or(large)
@@ -3753,6 +3766,11 @@ impl App {
     /// Clears account data while preserving request serials that reject late answers.
     fn reset_data(&mut self) {
         self.adjacent_lyrics.clear();
+        // Recent is the account's own history; the next account reads its
+        // own, and a page still on its way is dropped.
+        self.recents.reset();
+        self.recents_generation = self.recents_generation.wrapping_add(1);
+        self.rebuild_recents();
         self.pending_remote_volume = None;
         self.local_transfer_sequence = None;
         self.queue_start_pending = None;
@@ -4557,7 +4575,14 @@ impl App {
         if reading && self.lyrics_uri.as_deref() != Some(now.uri.as_str()) {
             return;
         }
-        if now.loading || now.resuming || self.offline || self.metered() || !self.network_reachable
+        // A paused song, or one on Repeat One, is not about to give way.
+        if now.loading
+            || now.resuming
+            || !now.playing
+            || now.repeat == RepeatMode::Track
+            || self.offline
+            || self.metered()
+            || !self.network_reachable
         {
             return;
         }
@@ -4582,12 +4607,12 @@ impl App {
         {
             return;
         }
-        let pixels = if fullscreen { 640 } else { self.art_px(size) };
-        if let Some(url) = self.item_image(item, pixels) {
+        if let Some(url) = self.item_image(item, self.playing_art_px(size)) {
             art.prefetch(ctx, &url);
         }
+        // Once the playing song's lookup has ended, found or not.
         if !reading
-            || !matches!(self.lyrics, Loadable::Loaded(_))
+            || !matches!(self.lyrics, Loadable::Loaded(_) | Loadable::Failed(_))
             || self
                 .adjacent_lyrics
                 .iter()
@@ -8500,6 +8525,16 @@ impl App {
                         {
                             self.selected_device = None;
                         }
+                    }
+                    // A rest on the button asked, not the listener, so its
+                    // failure stays quiet and the click asks again.
+                    Err(_)
+                        if !self.show_devices
+                            && self
+                                .devices_warmed_at
+                                .is_some_and(|at| at.elapsed() < DEVICES_WARM) =>
+                    {
+                        self.devices_warmed_at = None;
                     }
                     Err(error) => self.toast_error(
                         // Translators: {error} is an error message.
@@ -27586,6 +27621,48 @@ mod tests {
             app.devices_loading,
             "an older list is fetched again on opening"
         );
+        app.handle_api(ApiResponse::Devices(Ok(Vec::new())));
+        app.apply(Action::ToggleDevicesPopup, &ctx);
+        assert!(!app.show_devices);
+        app.devices_fetched_at = None;
+        app.devices_warmed_at = None;
+        app.apply(Action::WarmDevices, &ctx);
+        assert!(app.devices_loading);
+        let toasts = app.toasts.len();
+        app.handle_api(ApiResponse::Devices(Err(crate::api::ApiError::RateLimited)));
+        assert_eq!(app.toasts.len(), toasts, "a rest that fails says nothing");
+        app.apply(Action::ToggleDevicesPopup, &ctx);
+        assert!(app.devices_loading, "the click asks again");
+    }
+
+    /// The next song's cover fetched ahead is the rendition the player bar
+    /// and full screen lyrics draw once it plays, not one between.
+    #[test]
+    fn the_next_cover_fetched_ahead_is_the_one_drawn() {
+        use crate::api::models::{Album, Image, PlayableItem, Track};
+        let mut app = headless_app();
+        app.pixels_per_point = 1.0;
+        let image = |width: u32| Image {
+            url: width.to_string(),
+            width: Some(width),
+            height: Some(width),
+        };
+        let item = PlayableItem::Track(Track {
+            album: Some(Album {
+                images: vec![image(640), image(300), image(64)],
+                ..Album::default()
+            }),
+            ..Track::default()
+        });
+        for points in [56.0, 320.0] {
+            assert_eq!(
+                app.item_image(&item, app.playing_art_px(points)).as_deref(),
+                Some("640"),
+                "{points} points"
+            );
+        }
+        assert_eq!(app.playing_art_px(20.0), 64);
+        app.backend.shutdown();
     }
 
     /// Resting on an album's card fetches the album, one at a time and never
@@ -29579,6 +29656,20 @@ mod tests {
         app.reset_data();
         assert!(app.page_used.is_empty());
         assert!(app.track_used.is_empty());
+    }
+
+    /// Recent belongs to the account: the next one reads its own, and a
+    /// page still on its way for the last one is dropped.
+    #[test]
+    fn reset_data_forgets_the_last_accounts_recent() {
+        let mut app = headless_app();
+        app.recents.loaded_once = true;
+        app.recents.after = Some("cursor".into());
+        let generation = app.recents_generation;
+        app.reset_data();
+        assert!(!app.recents.loaded_once);
+        assert!(app.recents.after.is_none());
+        assert_ne!(app.recents_generation, generation);
     }
 
     #[test]

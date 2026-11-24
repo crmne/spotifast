@@ -626,7 +626,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     };
                     if response.clicked() {
                         app.actions.push(Action::ToggleDevicesPopup);
-                    } else if response.hovered() {
+                    } else if super::widgets::rested_on(ui, &response) {
                         app.actions.push(Action::WarmDevices);
                     }
                 }
