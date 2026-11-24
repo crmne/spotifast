@@ -344,6 +344,14 @@ pub struct Track {
 }
 
 impl Track {
+    /// A queue row with only the URI and an optional label from the player.
+    pub(crate) fn needs_queue_details(&self) -> bool {
+        self.id.is_none()
+            && self.duration_ms == 0
+            && self.album.is_none()
+            && (self.uri.starts_with("spotify:track:") || self.uri.starts_with("spotify:episode:"))
+    }
+
     pub fn artist_names(&self) -> String {
         join_names(self.artists.iter().map(|artist| artist.name.as_str()))
     }
@@ -600,6 +608,10 @@ pub enum PlayableItem {
 }
 
 impl PlayableItem {
+    pub(crate) fn needs_queue_details(&self) -> bool {
+        matches!(self, Self::Track(track) if track.needs_queue_details())
+    }
+
     pub fn uri(&self) -> &str {
         match self {
             Self::Track(track) => &track.uri,

@@ -549,6 +549,43 @@ API device, one refusal is the exception: "Restriction violated" means what
 plays now forbids shuffle, as autoplay does, so the start goes first and
 shuffle follows. If shuffle is refused again, the start keeps playing in order.
 
+Playing a row of Next up is one `skip_next` command that names the row, as
+Spotify's own apps send it: the song's URI, and the row's uid when the latest
+Connect cluster push listed that device's next tracks, which tells copies of a
+song apart. The device goes to that row itself. The song alone names its first
+copy, so a later copy without a uid gets one plain `skip_next` per row down to
+it instead. A second click's command, and a Next or Previous pressed
+meanwhile, waits for the first one's answer. A click right after a Next counts
+its rows from where that Next lands, before the next cluster push shows it,
+and a command that fails leaves the count where the device got to: where it
+was, or for a Next per row stopped partway, past the rows it passed. A row
+without a uid is told apart by the copies of its song after it. A device the
+Web API controls has no such command and gets one Next per row down to the
+song, the song's own row included (one for the top row), each sent after the
+one before it is answered.
+
+Reordering, removing and clearing the songs queued on another device go over
+the Connect route to any device, restricted or not, as one `set_queue` command:
+the device's queued rows from the latest cluster push, uids kept, in the new
+order, then its other next tracks and its previous tracks unchanged, with the
+push's `queue_revision`. The app offers these edits only while that push's
+restrictions allow `set_queue` and the reorder or removal, and the push's
+`queue` provider rows decide which songs show under Next in queue. Each
+command logs one line with counts.
+
+Positional queue drags and removal of an individual upcoming song use the
+rows published by the built-in player or the active Connect device. The Web
+API supplies track details. A failed metadata refresh keeps the loaded rows;
+a matching player snapshot can also supply the list without that response.
+If its queue response covers fewer songs than
+the player's list, Spotifast looks up the missing details in batches over
+the same-account playback session. It reuses known details, limits the
+lookup to one batch at a time, and waits before retrying a failed lookup.
+Each edit appears immediately. Spotifast sends a
+`set_queue` command and waits for the player to publish the new queue before
+sending the next edit with its revision. Receivers that restrict these edits,
+including Soloist through its documented API, omit those controls.
+
 Individual and album queue additions use the same Connect route, one song at
 a time. A later addition waits for the whole album, repeated songs keep their
 places, and a failed write stops the remaining songs. Signing out cancels

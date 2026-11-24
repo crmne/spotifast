@@ -1698,6 +1698,23 @@ pub(crate) fn normalize_local_track_labels(track: &mut Track) {
 }
 
 /// Track and episode details for the given URIs, in one batched request.
+/// The queue can use the available answers while others are missing.
+pub(crate) async fn queue_details(
+    session: &Session,
+    uris: &[String],
+) -> Result<HashMap<String, PlayableItem>, Failure> {
+    let uris: Vec<_> = uris
+        .iter()
+        .filter_map(|uri| SpotifyUri::from_uri(uri).ok())
+        .collect();
+    let tolerated = uris.iter().map(SpotifyUri::to_uri).collect();
+    let mut details = metadata_tolerating(session, uris.iter(), &tolerated).await?;
+    // These details decorate an existing row whose URI must stay the same.
+    details.retain(|uri, item| uri == item.uri());
+    Ok(details)
+}
+
+/// Track and episode details for the given URIs, in one batched request.
 /// A URI Spotify says it has no item for is absent, as the Web API leaves
 /// such a row's item empty. An answer Spotify could not give, or one this
 /// cannot read, fails the page rather than pass for rows without songs.

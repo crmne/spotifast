@@ -365,8 +365,8 @@ msgstr "Hier erscheinen eingereihte Songs."
 msgid "Playing next"
 msgstr "Als Nächstes"
 
-#. Translators: Upcoming songs from the current playlist or album, after manually queued songs.
-#: src/ui/queue.rs:584
+#. Translators: Upcoming songs after manually queued songs, when they come from no named playlist or album.
+#: src/ui/queue.rs:694
 msgid "Next up"
 msgstr "Danach"
 
@@ -4314,6 +4314,55 @@ msgstr ""
 "PC oder diese virtuelle Maschine bietet keinen. Installiere den "
 "Grafiktreiber oder schalte die GPU-Beschleunigung der virtuellen Maschine "
 "ein. {url} öffnen, um mehr zu erfahren?"
+
+#. Translators: Songs added manually, before the current playlist or album continues.
+#: src/ui/queue.rs:583
+msgid "Next in queue"
+msgstr "Als Nächstes in der Warteschlange"
+
+#. Translators: Followed by the name of the playlist, album or radio the next songs come from.
+#: src/ui/queue.rs:669
+msgid "Next from:"
+msgstr "Als Nächstes aus:"
+
+#. Translators: Shown when the playing song is dragged from the queue's Now playing row onto the queue.
+#: src/app.rs:8390
+msgid "This song is already playing"
+msgstr "Dieser Titel wird bereits abgespielt"
+
+#: src/app.rs:8420
+msgid "Play a song to reorder the queue"
+msgstr "Spiele einen Titel ab, um die Warteschlange neu zu ordnen"
+
+#: src/app.rs:8424 src/app.rs:8449
+msgid "The queue is still updating. Try again in a moment."
+msgstr "Die Warteschlange wird noch aktualisiert. Versuche es gleich noch einmal."
+
+#: src/app.rs:8429
+msgid "Spotifast has not seen this device's queue yet. Try again in a moment."
+msgstr "Spotifast hat die Warteschlange dieses Geräts noch nicht erhalten. Versuche es gleich noch einmal."
+
+#: src/app.rs:8444
+msgid "The songs just added are still on their way. Try again in a moment."
+msgstr "Die gerade hinzugefügten Titel sind noch unterwegs. Versuche es gleich noch einmal."
+
+#: src/app.rs:8439
+msgid "This device does not let Spotifast reorder its queue"
+msgstr "Auf diesem Gerät kann Spotifast die Warteschlange nicht neu ordnen"
+
+#: src/app.rs:8434
+msgid "This device does not let Spotifast insert into its queue"
+msgstr "Auf diesem Gerät kann Spotifast keine Titel in die Warteschlange einfügen"
+
+#: src/app.rs:7885
+msgid "The queue changed. Drag the song again."
+msgstr "Die Warteschlange hat sich geändert. Ziehe den Titel noch einmal."
+
+#. Translators: {error} is the reason the queue edit failed.
+#: src/app.rs:11267
+#, rust-format
+msgid "Couldn't change the queue: {error}"
+msgstr "Die Warteschlange konnte nicht geändert werden: {error}"
 
 #~ msgid "Otherwise it installs the next time Spotifast starts."
 #~ msgstr "Sonst wird es beim nächsten Start von Spotifast installiert."

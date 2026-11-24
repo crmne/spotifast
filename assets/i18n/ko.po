@@ -361,8 +361,8 @@ msgstr "재생목록에 추가한 곡이 여기에 표시됩니다."
 msgid "Playing next"
 msgstr "다음 재생 항목"
 
-#. Translators: Upcoming songs from the current playlist or album, after manually queued songs.
-#: src/ui/queue.rs:584
+#. Translators: Upcoming songs after manually queued songs, when they come from no named playlist or album.
+#: src/ui/queue.rs:694
 msgid "Next up"
 msgstr "다음 재생"
 
@@ -4210,6 +4210,55 @@ msgstr ""
 "데, 이 PC 또는 가상 머신에서는 제공되지 않습니다. 그래픽 드라이버를 설치하거"
 "나 가상 머신의 GPU 가속을 켜세요. 자세한 내용을 보려면 {url}을(를) 여시겠습니"
 "까?"
+
+#. Translators: Songs added manually, before the current playlist or album continues.
+#: src/ui/queue.rs:583
+msgid "Next in queue"
+msgstr "재생목록의 다음 곡"
+
+#. Translators: Followed by the name of the playlist, album or radio the next songs come from.
+#: src/ui/queue.rs:669
+msgid "Next from:"
+msgstr "다음 재생 출처:"
+
+#. Translators: Shown when the playing song is dragged from the queue's Now playing row onto the queue.
+#: src/app.rs:8390
+msgid "This song is already playing"
+msgstr "이 곡은 이미 재생 중입니다"
+
+#: src/app.rs:8420
+msgid "Play a song to reorder the queue"
+msgstr "재생목록 순서를 바꾸려면 곡을 재생하세요"
+
+#: src/app.rs:8424 src/app.rs:8449
+msgid "The queue is still updating. Try again in a moment."
+msgstr "재생목록을 아직 업데이트하는 중입니다. 잠시 후 다시 시도하세요."
+
+#: src/app.rs:8429
+msgid "Spotifast has not seen this device's queue yet. Try again in a moment."
+msgstr "Spotifast가 이 기기의 재생목록을 아직 받지 못했습니다. 잠시 후 다시 시도하세요."
+
+#: src/app.rs:8444
+msgid "The songs just added are still on their way. Try again in a moment."
+msgstr "방금 추가한 곡이 아직 반영되지 않았습니다. 잠시 후 다시 시도하세요."
+
+#: src/app.rs:8439
+msgid "This device does not let Spotifast reorder its queue"
+msgstr "이 기기에서는 Spotifast가 재생목록 순서를 바꿀 수 없습니다"
+
+#: src/app.rs:8434
+msgid "This device does not let Spotifast insert into its queue"
+msgstr "이 기기에서는 Spotifast가 재생목록에 곡을 넣을 수 없습니다"
+
+#: src/app.rs:7885
+msgid "The queue changed. Drag the song again."
+msgstr "재생목록이 변경되었습니다. 곡을 다시 끌어 놓으세요."
+
+#. Translators: {error} is the reason the queue edit failed.
+#: src/app.rs:11267
+#, rust-format
+msgid "Couldn't change the queue: {error}"
+msgstr "재생목록을 변경할 수 없습니다: {error}"
 
 #~ msgid "Otherwise it installs the next time Spotifast starts."
 #~ msgstr "지금 다시 시작하지 않으면 다음에 Spotifast를 시작할 때 설치됩니다."

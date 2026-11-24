@@ -663,7 +663,7 @@ fn add_menu(app: &mut App, ui: &mut egui::Ui) {
 
 fn rem_menu(app: &mut App, ui: &mut egui::Ui, rows: &[Row]) {
     let locale = app.locale;
-    // Selection is by list row; only the songs the user queued can go.
+    // Selection is by list row; only the rows the player lets go can go.
     let removable: Vec<(usize, String)> = rows
         .iter()
         .enumerate()
@@ -904,7 +904,9 @@ mod tests {
         app.manual_queue = queued.clone();
         let (rows, _) = rows(&app, now.as_ref());
         assert!(rows[0].current);
-        // The second queued song, and the first song of Next up after it.
+        // The second queued song, and the first song of Next up after it:
+        // the built-in player removes both.
+        let next_up = app.queue.get().unwrap().queue[2].uri().to_string();
         app.winamp.playlist_selection.extend([2, 3]);
 
         let frame = |app: &mut App, events| {
@@ -939,7 +941,8 @@ mod tests {
         assert!(
             matches!(
                 app.actions.as_slice(),
-                [Action::RemoveFromQueue { rows }] if *rows == [(1, queued[1].clone())]
+                [Action::RemoveFromQueue { rows }]
+                    if *rows == [(1, queued[1].clone()), (2, next_up.clone())]
             ),
             "{:?}",
             app.actions

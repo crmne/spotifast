@@ -365,8 +365,8 @@ msgstr "Sıraya eklenen şarkılar burada görünür."
 msgid "Playing next"
 msgstr "Sıradaki"
 
-#. Translators: Upcoming songs from the current playlist or album, after manually queued songs.
-#: src/ui/queue.rs:584
+#. Translators: Upcoming songs after manually queued songs, when they come from no named playlist or album.
+#: src/ui/queue.rs:694
 msgid "Next up"
 msgstr "Daha sonra"
 
@@ -4277,6 +4277,55 @@ msgstr ""
 "ihtiyaç duyar ve bu bilgisayar ya da sanal makine bunu sağlamıyor. Grafik "
 "sürücüsünü yükleyin veya sanal makine için GPU hızlandırmayı açın. Daha "
 "fazlasını okumak için {url} açılsın mı?"
+
+#. Translators: Songs added manually, before the current playlist or album continues.
+#: src/ui/queue.rs:583
+msgid "Next in queue"
+msgstr "Sırada sonraki"
+
+#. Translators: Followed by the name of the playlist, album or radio the next songs come from.
+#: src/ui/queue.rs:669
+msgid "Next from:"
+msgstr "Sonraki kaynak:"
+
+#. Translators: Shown when the playing song is dragged from the queue's Now playing row onto the queue.
+#: src/app.rs:8390
+msgid "This song is already playing"
+msgstr "Bu şarkı zaten çalıyor"
+
+#: src/app.rs:8420
+msgid "Play a song to reorder the queue"
+msgstr "Sırayı yeniden düzenlemek için bir şarkı çalın"
+
+#: src/app.rs:8424 src/app.rs:8449
+msgid "The queue is still updating. Try again in a moment."
+msgstr "Sıra hâlâ güncelleniyor. Birazdan yeniden deneyin."
+
+#: src/app.rs:8429
+msgid "Spotifast has not seen this device's queue yet. Try again in a moment."
+msgstr "Spotifast bu cihazın sırasını henüz almadı. Birazdan yeniden deneyin."
+
+#: src/app.rs:8444
+msgid "The songs just added are still on their way. Try again in a moment."
+msgstr "Az önce eklenen şarkılar hâlâ yolda. Birazdan yeniden deneyin."
+
+#: src/app.rs:8439
+msgid "This device does not let Spotifast reorder its queue"
+msgstr "Bu cihaz Spotifast'in sırasını yeniden düzenlemesine izin vermiyor"
+
+#: src/app.rs:8434
+msgid "This device does not let Spotifast insert into its queue"
+msgstr "Bu cihaz Spotifast'in sırasına şarkı eklemesine izin vermiyor"
+
+#: src/app.rs:7885
+msgid "The queue changed. Drag the song again."
+msgstr "Sıra değişti. Şarkıyı yeniden sürükleyin."
+
+#. Translators: {error} is the reason the queue edit failed.
+#: src/app.rs:11267
+#, rust-format
+msgid "Couldn't change the queue: {error}"
+msgstr "Sıra değiştirilemedi: {error}"
 
 #~ msgid "Otherwise it installs the next time Spotifast starts."
 #~ msgstr "Aksi halde Spotifast bir sonraki açılışta yüklenir."

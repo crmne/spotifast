@@ -1034,6 +1034,14 @@ pub enum RowContext {
     },
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct QueueOrigin {
+    pub device: Option<String>,
+    pub playing: String,
+    pub manual: usize,
+    pub rows: Vec<String>,
+}
+
 /// Track data held during a drag.
 #[derive(Clone, Debug)]
 pub struct DragTrack {
@@ -1043,12 +1051,45 @@ pub struct DragTrack {
     /// Full row data, so dropping can update an open playlist immediately.
     /// A picked table row carries the whole selection in table order.
     pub items: Vec<PlayableItem>,
-    /// Source playlist ID and row index for moves within an editable playlist.
+    /// Source playlist ID and row index for moves within an editable
+    /// playlist, or [`QUEUED_ROW`] or [`UPCOMING_ROW`] and the row's index
+    /// in the whole queue for a row of the open queue, or
+    /// [`NOW_PLAYING_ROW`] for its Now playing row.
     pub from: Option<(String, u32)>,
     /// The editable playlist the rows were dragged from, however many there
     /// are. Several rows have no `from`, and dropping them back into their
     /// own playlist must not add copies of them (#669).
     pub source_playlist: Option<String>,
+    pub queue_origin: Option<QueueOrigin>,
+}
+
+/// The `from` origin of a row dragged out of Next in queue.
+pub const QUEUED_ROW: &str = "queue";
+
+/// The `from` origin of a row dragged out of the queue's rows after Next in
+/// queue, which play from the context in its own order.
+pub const UPCOMING_ROW: &str = "queue-upcoming";
+
+/// The `from` origin of the open queue's Now playing row.
+pub const NOW_PLAYING_ROW: &str = "queue-now-playing";
+
+impl DragTrack {
+    /// Whether the row was dragged out of Next in queue or Now playing,
+    /// which never queues it again. A row of Next up can be queued.
+    pub fn is_queued_or_playing(&self) -> bool {
+        self.from
+            .as_ref()
+            .is_some_and(|(origin, _)| [QUEUED_ROW, NOW_PLAYING_ROW].contains(&origin.as_str()))
+    }
+}
+
+/// Why a song dropped on the open queue stayed where it was.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum QueueRefusal {
+    /// It was the Now playing row: the song is already playing.
+    NowPlaying,
+    /// The attempted move or insert is unavailable for this queue.
+    Locked { insert: bool },
 }
 
 /// Where the playing songs come from, as the queue's header names it.
@@ -1204,11 +1245,17 @@ pub enum Action {
         items: Vec<PlayableItem>,
     },
     /// Move a row within the manually queued "Playing next" section, from a
-    /// drag dropped back on the queue. Only applied while the local player
-    /// is the active target; see [`crate::app::App::queue_locally_reorderable`].
+    /// drag dropped back on the queue. Applied on the local player, and with
+    /// Connect's `set_queue` on a device playing elsewhere that takes it;
+    /// see [`crate::app::App::queue_reorderable`].
     MoveInQueue {
         from: usize,
         to: usize,
+    },
+    DropInPlaybackQueue {
+        track: Box<DragTrack>,
+        slot: usize,
+        manual: bool,
     },
     /// Insert dragged songs into "Playing next" at a position, instead of
     /// always appending like `QueueMany`. Falls back to appending when the
@@ -1224,6 +1271,8 @@ pub enum Action {
     RemoveFromQueue {
         rows: Vec<(usize, String)>,
     },
+    /// Say why a song dropped on the open queue stayed where it was.
+    RefuseQueueDrop(QueueRefusal),
     /// Set saved state for several songs explicitly.
     SetSavedMany {
         uris: Vec<String>,
