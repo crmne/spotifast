@@ -874,6 +874,9 @@ pub struct App {
     /// come, its own the last of them. Until then an answer naming the
     /// song may be a copy passed on the way, or the one from before.
     queue_skip_unanswered: usize,
+    /// When playback last moved to another device. That device lists the
+    /// queue that moved with it only once it has loaded it.
+    queue_moved_at: Option<Instant>,
     /// Nexts and Next up skips sent to another device and not answered
     /// yet. Each is answered as a `Next`.
     next_answers_due: usize,
@@ -1551,6 +1554,7 @@ impl App {
             queue_skip_passed: None,
             queue_skip_device: None,
             queue_skip_unanswered: 0,
+            queue_moved_at: None,
             next_answers_due: 0,
             playlist_busy: false,
             quit_requested: false,
@@ -7546,6 +7550,7 @@ impl App {
             || matches!((&old.1, &target.1), (Some(was), Some(now)) if was != now);
         if moved {
             self.retire_device_queue_work();
+            self.queue_moved_at = Some(Instant::now());
         }
     }
 
@@ -8847,6 +8852,21 @@ impl App {
         if self.queue_stale_retries >= QUEUE_STALE_RETRIES {
             return false;
         }
+        // Until the device that took playback has loaded the queue that
+        // moved with it, it reads empty. Keep the rows that moved.
+        if self
+            .queue_moved_at
+            .is_some_and(|at| at.elapsed() < PLAYBACK_HOLD)
+            && fetched.queue.is_empty()
+            && self.queue_cleared.is_none()
+            && self.queue_removed.is_none()
+            && self
+                .queue
+                .get()
+                .is_some_and(|shown| !shown.queue.is_empty())
+        {
+            return true;
+        }
         // A recent play or pop must be reflected in the fetched current row.
         if let Some(intent) = &self.intent_track
             && (intent.at.elapsed() < PLAYBACK_HOLD || self.queued_play.is_some())
@@ -9672,6 +9692,7 @@ impl App {
                     return;
                 }
                 self.queue_stale_retries = 0;
+                self.queue_moved_at = None;
                 if result.is_ok() {
                     self.queue_cleared = None;
                     self.queue_shuffle_pending = None;
@@ -24734,6 +24755,58 @@ mod tests {
             "the old device's failure rolls nothing back"
         );
         assert_eq!(app.toasts.len(), toasts);
+        app.backend.shutdown();
+    }
+
+    /// Moving playback from a speaker to this computer keeps the queue on
+    /// show while this computer's player loads it, instead of blanking it.
+    #[test]
+    fn a_transfer_here_keeps_the_queue_until_the_player_lists_it() {
+        let mut app = app_with_connect_edit_rows();
+        app.bind_playback_queue();
+        let shown = queue_uris(&app);
+        app.remote = None;
+        app.remote_queue = None;
+        app.local_ready = true;
+        app.local_device_id = Some("here".into());
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:now".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        // The player has the song but not yet the queue that came with it.
+        app.local_queue = Some(crate::player::RemoteQueueView {
+            device: "here".into(),
+            track: "spotify:track:now".into(),
+            can_reorder: true,
+            can_remove: true,
+            can_insert: true,
+            ..Default::default()
+        });
+        app.bind_playback_queue();
+        assert!(app.queue_locally_reorderable());
+        let empty = loaded_queue("spotify:track:now", &[])
+            .get()
+            .unwrap()
+            .clone();
+        app.handle_api(ApiResponse::Queue {
+            seq: app.queue_seq,
+            result: Ok(empty.clone()),
+        });
+        assert_eq!(queue_uris(&app), shown, "the moved rows stay on show");
+        app.local_queue.as_mut().unwrap().rows = vec![
+            ("spotify:track:a".into(), String::new()),
+            ("spotify:track:b".into(), String::new()),
+        ];
+        app.handle_api(ApiResponse::Queue {
+            seq: app.queue_seq,
+            result: Ok(empty),
+        });
+        assert_eq!(
+            queue_uris(&app).1,
+            ["spotify:track:a", "spotify:track:b"],
+            "the player's own rows replace them once it lists them"
+        );
         app.backend.shutdown();
     }
 
