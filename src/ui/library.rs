@@ -69,6 +69,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, page: Page) {
                 }
                 if card.clicked {
                     app.actions.push(Action::Open(Page::Album(id)));
+                } else if widgets::rested_on(ui, &card.response) {
+                    app.actions.push(Action::PreloadAlbum(id));
                 }
                 egui::Popup::context_menu(&card.response)
                     .id(ui.make_persistent_id(("library-album-menu", &album.uri)))

@@ -626,6 +626,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     };
                     if response.clicked() {
                         app.actions.push(Action::ToggleDevicesPopup);
+                    } else if response.hovered() {
+                        app.actions.push(Action::WarmDevices);
                     }
                 }
                 // A newer release. Most people never visit a releases page,

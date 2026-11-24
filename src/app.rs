@@ -45,6 +45,9 @@ const REMOTE_FRESH: Duration = Duration::from_secs(60);
 /// How often the open Friend activity panel asks for news.
 const FRIENDS_POLL: Duration = Duration::from_secs(15);
 const DEVICES_FRESH: Duration = Duration::from_secs(12);
+/// How long a list fetched by resting on a device button serves the picker
+/// without asking again.
+const DEVICES_WARM: Duration = Duration::from_secs(5);
 const SEARCH_DEBOUNCE: Duration = Duration::from_millis(280);
 /// How long a suspend or the end of the session waits for pending file
 /// writes. fastframe-power holds the system back for 1.5 s before a
@@ -549,6 +552,8 @@ pub struct App {
     /// This computer's audio outputs, listed when the device picker asks.
     pub output_devices: Loadable<Vec<fastframe_audio::DeviceInfo>>,
     devices_fetched_at: Option<Instant>,
+    /// When resting on a device button last fetched the list.
+    devices_warmed_at: Option<Instant>,
     pub selected_device: Option<String>,
     pub queue: Loadable<Queue>,
     queue_fetched_at: Option<Instant>,
@@ -594,6 +599,8 @@ pub struct App {
     playlist_cache_write_in_flight: bool,
     load_generation: u64,
     pub album_pages: HashMap<String, AlbumPage>,
+    /// The album fetched ahead of a click, while it is on its way.
+    album_preloading: Option<String>,
     pub artist_pages: HashMap<String, ArtistPage>,
     /// Never reset on page eviction or account reset, so old replies cannot match.
     artist_top_tracks_generation: u64,
@@ -1313,6 +1320,7 @@ impl App {
             devices_loading: false,
             output_devices: Loadable::NotLoaded,
             devices_fetched_at: None,
+            devices_warmed_at: None,
             selected_device: None,
             queue: match &session.last_track {
                 Some(current) if !session.last_queue_rows.is_empty() => {
@@ -1360,6 +1368,7 @@ impl App {
             playlist_cache_write_in_flight: false,
             load_generation: 0,
             album_pages: HashMap::new(),
+            album_preloading: None,
             artist_pages: HashMap::new(),
             artist_top_tracks_generation: 0,
             show_pages: HashMap::new(),
@@ -3782,6 +3791,7 @@ impl App {
         };
         self.playlist_pages.clear();
         self.album_pages.clear();
+        self.album_preloading = None;
         self.hidden_songs.clear();
         self.hidden_songs_revision = self.hidden_songs_revision.wrapping_add(1);
         self.hidden_songs_requested = false;
@@ -3813,6 +3823,7 @@ impl App {
         self.devices.clear();
         self.control_devices_stale = true;
         self.devices_fetched_at = None;
+        self.devices_warmed_at = None;
         self.search.results = Loadable::NotLoaded;
         self.search.committed.clear();
         self.search.committed_run = None;
@@ -7306,6 +7317,52 @@ impl App {
         self.backend.api(ApiRequest::Devices);
     }
 
+    /// Fetches the device list and looks for receivers while the pointer
+    /// rests on a device button, so the picker opens on a current list. A
+    /// list fetched within `DEVICES_FRESH` is current enough, and on a
+    /// metered connection the picker waits for the click.
+    fn warm_devices(&mut self) {
+        let fresh = |at: Option<Instant>| at.is_some_and(|at| at.elapsed() < DEVICES_FRESH);
+        if self.show_devices
+            || !self.is_connected()
+            || self.metered()
+            || fresh(self.devices_fetched_at)
+            || fresh(self.devices_warmed_at)
+        {
+            return;
+        }
+        self.devices_warmed_at = Some(Instant::now());
+        self.refresh_devices();
+        self.backend.send(Command::DiscoverReceivers);
+    }
+
+    /// Fetches an album while the pointer rests on its card, so its page
+    /// opens complete. One album at a time, never on a metered connection,
+    /// and never one already held. Nobody has visited the page this makes,
+    /// so it is the first to go when pages are evicted.
+    fn preload_album(&mut self, id: String) {
+        if id.is_empty()
+            || self.user.is_none()
+            || !self.network_reachable
+            || self.metered()
+            || self.album_preloading.is_some()
+            || self.album_pages.contains_key(&id)
+        {
+            return;
+        }
+        self.load_generation = self.load_generation.wrapping_add(1);
+        self.album_pages.insert(
+            id.clone(),
+            AlbumPage {
+                generation: self.load_generation,
+                album: Loadable::Loading,
+                ..Default::default()
+            },
+        );
+        self.album_preloading = Some(id.clone());
+        self.backend.api(ApiRequest::AlbumPreload { id });
+    }
+
     fn refresh_queue(&mut self, force: bool) {
         if !self.is_connected() || !self.network_reachable {
             return;
@@ -9667,6 +9724,9 @@ impl App {
                 }
             }
             ApiResponse::Album { id, result } => {
+                if self.album_preloading.as_ref() == Some(&id) {
+                    self.album_preloading = None;
+                }
                 // An earlier Web API header has no page generation. Once the
                 // session resolves a countdown page, its preview and playable
                 // cache own this album; a late generic header cannot replace it.
@@ -13296,6 +13356,8 @@ impl App {
                 self.refresh_devices();
                 self.backend.send(Command::DiscoverReceivers);
             }
+            Action::WarmDevices => self.warm_devices(),
+            Action::PreloadAlbum(id) => self.preload_album(id),
             Action::ClearQueue => self.clear_queue(),
             Action::SaveQueueAsPlaylist => self.save_queue_as_playlist(),
             Action::SaveRadio(seed) => self.save_radio(&seed),
@@ -13543,7 +13605,11 @@ impl App {
             }
             Action::ToggleDevicesPopup => {
                 self.show_devices = !self.show_devices;
-                if self.show_devices {
+                // A rest on the button has just fetched the list and searched.
+                let warmed = self
+                    .devices_warmed_at
+                    .is_some_and(|at| at.elapsed() < DEVICES_WARM);
+                if self.show_devices && !warmed {
                     self.refresh_devices();
                     // Receivers waiting on the network are invisible to the
                     // Web API, so look for them ourselves.
@@ -27291,6 +27357,76 @@ mod tests {
         assert_eq!(app.media_art, None, "a path into a deleted cache");
 
         let _ = std::fs::remove_file(&file);
+    }
+
+    /// Resting on a device button fetches the list, so the picker opens on
+    /// it without asking again; a metered connection waits for the click.
+    #[test]
+    fn resting_on_a_device_button_fetches_the_list_ahead_of_the_click() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.auth = AuthStatus::Connected {
+            username: "alice".into(),
+        };
+        change_power(&app, |conditions| conditions.metered = true);
+        app.apply(Action::WarmDevices, &ctx);
+        assert!(!app.devices_loading, "a metered connection waits");
+        change_power(&app, |conditions| conditions.metered = false);
+        app.apply(Action::WarmDevices, &ctx);
+        assert!(app.devices_loading);
+        app.handle_api(ApiResponse::Devices(Ok(Vec::new())));
+        app.apply(Action::WarmDevices, &ctx);
+        assert!(!app.devices_loading, "a fresh list is not fetched again");
+        app.apply(Action::ToggleDevicesPopup, &ctx);
+        assert!(app.show_devices);
+        assert!(
+            !app.devices_loading,
+            "the picker shows the list just fetched"
+        );
+        app.apply(Action::ToggleDevicesPopup, &ctx);
+        app.devices_warmed_at = Some(Instant::now() - DEVICES_WARM);
+        app.apply(Action::ToggleDevicesPopup, &ctx);
+        assert!(
+            app.devices_loading,
+            "an older list is fetched again on opening"
+        );
+    }
+
+    /// Resting on an album's card fetches the album, one at a time and never
+    /// on a metered connection; the page it makes is the first evicted.
+    #[test]
+    fn resting_on_an_album_fetches_it_ahead_one_at_a_time() {
+        let ctx = egui::Context::default();
+        let mut app = headless_app();
+        app.user = Some(crate::api::models::User::default());
+        change_power(&app, |conditions| conditions.metered = true);
+        app.apply(Action::PreloadAlbum("a".into()), &ctx);
+        assert!(app.album_pages.is_empty(), "a metered connection waits");
+        change_power(&app, |conditions| conditions.metered = false);
+        app.apply(Action::PreloadAlbum("a".into()), &ctx);
+        assert!(matches!(app.album_pages["a"].album, Loadable::Loading));
+        app.apply(Action::PreloadAlbum("b".into()), &ctx);
+        assert!(!app.album_pages.contains_key("b"), "one album at a time");
+        app.handle_api(ApiResponse::Album {
+            id: "a".into(),
+            result: Ok(crate::api::models::Album {
+                id: "a".into(),
+                uri: "spotify:album:a".into(),
+                ..Default::default()
+            }),
+        });
+        assert!(matches!(app.album_pages["a"].album, Loadable::Loaded(_)));
+        app.apply(Action::PreloadAlbum("b".into()), &ctx);
+        assert!(matches!(app.album_pages["b"].album, Loadable::Loading));
+        for index in 0..16 {
+            let id = format!("opened{index}");
+            app.album_pages.insert(id.clone(), AlbumPage::default());
+            app.touch_page(&Page::Album(id));
+        }
+        app.evict_stale_pages();
+        assert!(!app.album_pages.contains_key("a"));
+        assert!(!app.album_pages.contains_key("b"));
+        assert!((0..16).all(|index| app.album_pages.contains_key(&format!("opened{index}"))));
     }
 
     /// Changes the conditions as the power reader would.

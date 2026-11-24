@@ -331,6 +331,11 @@ pub enum ApiRequest {
     Album {
         id: String,
     },
+    /// The same read as `Album`, made ahead of the click while the pointer
+    /// rests on the album's card, so it yields to what the user asked for.
+    AlbumPreload {
+        id: String,
+    },
     AlbumTracks {
         id: String,
         offset: u32,
@@ -411,6 +416,7 @@ impl ApiRequest {
                 | Self::MyPlaylists { .. }
                 | Self::PlaylistSample { .. }
                 | Self::Contains { .. }
+                | Self::AlbumPreload { .. }
         )
     }
 }
@@ -5162,6 +5168,7 @@ fn operation_for(api: &ApiGateway, request: &ApiRequest) -> Operation {
         ApiRequest::Artist { .. }
         | ApiRequest::ArtistAlbums { .. }
         | ApiRequest::Album { .. }
+        | ApiRequest::AlbumPreload { .. }
         | ApiRequest::AlbumTracks { .. }
         | ApiRequest::AlbumQueueTracks { .. }
         | ApiRequest::Show { .. }
@@ -5926,7 +5933,7 @@ async fn handle(
             result: routed!(related_artists(&id)),
             id,
         },
-        ApiRequest::Album { id } => ApiResponse::Album {
+        ApiRequest::Album { id } | ApiRequest::AlbumPreload { id } => ApiResponse::Album {
             result: routed!(album(&id)),
             id,
         },
@@ -9965,6 +9972,13 @@ mod cover_routing_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_album_fetched_ahead_of_the_click_yields_to_requests_the_user_made() {
+        let id = "album".to_string();
+        assert!(ApiRequest::AlbumPreload { id: id.clone() }.background());
+        assert!(!ApiRequest::Album { id }.background());
+    }
 
     #[tokio::test]
     async fn soloist_without_a_playback_login_can_still_use_old_spotify_lyrics() {

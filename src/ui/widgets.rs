@@ -412,6 +412,38 @@ pub fn virtual_wrapped_cards(
     ui.spacing_mut().item_spacing = previous_spacing;
 }
 
+/// How long the pointer rests on a card before the page it opens is
+/// fetched ahead of the click. Passing over a card asks for nothing.
+const PRELOAD_REST: f64 = 0.25;
+
+/// Whether the pointer has now rested on `response` long enough to fetch
+/// what it opens. True once per visit.
+pub fn rested_on(ui: &Ui, response: &egui::Response) -> bool {
+    type Rest = (egui::Id, f64, bool);
+    let key = egui::Id::new("spotifast-card-rest");
+    let mine = ui
+        .data(|data| data.get_temp::<Rest>(key))
+        .filter(|(id, ..)| *id == response.id);
+    if !response.hovered() {
+        if mine.is_some() {
+            ui.data_mut(|data| data.remove::<Rest>(key));
+        }
+        return false;
+    }
+    let now = ui.input(|input| input.time);
+    let (since, done) = mine.map_or((now, false), |(_, since, done)| (since, done));
+    let rested = now - since;
+    let ready = !done && rested >= PRELOAD_REST;
+    if mine.is_none() || ready {
+        ui.data_mut(|data| data.insert_temp(key, (response.id, since, done || ready)));
+    }
+    if !done && !ready {
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_secs_f64(PRELOAD_REST - rested));
+    }
+    ready
+}
+
 /// Asks for the next page when the user scrolls near the end of a list.
 pub fn load_more_when_near_end(ui: &Ui, app: &mut App, page: Page, can_load: bool) {
     if !can_load {
@@ -4724,6 +4756,46 @@ mod tests {
         );
         assert!(!painted.is_empty());
         assert_eq!(painted[0], 0);
+    }
+
+    /// Passing over a card asks for nothing; resting on it asks once per
+    /// visit.
+    #[test]
+    fn a_card_asks_for_its_page_once_the_pointer_rests_on_it() {
+        let ctx = egui::Context::default();
+        let frame = |time: f64, pointer: Option<egui::Pos2>| {
+            let mut rested = [false; 2];
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    time: Some(time),
+                    screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(300.0, 100.0))),
+                    events: pointer.map(egui::Event::PointerMoved).into_iter().collect(),
+                    ..Default::default()
+                },
+                |ui| {
+                    for (index, left) in [0.0, 150.0].into_iter().enumerate() {
+                        let rect = Rect::from_min_size(pos2(left, 0.0), vec2(100.0, 100.0));
+                        let id = egui::Id::new(("rest-card", index));
+                        let response = ui.interact(rect, id, Sense::click());
+                        rested[index] = rested_on(ui, &response);
+                    }
+                },
+            );
+            output.textures_delta.clear();
+            rested
+        };
+        assert_eq!(frame(0.0, Some(pos2(50.0, 50.0))), [false; 2]);
+        assert_eq!(
+            frame(0.1, None),
+            [false; 2],
+            "passing over asks for nothing"
+        );
+        assert_eq!(frame(0.4, None), [true, false]);
+        assert_eq!(frame(0.5, None), [false; 2], "once per visit");
+        assert_eq!(frame(0.6, Some(pos2(200.0, 50.0))), [false; 2]);
+        assert_eq!(frame(0.7, Some(pos2(50.0, 50.0))), [false; 2]);
+        assert_eq!(frame(0.8, None), [false; 2], "a new visit starts again");
+        assert_eq!(frame(1.1, None), [true, false]);
     }
 
     fn song(uri: &str) -> PlayableItem {

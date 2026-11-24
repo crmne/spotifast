@@ -330,6 +330,18 @@ without another download. When only a small known thumbnail is available, a
 softened preview may appear while the larger image loads. If the completed
 response has no cover, the page shows its placeholder instead of an old image.
 
+Resting the pointer on an album's card for a quarter of a second, in Your
+Library, search results or an artist's discography, requests that album
+ahead of the click, so its page opens complete. Only one such request is on
+its way at a time, it waits behind requests you made, and passing over a
+card requests nothing. An album fetched this way and never opened is the
+first page Spotifast lets go of. Resting on a device button requests the
+device list and looks for receivers on the local network, unless the list
+is less than 12 seconds old, and the picker opened within 5 seconds shows
+that answer without asking again. On a connection the system reports as
+metered (Windows), neither is fetched ahead: albums load when opened, and
+the device list when the picker opens.
+
 Since 0.8.0, album and playlist scrollbars can request a distant track
 page through the existing session or Web API read path, without fetching all
 preceding tracks. These reads run one at a time per list and retain the existing
