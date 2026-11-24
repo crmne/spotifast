@@ -40,6 +40,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, page: Page) {
         Page::Albums => {
             let card_height = widgets::card_row_height(ui);
             let count = app.library.albums.items.len();
+            let card_art = app.art_px(widgets::CARD_ART);
+            widgets::warm_card_covers(ui, app, count, card_height, |index| {
+                let album = &app.library.albums.items.get(index)?.album;
+                pick_image(&album.images, card_art).map(str::to_owned)
+            });
             widgets::virtual_wrapped_cards(ui, count, card_height, |ui, index| {
                 let album = app.library.albums.items[index].album.clone();
                 let id = album.id.clone();
@@ -47,7 +52,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, page: Page) {
                 let subtitle = join_names(album.artists.iter().map(|artist| artist.name.as_str()));
                 let context_here = app.playing_context_uri().as_deref() == Some(uri.as_str());
                 let playing_here = context_here && app.believed_playing();
-                let card_art = app.art_px(widgets::CARD_ART);
                 let card = widgets::card(
                     ui,
                     app,
@@ -99,13 +103,17 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, page: Page) {
             let card_height = widgets::card_row_height(ui);
             let count = app.library.artists.items.len();
             let artist_label = gettext(locale, "Artist");
+            let card_art = app.art_px(widgets::CARD_ART);
+            widgets::warm_card_covers(ui, app, count, card_height, |index| {
+                let artist = app.library.artists.items.get(index)?;
+                pick_image(&artist.images, card_art).map(str::to_owned)
+            });
             widgets::virtual_wrapped_cards(ui, count, card_height, |ui, index| {
                 let artist = app.library.artists.items[index].clone();
                 let id = artist.id.clone();
                 let uri = artist.uri.clone();
                 let context_here = app.playing_context_uri().as_deref() == Some(uri.as_str());
                 let playing_here = context_here && app.believed_playing();
-                let card_art = app.art_px(widgets::CARD_ART);
                 let card = widgets::card(
                     ui,
                     app,
@@ -158,10 +166,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, page: Page) {
         Page::Podcasts => {
             let card_height = widgets::card_row_height(ui);
             let count = app.library.shows.items.len();
+            let card_art = app.art_px(widgets::CARD_ART);
+            widgets::warm_card_covers(ui, app, count, card_height, |index| {
+                let show = &app.library.shows.items.get(index)?.show;
+                pick_image(&show.images, card_art).map(str::to_owned)
+            });
             widgets::virtual_wrapped_cards(ui, count, card_height, |ui, index| {
                 let show = app.library.shows.items[index].show.clone();
                 let id = show.id.clone();
-                let card_art = app.art_px(widgets::CARD_ART);
                 let card = widgets::card(
                     ui,
                     app,
