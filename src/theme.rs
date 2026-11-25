@@ -691,6 +691,10 @@ pub fn circle_button(
 
 /// A disc the size of a [`circle_button`] whose icon is replaced by a
 /// spinner: the pressed play button itself shows that Spotify is reacting.
+///
+/// The arc fades in over [`crate::motion::ANIMATION_TIME`], so an answer that
+/// comes in a frame or two leaves only a faint trace instead of a dark arc
+/// flashing across the disc. It is gone the frame the button returns.
 pub fn circle_spinner(
     ui: &mut egui::Ui,
     diameter: f32,
@@ -706,19 +710,34 @@ pub fn circle_spinner(
             tooltip,
         )
     });
+    let strength = spinner_strength(ui.ctx(), response.id.with("spinner-strength"));
     if ui.is_rect_visible(rect) {
         ui.painter()
             .circle_filled(rect.center(), diameter / 2.0, fill);
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(
             egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
         ));
-        spinner(&mut child, diameter * 0.55, spin);
+        spinner(&mut child, diameter * 0.55, spin.gamma_multiply(strength));
     }
     if tooltip.is_empty() {
         response
     } else {
         response.on_hover_text(tooltip)
     }
+}
+
+/// How strongly the spinner kept under `id` is drawn, from 0 on the frame it
+/// first shows to 1 after [`crate::motion::ANIMATION_TIME`]. A spinner
+/// missing for a frame starts over, so each wait fades in its own arc.
+fn spinner_strength(ctx: &egui::Context, id: egui::Id) -> f32 {
+    let now = ctx.input(|input| input.time);
+    let frame = ctx.cumulative_frame_nr();
+    let started = ctx
+        .data(|data| data.get_temp::<(f64, u64)>(id))
+        .filter(|(_, seen)| frame.saturating_sub(*seen) <= 1)
+        .map_or(now, |(started, _)| started);
+    ctx.data_mut(|data| data.insert_temp(id, (started, frame)));
+    ((now - started) / f64::from(crate::motion::ANIMATION_TIME)).clamp(0.0, 1.0) as f32
 }
 
 /// A pill-shaped text button: filled for the primary action, outlined otherwise.
@@ -1367,5 +1386,68 @@ mod tests {
             5.0 + interval,
             "after a pause"
         );
+    }
+
+    /// Draws a play disc's spinner in one frame at `time` (or nothing, for a
+    /// frame that shows the button instead), and answers the alpha its arc is
+    /// drawn with, or `None` when it draws no arc.
+    fn spinner_alpha(ctx: &egui::Context, time: f64, drawn: bool) -> Option<u8> {
+        let input = egui::RawInput {
+            time: Some(time),
+            ..Default::default()
+        };
+        let mut output = ctx.run_ui(input, |ui| {
+            if drawn {
+                circle_spinner(ui, 36.0, Color32::WHITE, Color32::BLACK, "");
+            }
+        });
+        output.textures_delta.clear();
+        fn arc_alpha(shape: &egui::Shape) -> Option<u8> {
+            match shape {
+                egui::Shape::Vec(shapes) => shapes.iter().find_map(arc_alpha),
+                egui::Shape::Path(path) => match path.stroke.color {
+                    egui::epaint::ColorMode::Solid(color) => Some(color.a()),
+                    egui::epaint::ColorMode::UV(_) => None,
+                },
+                _ => None,
+            }
+        }
+        output
+            .shapes
+            .iter()
+            .find_map(|clipped| arc_alpha(&clipped.shape))
+    }
+
+    /// A play button's spinner fades its arc in, so an answer that comes
+    /// within a frame or two never flashes a dark arc on the disc.
+    #[test]
+    fn a_play_spinner_fades_its_arc_in() {
+        // #given a spinner that first shows at 10 s
+        let ctx = egui::Context::default();
+
+        // #then its arc is invisible on that frame, faint soon after, and
+        // fully drawn once it has had time to fade in
+        assert_eq!(spinner_alpha(&ctx, 10.0, true), Some(0), "first frame");
+        let partway = spinner_alpha(&ctx, 10.06, true).expect("an arc");
+        assert!(
+            (1..255).contains(&partway),
+            "a faint arc, got alpha {partway}"
+        );
+        assert_eq!(spinner_alpha(&ctx, 10.2, true), Some(255), "faded in");
+        assert_eq!(spinner_alpha(&ctx, 11.0, true), Some(255), "stays drawn");
+    }
+
+    /// Each wait fades in its own arc: a spinner that went away for a frame
+    /// starts again from nothing rather than coming back fully drawn.
+    #[test]
+    fn a_play_spinner_starts_over_after_the_button_returns() {
+        // #given a spinner that faded in fully, then gave way to the button
+        let ctx = egui::Context::default();
+        spinner_alpha(&ctx, 10.0, true);
+        assert_eq!(spinner_alpha(&ctx, 10.5, true), Some(255));
+        spinner_alpha(&ctx, 10.6, false);
+
+        // #then the next wait starts with an invisible arc again
+        assert_eq!(spinner_alpha(&ctx, 10.7, true), Some(0));
     }
 }
