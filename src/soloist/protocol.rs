@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 use std::{
     sync::{
         Arc, RwLock,
-        atomic::{AtomicU32, Ordering},
+        atomic::{AtomicBool, AtomicU32, Ordering},
     },
     time::Duration,
 };
@@ -187,6 +187,25 @@ impl Client {
                     result,
                 })
             }
+            ApiRequest::ShufflePlay { device_id, play }
+                if device_id.is_some() && device_id == &device.id =>
+            {
+                let commands = shuffle_play_commands(play)?;
+                let result = async {
+                    let _guard = self.serial.lock().await;
+                    for command in commands {
+                        self.rpc_unlocked(port, command, None).await?;
+                    }
+                    Ok(())
+                }
+                .await
+                .map_err(failure);
+                // The same answer the Web API's shuffle play gives.
+                Some(ApiResponse::Remote {
+                    action: RemoteAction::Play,
+                    result,
+                })
+            }
             // Adding remains on the existing serialized queue writer, so an
             // album and a single addition cannot overtake one another.
             _ => None,
@@ -227,6 +246,46 @@ impl Client {
         .context("Soloist did not answer in time")?
     }
 }
+/// Whether a song played on its own should go on to what Spotify follows it
+/// with. The Web API's `uris` play gives Soloist a list with no context, so
+/// the song stops at its end; Soloist's own `play` with the song's URI loads
+/// it as a context of its own, and Spotify's Autoplay carries on from it, as
+/// a song from a search does in the Spotify apps and in local playback (see
+/// `local_load`). Soloist has no Autoplay switch of its own, so with Autoplay
+/// off the song keeps the Web API route and stops where it ends.
+static AUTOPLAY: AtomicBool = AtomicBool::new(true);
+
+/// Follows the Autoplay setting; read when a play is routed.
+pub fn set_autoplay(on: bool) {
+    AUTOPLAY.store(on, Ordering::Relaxed);
+}
+
+/// The song to hand Soloist's `play`, when the request is one song with
+/// nothing around it: no context, no other row, from its start.
+fn single_song(play: &crate::api::PlayRequest) -> Option<&str> {
+    let [uri] = play.uris.as_slice() else {
+        return None;
+    };
+    let id = uri.strip_prefix("spotify:track:")?;
+    (play.context_uri.is_none()
+        && !id.is_empty()
+        && !id.contains(':')
+        && play.position_ms == 0
+        && play.offset_uri.as_ref().is_none_or(|offset| offset == uri)
+        && play.offset_position.is_none_or(|position| position == 0)
+        && AUTOPLAY.load(Ordering::Relaxed))
+    .then_some(uri.as_str())
+}
+
+/// Shuffle Play of one song: shuffle on first, so what Autoplay adds after
+/// it plays shuffled too, as the Web API's shuffle play would.
+fn shuffle_play_commands(play: &crate::api::PlayRequest) -> Option<Vec<Value>> {
+    Some(vec![
+        json!({"command":"set_shuffle", "enabled":true}),
+        json!({"command":"play", "uri":single_song(play)?}),
+    ])
+}
+
 fn failure(error: anyhow::Error) -> ApiError {
     ApiError::Network(error.to_string())
 }
@@ -246,6 +305,9 @@ fn commands(request: &ApiRequest) -> Option<Vec<Value>> {
     };
     let command = match action {
         RemoteAction::Play if play.is_none() => json!({"command":"play"}),
+        RemoteAction::Play if play.as_ref().and_then(single_song).is_some() => {
+            json!({"command":"play", "uri":play.as_ref().and_then(single_song)})
+        }
         RemoteAction::Play => return None, // Preserve context, ordering and selected occurrence.
         RemoteAction::Pause => json!({"command":"pause"}),
         RemoteAction::Next => json!({"command":"skip_next"}),
@@ -471,6 +533,63 @@ mod tests {
             repeat: "off".into(),
         }
     }
+    fn remote_play(play: crate::api::PlayRequest) -> ApiRequest {
+        let mut request = remote(RemoteAction::Play);
+        if let ApiRequest::Remote { play: slot, .. } = &mut request {
+            *slot = Some(play);
+        }
+        request
+    }
+
+    /// One test, because the Autoplay switch is process-wide: run apart, the
+    /// "off" case would race the others.
+    #[test]
+    fn a_song_on_its_own_goes_through_soloist_play_so_autoplay_follows_it() {
+        let song = || crate::api::PlayRequest::tracks(vec!["spotify:track:one".into()]);
+        set_autoplay(true);
+        for play in [
+            song(),
+            song().starting_at_index(0),
+            song().starting_at_uri("spotify:track:one"),
+        ] {
+            assert_eq!(
+                commands(&remote_play(play.clone())).unwrap(),
+                vec![json!({"command":"play", "uri":"spotify:track:one"})]
+            );
+            assert_eq!(
+                shuffle_play_commands(&play).unwrap(),
+                vec![
+                    json!({"command":"set_shuffle", "enabled":true}),
+                    json!({"command":"play", "uri":"spotify:track:one"}),
+                ]
+            );
+        }
+        // Everything else keeps the Web API route: its context, its order,
+        // the chosen row and a resumed position.
+        for play in [
+            crate::api::PlayRequest::context("spotify:album:album"),
+            crate::api::PlayRequest::tracks(vec![
+                "spotify:track:one".into(),
+                "spotify:track:two".into(),
+            ]),
+            crate::api::PlayRequest::tracks(vec!["spotify:episode:episode".into()]),
+            crate::api::PlayRequest {
+                position_ms: 10_000,
+                ..song()
+            },
+            song().starting_at_uri("spotify:track:other"),
+            song().starting_at_index(1),
+        ] {
+            assert!(commands(&remote_play(play.clone())).is_none());
+            assert!(shuffle_play_commands(&play).is_none());
+        }
+        // With Autoplay off the song stops at its end, as before.
+        set_autoplay(false);
+        assert!(commands(&remote_play(song())).is_none());
+        assert!(shuffle_play_commands(&song()).is_none());
+        set_autoplay(true);
+    }
+
     #[tokio::test]
     async fn acknowledgements_are_correlated_and_remote_errors_are_redacted() {
         for reject in [false, true] {

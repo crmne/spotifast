@@ -10768,6 +10768,9 @@ impl App {
             // playing, which a Sonos is.
             Target::Remote(device_id) => {
                 self.queued_play = None;
+                // Soloist plays one song as its own context only with
+                // Autoplay on; the setting is read as the play is routed.
+                crate::soloist::set_autoplay(self.settings.autoplay);
                 if shuffle {
                     self.backend.api(ApiRequest::ShufflePlay {
                         device_id,
