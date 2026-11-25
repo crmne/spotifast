@@ -4999,7 +4999,11 @@ impl Worker {
                     .as_ref()
                     .is_some_and(|account| account.as_str() == handle.account)
             })
-            .map(|handle| handle.client.clone());
+            .map(|handle| {
+                // A lone song goes to Soloist natively only with Autoplay on.
+                handle.client.set_autoplay(self.engine_config.autoplay);
+                handle.client.clone()
+            });
         let api = Arc::clone(&self.api);
         let made_for_you = Arc::clone(&self.made_for_you);
         let new_releases = Arc::clone(&self.new_releases);

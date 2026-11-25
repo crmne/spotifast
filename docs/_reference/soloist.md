@@ -161,6 +161,13 @@ restarts the player, as described under Setup.
 Starting a collection at a chosen row goes
 through the existing Spotify playback request, retaining its context and
 position; it does not skip through earlier songs or shorten the playlist.
+A song played on its own, such as one from a search or the `play-uri` and
+`play-search` commands, goes to Soloist's
+documented `play` command with that song's URI while **Autoplay** is on, so
+Spotify loads it as a context of its own and continues with similar songs
+when it ends, as local playback does. With Shuffle Play, Spotifast turns
+shuffle on first. With Autoplay off, or a song resumed partway through, the
+play keeps the Spotify playback request, and the song stops at its end.
 
 Lyrics also keep their existing sources. Spotify's own lyrics are tried when
 the separate librespot session is signed in, even while Soloist plays. Soloist
