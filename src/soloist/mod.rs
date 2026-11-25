@@ -14,7 +14,7 @@ use crate::{
 };
 use anyhow::{Context, Result, bail, ensure};
 pub use audio::OutputVolume;
-pub use protocol::{Client, set_autoplay};
+pub use protocol::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};

@@ -83,6 +83,8 @@ pub struct Client {
     serial: Arc<tokio::sync::Mutex<()>>,
     /// How far behind Soloist's position the sound is, in our audio route.
     audio_delay_ms: Arc<AtomicU32>,
+    /// The Autoplay setting turned off; on by default, as the setting is.
+    no_autoplay: Arc<AtomicBool>,
 }
 impl Client {
     pub fn bind(&self, device: Option<Device>) {
@@ -105,6 +107,13 @@ impl Client {
     /// Lyrics and the clock follow what is heard, not what Soloist has sent.
     pub fn audio_delay(&self, ms: u32) {
         self.audio_delay_ms.store(ms, Ordering::Relaxed);
+    }
+    /// Follows the Autoplay setting: see `single_song`.
+    pub fn set_autoplay(&self, on: bool) {
+        self.no_autoplay.store(!on, Ordering::Relaxed);
+    }
+    fn autoplay(&self) -> bool {
+        !self.no_autoplay.load(Ordering::Relaxed)
     }
     pub fn clear(&self) {
         *self.endpoint.write().unwrap_or_else(|e| e.into_inner()) = Endpoint::default();
@@ -172,7 +181,7 @@ impl Client {
             ApiRequest::Remote {
                 action, device_id, ..
             } if device_id.is_some() && device_id == &device.id => {
-                let commands = commands(request)?;
+                let commands = commands(request, self.autoplay())?;
                 let result = async {
                     let _guard = self.serial.lock().await;
                     for command in commands {
@@ -190,7 +199,7 @@ impl Client {
             ApiRequest::ShufflePlay { device_id, play }
                 if device_id.is_some() && device_id == &device.id =>
             {
-                let commands = shuffle_play_commands(play)?;
+                let commands = shuffle_play_commands(play, self.autoplay())?;
                 let result = async {
                     let _guard = self.serial.lock().await;
                     for command in commands {
@@ -246,43 +255,41 @@ impl Client {
         .context("Soloist did not answer in time")?
     }
 }
-/// Whether a song played on its own should go on to what Spotify follows it
-/// with. The Web API's `uris` play gives Soloist a list with no context, so
-/// the song stops at its end; Soloist's own `play` with the song's URI loads
-/// it as a context of its own, and Spotify's Autoplay carries on from it, as
-/// a song from a search does in the Spotify apps and in local playback (see
-/// `local_load`). Soloist has no Autoplay switch of its own, so with Autoplay
-/// off the song keeps the Web API route and stops where it ends.
-static AUTOPLAY: AtomicBool = AtomicBool::new(true);
-
-/// Follows the Autoplay setting; read when a play is routed.
-pub fn set_autoplay(on: bool) {
-    AUTOPLAY.store(on, Ordering::Relaxed);
-}
-
 /// The song to hand Soloist's `play`, when the request is one song with
-/// nothing around it: no context, no other row, from its start.
-fn single_song(play: &crate::api::PlayRequest) -> Option<&str> {
-    let [uri] = play.uris.as_slice() else {
-        return None;
+/// nothing around it, from its start: a one-song list (a search row) or a
+/// track as its own context (`play-uri`, `play-search`).
+///
+/// The Web API plays either as a list with no context, so the song stops at
+/// its end; Soloist's own `play` with the song's URI loads it as a context of
+/// its own, and Spotify's Autoplay carries on from it, as a song from a search
+/// does in the Spotify apps and in local playback (see `local_load`). Soloist
+/// has no Autoplay switch of its own, so with Autoplay off the song keeps the
+/// Web API route and stops where it ends.
+fn single_song(play: &crate::api::PlayRequest, autoplay: bool) -> Option<&str> {
+    let uri = match (play.uris.as_slice(), play.context_uri.as_deref()) {
+        ([uri], None) => uri.as_str(),
+        ([], Some(context)) => context,
+        _ => return None,
     };
     let id = uri.strip_prefix("spotify:track:")?;
-    (play.context_uri.is_none()
+    (autoplay
         && !id.is_empty()
         && !id.contains(':')
         && play.position_ms == 0
-        && play.offset_uri.as_ref().is_none_or(|offset| offset == uri)
-        && play.offset_position.is_none_or(|position| position == 0)
-        && AUTOPLAY.load(Ordering::Relaxed))
-    .then_some(uri.as_str())
+        && play
+            .offset_uri
+            .as_deref()
+            .is_none_or(|offset| offset == uri)
+        && play.offset_position.is_none_or(|position| position == 0))
+    .then_some(uri)
 }
 
 /// Shuffle Play of one song: shuffle on first, so what Autoplay adds after
 /// it plays shuffled too, as the Web API's shuffle play would.
-fn shuffle_play_commands(play: &crate::api::PlayRequest) -> Option<Vec<Value>> {
+fn shuffle_play_commands(play: &crate::api::PlayRequest, autoplay: bool) -> Option<Vec<Value>> {
     Some(vec![
         json!({"command":"set_shuffle", "enabled":true}),
-        json!({"command":"play", "uri":single_song(play)?}),
+        json!({"command":"play", "uri":single_song(play, autoplay)?}),
     ])
 }
 
@@ -290,7 +297,7 @@ fn failure(error: anyhow::Error) -> ApiError {
     ApiError::Network(error.to_string())
 }
 
-fn commands(request: &ApiRequest) -> Option<Vec<Value>> {
+fn commands(request: &ApiRequest, autoplay: bool) -> Option<Vec<Value>> {
     let ApiRequest::Remote {
         action,
         play,
@@ -305,8 +312,10 @@ fn commands(request: &ApiRequest) -> Option<Vec<Value>> {
     };
     let command = match action {
         RemoteAction::Play if play.is_none() => json!({"command":"play"}),
-        RemoteAction::Play if play.as_ref().and_then(single_song).is_some() => {
-            json!({"command":"play", "uri":play.as_ref().and_then(single_song)})
+        RemoteAction::Play
+            if let Some(uri) = play.as_ref().and_then(|play| single_song(play, autoplay)) =>
+        {
+            json!({"command":"play", "uri":uri})
         }
         RemoteAction::Play => return None, // Preserve context, ordering and selected occurrence.
         RemoteAction::Pause => json!({"command":"pause"}),
@@ -541,33 +550,42 @@ mod tests {
         request
     }
 
-    /// One test, because the Autoplay switch is process-wide: run apart, the
-    /// "off" case would race the others.
     #[test]
     fn a_song_on_its_own_goes_through_soloist_play_so_autoplay_follows_it() {
         let song = || crate::api::PlayRequest::tracks(vec!["spotify:track:one".into()]);
-        set_autoplay(true);
+        // A search row, the same with its row named, and `play-uri` /
+        // `play-search`, which ask for the track as its own context.
         for play in [
             song(),
             song().starting_at_index(0),
             song().starting_at_uri("spotify:track:one"),
+            crate::api::PlayRequest::context("spotify:track:one"),
         ] {
             assert_eq!(
-                commands(&remote_play(play.clone())).unwrap(),
+                commands(&remote_play(play.clone()), true).unwrap(),
                 vec![json!({"command":"play", "uri":"spotify:track:one"})]
             );
             assert_eq!(
-                shuffle_play_commands(&play).unwrap(),
+                shuffle_play_commands(&play, true).unwrap(),
                 vec![
                     json!({"command":"set_shuffle", "enabled":true}),
                     json!({"command":"play", "uri":"spotify:track:one"}),
                 ]
             );
+            // With Autoplay off the song stops at its end, as before.
+            assert!(commands(&remote_play(play.clone()), false).is_none());
+            assert!(shuffle_play_commands(&play, false).is_none());
         }
         // Everything else keeps the Web API route: its context, its order,
         // the chosen row and a resumed position.
         for play in [
             crate::api::PlayRequest::context("spotify:album:album"),
+            crate::api::PlayRequest::context("spotify:episode:episode"),
+            crate::api::PlayRequest::context("spotify:track:one").starting_at_index(3),
+            crate::api::PlayRequest {
+                position_ms: 10_000,
+                ..crate::api::PlayRequest::context("spotify:track:one")
+            },
             crate::api::PlayRequest::tracks(vec![
                 "spotify:track:one".into(),
                 "spotify:track:two".into(),
@@ -580,14 +598,20 @@ mod tests {
             song().starting_at_uri("spotify:track:other"),
             song().starting_at_index(1),
         ] {
-            assert!(commands(&remote_play(play.clone())).is_none());
-            assert!(shuffle_play_commands(&play).is_none());
+            assert!(commands(&remote_play(play.clone()), true).is_none());
+            assert!(shuffle_play_commands(&play, true).is_none());
         }
-        // With Autoplay off the song stops at its end, as before.
-        set_autoplay(false);
-        assert!(commands(&remote_play(song())).is_none());
-        assert!(shuffle_play_commands(&song()).is_none());
-        set_autoplay(true);
+    }
+
+    /// The setting reaches the route through the client the backend keeps.
+    #[test]
+    fn the_client_follows_the_autoplay_setting() {
+        let client = Client::default();
+        assert!(client.autoplay());
+        client.set_autoplay(false);
+        assert!(!client.autoplay());
+        client.set_autoplay(true);
+        assert!(client.autoplay());
     }
 
     #[tokio::test]
@@ -724,7 +748,7 @@ mod tests {
             *repeat = "track".into();
         }
         assert_eq!(
-            commands(&request).unwrap(),
+            commands(&request, true).unwrap(),
             vec![
                 json!({"command":"set_repeat_context","enabled":false}),
                 json!({"command":"set_repeat_track","enabled":true})
