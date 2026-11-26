@@ -9733,7 +9733,7 @@ impl App {
                             if !page.tracks.loaded_once {
                                 page.tracks.loading = true;
                                 self.backend.api(ApiRequest::AlbumTracks {
-                                    id,
+                                    id: id.clone(),
                                     offset: 0,
                                     generation: page.generation,
                                 });
@@ -9744,6 +9744,9 @@ impl App {
                         }
                     }
                 }
+                // Songs that come with the album, as after Refresh, which
+                // does not ask for the play counts again.
+                self.fill_album_availability(&id);
                 self.request_contains(uris);
             }
             ApiResponse::AlbumTracks {
@@ -28976,6 +28979,18 @@ mod tests {
         let mut app = headless_app();
         app.receive_play_counts("spotify:album:one".into(), 0, Ok(data()));
         receive_songs(&mut app);
+        assert_eq!(playable(&app), [Some(false), None]);
+
+        // Refresh reloads the songs with the album, and the play counts
+        // are not asked again.
+        app.album_pages.insert("one".into(), AlbumPage::default());
+        app.handle_api(ApiResponse::Album {
+            id: "one".into(),
+            result: Ok(Album {
+                tracks: Some(songs()),
+                ..Default::default()
+            }),
+        });
         assert_eq!(playable(&app), [Some(false), None]);
 
         // Another account's answer does not grey this one's songs.
