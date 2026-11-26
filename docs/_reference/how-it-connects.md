@@ -76,7 +76,9 @@ Spotifast uses separate credentials for Web API access and local playback:
    per run; artist overviews are revalidated after ten minutes while viewed. A
    failed first read leaves the column out; an artist refresh keeps previously
    received counts visible. The artist query also carries the monthly listeners
-   shown on the artist page.
+   shown on the artist page. The album query also says which of its songs this
+   account cannot play, and the album page greys them out: the Web API's album
+   songs, asked for without a market, never say.
 
    The **Listening activity** panel also needs this session. While the panel
    is open, and only then, the session reads Spotify's private

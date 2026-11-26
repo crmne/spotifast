@@ -135,6 +135,11 @@ clients. Spotifast uses its session for:
 - **Play counts** on album pages and an artist's popular songs, from the
   Pathfinder queries Spotify's own pages make. The Web API has none. When
   the read fails, the lists leave the counts out.
+- **Unavailable songs on album pages**, from the same album query: a song
+  this account cannot play is greyed out. The Web API says so only for a
+  request tied to one market, which replaces a relinked song's ID. The
+  `linked_from` field that names the album's own song is deprecated, and
+  Spotify's February 2026 changes removed it for apps in Development Mode.
 - **Monthly listeners** on an artist page, from the same artist query. The
   Web API has no such number.
 - **Listening activity**: what the people the account follows are playing,
