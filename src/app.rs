@@ -836,6 +836,9 @@ pub struct App {
     /// albums and artists in `play_count_reads`, and each of those artists'
     /// monthly listeners by artist URI.
     pub play_counts: HashMap<String, u64>,
+    /// Songs of the albums in `play_count_reads` that Spotify says this
+    /// account cannot play, by the album's own track URI.
+    album_unplayable: HashSet<String>,
     /// Albums and artists whose play counts were asked for, by URI.
     pub play_count_reads: HashMap<String, PlayCountRead>,
     artist_metadata_reads: HashMap<String, ArtistMetadataRead>,
@@ -1488,6 +1491,7 @@ impl App {
                 .collect(),
             user_names: HashMap::new(),
             play_counts: HashMap::new(),
+            album_unplayable: HashSet::new(),
             play_count_reads: HashMap::new(),
             artist_prereleases: HashMap::new(),
             artist_metadata_reads: HashMap::new(),
@@ -3790,6 +3794,7 @@ impl App {
         self.artist_prereleases.clear();
         self.artist_metadata_reads.clear();
         self.play_counts.clear();
+        self.album_unplayable.clear();
         self.play_count_reads.clear();
         self.play_count_generation = self.play_count_generation.wrapping_add(1);
         self.show_pages.clear();
@@ -7959,6 +7964,14 @@ impl App {
             Ok(data) => {
                 let nothing = data.play_counts.is_empty();
                 self.play_counts.extend(data.play_counts);
+                // An upcoming album's songs cannot play until it is out, which
+                // says nothing of this account, and it is not read again then.
+                let upcoming = util::uri_id(&uri)
+                    .and_then(|id| self.album_pages.get(id))
+                    .is_some_and(|page| page.prerelease.is_some());
+                if !upcoming {
+                    self.album_unplayable.extend(data.unplayable);
+                }
                 if songs {
                     PlayCountRead::Answered
                 } else if artist && nothing {
@@ -7971,7 +7984,30 @@ impl App {
             }
             Err(_) => PlayCountRead::Failed(Instant::now()),
         };
+        if !artist && let Some(id) = util::uri_id(&uri) {
+            self.fill_album_availability(id);
+        }
         self.play_count_reads.insert(uri, read);
+    }
+
+    /// Grey out the songs of album page `id` that Spotify said this account
+    /// cannot play, whichever of the songs and that answer arrives first.
+    /// Rows that already say are left alone.
+    fn fill_album_availability(&mut self, id: &str) {
+        let Some(page) = self.album_pages.get_mut(id) else {
+            return;
+        };
+        let mut changed = false;
+        let tracks = page.tracks.windows.values_mut().flatten();
+        for track in page.tracks.items.iter_mut().chain(tracks) {
+            if track.is_playable.is_none() && self.album_unplayable.contains(&track.uri) {
+                track.is_playable = Some(false);
+                changed = true;
+            }
+        }
+        if changed {
+            page.tracks.revision = page.tracks.revision.wrapping_add(1);
+        }
     }
 
     fn request_album_types<'a>(&mut self, albums: impl IntoIterator<Item = &'a Album>) {
@@ -9733,6 +9769,7 @@ impl App {
                         Err(error) => page.tracks.fail(friendly_api_error(self.locale, &error)),
                     }
                 }
+                self.fill_album_availability(&id);
                 self.request_contains(uris);
                 // A sorted table means the whole list, not the loaded part.
                 if self.table_sorts.contains_key(&Page::Album(id.clone())) {
@@ -28881,6 +28918,89 @@ mod tests {
             app.play_count_reads.get(artist),
             Some(PlayCountRead::Failed(_))
         ));
+    }
+
+    /// The Web API's album answer never says a song cannot play, so the
+    /// album's play-count read greys it out, whichever arrives first, and
+    /// its count stays.
+    #[test]
+    fn album_songs_spotify_cannot_play_are_greyed_out() {
+        let songs = || crate::api::models::Page {
+            items: ["spotify:track:a", "spotify:track:b"]
+                .map(|uri| Track {
+                    uri: uri.into(),
+                    ..Default::default()
+                })
+                .to_vec(),
+            total: 2,
+            offset: 0,
+            limit: 50,
+            next: None,
+        };
+        let data = || crate::session_reads::PageMetadata {
+            play_counts: HashMap::from([
+                ("spotify:track:a".to_string(), 0),
+                ("spotify:track:b".to_string(), 9),
+            ]),
+            unplayable: HashSet::from(["spotify:track:a".to_string()]),
+            ..Default::default()
+        };
+        let receive_songs = |app: &mut App| {
+            app.album_pages
+                .entry("one".into())
+                .or_insert_with(AlbumPage::default);
+            app.handle_api(ApiResponse::AlbumTracks {
+                id: "one".into(),
+                offset: 0,
+                generation: 0,
+                result: Ok(songs()),
+            });
+        };
+        let playable = |app: &App| {
+            app.album_pages["one"]
+                .tracks
+                .items
+                .iter()
+                .map(|track| track.is_playable)
+                .collect::<Vec<_>>()
+        };
+
+        let mut app = headless_app();
+        receive_songs(&mut app);
+        let revision = app.album_pages["one"].tracks.revision;
+        app.receive_play_counts("spotify:album:one".into(), 0, Ok(data()));
+        assert_eq!(playable(&app), [Some(false), None]);
+        assert_ne!(app.album_pages["one"].tracks.revision, revision);
+        assert_eq!(app.play_counts.get("spotify:track:a"), Some(&0));
+
+        let mut app = headless_app();
+        app.receive_play_counts("spotify:album:one".into(), 0, Ok(data()));
+        receive_songs(&mut app);
+        assert_eq!(playable(&app), [Some(false), None]);
+
+        // Another account's answer does not grey this one's songs.
+        app.reset_data();
+        receive_songs(&mut app);
+        assert_eq!(playable(&app), [None, None]);
+
+        // Songs of a countdown page play once the album is out.
+        let mut app = headless_app();
+        let upcoming = crate::prerelease::Prerelease::decode(
+            include_bytes!("testdata/prerelease.pb"),
+            "spotify:prerelease:0kRaNkRxpO16BjxJU0IQAL",
+        )
+        .unwrap();
+        app.album_pages.insert(
+            "one".into(),
+            AlbumPage {
+                prerelease: Some(upcoming),
+                ..Default::default()
+            },
+        );
+        app.receive_play_counts("spotify:album:one".into(), 0, Ok(data()));
+        app.album_pages.remove("one");
+        receive_songs(&mut app);
+        assert_eq!(playable(&app), [None, None]);
     }
 
     /// A change Spotify pushes for another device is polled at once. A

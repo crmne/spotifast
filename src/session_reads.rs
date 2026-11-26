@@ -3,7 +3,7 @@
 //! no per-app quota, so a playlist someone else owns opens without waiting on
 //! the shared app's rate limit.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use base64::Engine as _;
 use librespot_core::{FileId, Session, SpotifyUri, error::ErrorKind, spotify_id::SpotifyId};
@@ -387,12 +387,16 @@ pub struct PageMetadata {
     /// Songs' play counts by track URI, and an artist's monthly listeners
     /// under the artist's own URI.
     pub play_counts: HashMap<String, u64>,
+    /// An album's songs that Spotify says this account cannot play, by the
+    /// album's own track URI. The Web API's album answer carries no market,
+    /// so it never says.
+    pub unplayable: HashSet<String>,
     pub upcoming: Option<crate::prerelease::UpcomingRelease>,
 }
 
-/// Read song play counts and, for artists, monthly listeners and the
-/// upcoming release. None of them is available through the Web API. Songs
-/// without counts are left out.
+/// Read song play counts and, for albums, which songs cannot play, and for
+/// artists, monthly listeners and the upcoming release. None of them is
+/// available through the Web API. Songs without counts are left out.
 pub async fn page_metadata(
     session: &Session,
     web: &crate::api::ApiClient,
@@ -401,6 +405,7 @@ pub async fn page_metadata(
     let login = session.login5().auth_token().await?;
     let client_token = session.spclient().client_token().await?;
     let mut counts = HashMap::new();
+    let mut unplayable = HashSet::new();
     let mut upcoming = None;
     match crate::util::uri_kind(uri) {
         Some("album") => {
@@ -422,6 +427,7 @@ pub async fn page_metadata(
                     .pointer("/data/albumUnion/tracksV2")
                     .ok_or_else(|| anyhow::anyhow!("Spotify answered without the album's songs"))?;
                 let rows = play_counts_from(page, &mut counts);
+                unplayable_from(page, &mut unplayable);
                 let total = page
                     .get("totalCount")
                     .and_then(|total| total.as_u64())
@@ -465,6 +471,7 @@ pub async fn page_metadata(
     }
     Ok(PageMetadata {
         play_counts: counts,
+        unplayable,
         upcoming,
     })
 }
@@ -500,6 +507,31 @@ fn play_counts_from(list: &serde_json::Value, counts: &mut HashMap<String, u64>)
         }
     }
     rows.len()
+}
+
+/// Adds the songs of a Pathfinder album page whose `playability` says this
+/// account cannot play them. A song Spotify plays through a relinked
+/// recording is playable; rows that do not say are left out.
+fn unplayable_from(list: &serde_json::Value, unplayable: &mut HashSet<String>) {
+    let rows = list
+        .get("items")
+        .and_then(|items| items.as_array())
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    for row in rows {
+        let Some(track) = row.get("track") else {
+            continue;
+        };
+        let playable = track
+            .pointer("/playability/playable")
+            .and_then(|playable| playable.as_bool());
+        if let Some(uri) = track.get("uri").and_then(|uri| uri.as_str())
+            && uri.starts_with("spotify:track:")
+            && playable == Some(false)
+        {
+            unplayable.insert(uri.to_string());
+        }
+    }
 }
 
 /// An artist's monthly listeners in its `queryArtistOverview` answer.
@@ -2023,6 +2055,23 @@ mod tests {
             super::play_counts_from(&serde_json::json!({}), &mut counts),
             0
         );
+    }
+
+    /// Only a row that says it cannot play is greyed out; a missing answer
+    /// leaves the song as it was.
+    #[test]
+    fn unplayable_album_songs_read_pathfinder_rows() {
+        let list = serde_json::json!({"items": [
+            {"track": {"uri": "spotify:track:a", "playability": {"playable": false, "reason": "COUNTRY_RESTRICTED"}}},
+            {"track": {"uri": "spotify:track:b", "playability": {"playable": true}}},
+            {"track": {"uri": "spotify:track:c"}},
+            {"track": {"uri": "spotify:episode:d", "playability": {"playable": false}}},
+            {"track": {"playability": {"playable": false}}},
+            {"uid": "no track"},
+        ]});
+        let mut unplayable = HashSet::new();
+        super::unplayable_from(&list, &mut unplayable);
+        assert_eq!(unplayable, HashSet::from(["spotify:track:a".to_string()]));
     }
 
     #[test]

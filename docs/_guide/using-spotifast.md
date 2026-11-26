@@ -176,7 +176,9 @@ automatically when the cache is read.
 
 A song that is no longer available, or not available in your country, stays
 in its playlist with its whole row greyed out and does not play. A removed
-song often keeps only its cover and album, without a title or length.
+song often keeps only its cover and album, without a title or length. On an
+album page such a song is greyed out the same way, from the answer that brings
+the [play counts](#play-counts), so it needs playback on this computer.
 
 Sorted and filtered views omit unavailable songs and local files from playback.
 The rows stay visible, and selecting a repeated song starts that occurrence. Filtering a playlist or Liked Songs plays only the matching songs,
