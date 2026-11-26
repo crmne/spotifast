@@ -4133,21 +4133,25 @@ mod tests {
 
         // A character in the frame after Cmd+F must replace the query. The
         // old order processed it before the selection, so it appended to
-        // "Bonobo" and only then selected the updated query.
-        app.search.query = "Bonobo".into();
-        let mut state = egui::TextEdit::load_state(&ctx, id).expect("the field's state");
-        state
-            .cursor
-            .set_char_range(Some(egui::text::CCursorRange::one(
-                egui::text::CCursor::new(6),
-            )));
-        state.store(&ctx, id);
-        accessible_frame(&ctx, &mut app, press_cmd_f());
-        accessible_frame(&ctx, &mut app, vec![egui::Event::Text("a".into())]);
-        assert_eq!(
-            app.search.query, "a",
-            "the first typed character replaces the query"
-        );
+        // the old query and only then selected the updated one. Cover a
+        // multibyte query too: the selection counts characters, not bytes.
+        for query in ["Bonobo", "Björk"] {
+            app.search.query = query.into();
+            let end = query.chars().count();
+            let mut state = egui::TextEdit::load_state(&ctx, id).expect("the field's state");
+            state
+                .cursor
+                .set_char_range(Some(egui::text::CCursorRange::one(
+                    egui::text::CCursor::new(end),
+                )));
+            state.store(&ctx, id);
+            accessible_frame(&ctx, &mut app, press_cmd_f());
+            accessible_frame(&ctx, &mut app, vec![egui::Event::Text("a".into())]);
+            assert_eq!(
+                app.search.query, "a",
+                "the first typed character replaces {query}"
+            );
+        }
 
         app.backend.shutdown();
     }
