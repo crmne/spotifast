@@ -28949,9 +28949,7 @@ mod tests {
             ..Default::default()
         };
         let receive_songs = |app: &mut App| {
-            app.album_pages
-                .entry("one".into())
-                .or_default();
+            app.album_pages.entry("one".into()).or_default();
             app.handle_api(ApiResponse::AlbumTracks {
                 id: "one".into(),
                 offset: 0,
