@@ -101,6 +101,9 @@ const PLAYLIST_SNAPSHOT_RECHECK: Duration = Duration::from_secs(1);
 const QUEUE_STALE_RETRIES: u8 = 6;
 /// Duplicate queue requests within this window count as one click.
 const QUEUE_ADD_DEBOUNCE: Duration = Duration::from_millis(1500);
+/// The longest a track list waits for its song's station before it plays
+/// without the station's songs.
+const STATION_WAIT: Duration = Duration::from_secs(3);
 /// How many played contexts the sidebar's Recently played order keeps.
 const RECENT_CONTEXTS_KEPT: usize = 60;
 const CONTAINS_BATCH: usize = 40;
@@ -171,6 +174,16 @@ struct PlayedRow {
     view: bool,
     index: u32,
     uri: String,
+}
+
+/// A track list to a remote device, held until the station of its chosen
+/// song answers, so the list can continue with the station's songs.
+struct StationPlay {
+    request: PlayRequest,
+    /// The generation the station lookup answers under.
+    generation: u64,
+    /// When the list plays without the station if no answer has come.
+    deadline: Instant,
 }
 
 /// What saving the edit dialog sends: only the details that changed.
@@ -705,6 +718,9 @@ pub struct App {
     /// A play request made while the local engine was still connecting; it
     /// starts the moment the engine reports ready.
     queued_play: Option<PlayRequest>,
+    /// A track list to a remote device, held until its song's station
+    /// answers or the wait ends.
+    station_play: Option<StationPlay>,
     /// Last list sent to local playback. Used for autoplay because librespot
     /// cannot continue a list without a context URI.
     local_list: Option<Vec<String>>,
@@ -1422,6 +1438,7 @@ impl App {
             pending_play_keys: Vec::new(),
             pending_play_at: None,
             queued_play: None,
+            station_play: None,
             local_list: None,
             pending_transfer_to: None,
             remote_recheck_at: None,
@@ -3126,7 +3143,17 @@ impl App {
                     seed,
                     generation,
                     result,
-                } => self.receive_radio(&seed, generation, result),
+                } => {
+                    if self
+                        .station_play
+                        .as_ref()
+                        .is_some_and(|play| play.generation == generation)
+                    {
+                        self.finish_station_play(result.ok());
+                    } else {
+                        self.receive_radio(&seed, generation, result);
+                    }
+                }
                 Event::Prerelease {
                     uri,
                     generation,
@@ -4505,6 +4532,13 @@ impl App {
     fn tick(&mut self, ctx: &egui::Context) {
         self.poll_custom_themes(ctx);
         self.retry_soloist_when_due(ctx);
+        if let Some(due) = self.station_play.as_ref().map(|play| play.deadline) {
+            if Instant::now() >= due {
+                self.finish_station_play(None);
+            } else {
+                ctx.request_repaint_after(due - Instant::now());
+            }
+        }
         if self.queued_play.is_some() && self.soloist_waiting() && !self.soloist_recovering() {
             self.soloist_give_up();
         }
@@ -10616,6 +10650,88 @@ impl App {
         self.start_play(request, shuffle_first);
     }
 
+    /// Plays a plain track list. Where `station_seed_for` finds a station to
+    /// wait for, the list is held until that station answers, or the wait
+    /// ends, and then plays with the station's songs after it.
+    fn play_track_list(&mut self, request: PlayRequest) {
+        let Some(song) = self.station_seed_for(&request) else {
+            self.play_request(request, false);
+            return;
+        };
+        // The claim on playback that play_request makes, made now, since the
+        // play itself waits for the station.
+        self.supersede_play_search();
+        self.played_row = None;
+        self.resume_load = None;
+        self.queued_play = None;
+        self.set_play_pending(vec![song.clone()]);
+        self.load_generation = self.load_generation.wrapping_add(1);
+        let generation = self.load_generation;
+        self.backend.send(Command::Radio {
+            seed: song,
+            generation,
+        });
+        self.station_play = Some(StationPlay {
+            request,
+            generation,
+            deadline: Instant::now() + STATION_WAIT,
+        });
+    }
+
+    /// The chosen song of a plain track list whose station the list waits
+    /// for. Only a list of two or more songs, with no context, played to a
+    /// remote device with Autoplay on and Repeat off, waits.
+    fn station_seed_for(&self, request: &PlayRequest) -> Option<String> {
+        let plain = request.context_uri.is_none()
+            && request.offset_uri.is_none()
+            && request.uris.len() > 1
+            && request
+                .uris
+                .iter()
+                .all(|uri| uri.starts_with("spotify:track:"));
+        let remote = match self.target() {
+            Target::Local => false,
+            Target::Remote(device_id) => device_id.is_some() || self.remote_elsewhere().is_some(),
+        };
+        let waiting = self.soloist_waiting() && !self.soloist_recovering();
+        if !plain
+            || !remote
+            || waiting
+            || !self.settings.autoplay
+            || self.repeat_wanted != RepeatMode::Off
+            || !self.local.connected
+        {
+            return None;
+        }
+        let song = request
+            .uris
+            .get(request.offset_position.unwrap_or(0) as usize)?;
+        util::station_uri(song)?;
+        // The backend keeps one pending station lookup per song. A radio page
+        // still loading this song's station would lose its lookup to this one.
+        if self
+            .radio_pages
+            .get(song)
+            .is_some_and(|page| page.songs.is_loading())
+        {
+            return None;
+        }
+        Some(song.clone())
+    }
+
+    /// Plays a held track list: with the station's songs after its rows when
+    /// the station answered, and as it was asked for otherwise.
+    fn finish_station_play(&mut self, station: Option<Vec<Track>>) {
+        let Some(play) = self.station_play.take() else {
+            return;
+        };
+        let request = match station {
+            Some(songs) => list_with_station(&play.request, &songs),
+            None => play.request,
+        };
+        self.start_play(request, false);
+    }
+
     /// A playback choice made now: a play-search still in flight must not
     /// undo it when it answers.
     fn supersede_play_search(&mut self) {
@@ -10643,6 +10759,9 @@ impl App {
     }
 
     fn start_play(&mut self, request: PlayRequest, shuffle_first: bool) {
+        // Any play starting now replaces a track list still waiting for its
+        // station.
+        self.station_play = None;
         if self.soloist_waiting() && !self.soloist_recovering() {
             self.clear_play_pending();
             return;
@@ -12701,7 +12820,7 @@ impl App {
                 }
                 let (uris, index) = cap_uris(&uris, index);
                 let request = PlayRequest::tracks(uris).starting_at_index(index);
-                self.play_request(request, false);
+                self.play_track_list(request);
             }
             Action::PlayEpisode { uri, resume_ms } => {
                 // A started episode continues from the place the row or card
@@ -12753,7 +12872,7 @@ impl App {
                     };
                     let (uris, index) = cap_uris(uris.as_ref(), index);
                     let request = PlayRequest::tracks(uris).starting_at_index(index);
-                    self.play_request(request, false);
+                    self.play_track_list(request);
                 }
                 RowContext::Queue => self.play_queue_item(index as usize, uri),
                 RowContext::View {
@@ -15612,6 +15731,27 @@ fn cap_uris_around(uris: &[String], index: u32) -> (Vec<String>, u32) {
     let start = (index as usize).min(uris.len().saturating_sub(MAX_PLAYED_URIS));
     let end = (start + MAX_PLAYED_URIS).min(uris.len());
     (uris[start..end].to_vec(), index - start as u32)
+}
+
+/// The list a held track list plays once its song's station answers: the
+/// rows from the chosen row to the end, then the station's songs that are
+/// not already among those rows. The rows keep their order and repeats, and
+/// the result is capped as a list is.
+fn list_with_station(request: &PlayRequest, station: &[Track]) -> PlayRequest {
+    let start = request.offset_position.unwrap_or(0) as usize;
+    let mut uris = request.uris.get(start..).unwrap_or_default().to_vec();
+    let mut seen: HashSet<String> = uris.iter().cloned().collect();
+    for track in station {
+        if seen.insert(track.uri.clone()) {
+            uris.push(track.uri.clone());
+        }
+    }
+    let (uris, index) = cap_uris(&uris, 0);
+    PlayRequest {
+        uris,
+        ..request.clone()
+    }
+    .starting_at_index(index)
 }
 
 fn evict_lru_map<V>(
@@ -20227,6 +20367,208 @@ mod tests {
         // picked to match.
         let request = PlayRequest::context("spotify:playlist:x").starting_at_uri("spotify:track:a");
         assert_eq!(local_load(&request, true).shuffle, Some(true));
+    }
+
+    /// A plain track list played to a remote device continues with the
+    /// station of its chosen song: the rows from that song, then the
+    /// station's songs that are not already in them.
+    #[test]
+    fn a_track_list_on_a_remote_device_continues_with_its_station() {
+        let ctx = egui::Context::default();
+        let mut app = test_app("track-list-station");
+        app.local.connected = true;
+        app.selected_device = Some("speaker".into());
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Uris(
+                    vec![
+                        "spotify:track:a".to_string(),
+                        "spotify:track:b".to_string(),
+                        "spotify:track:c".to_string(),
+                    ]
+                    .into(),
+                ),
+                uri: "spotify:track:b".into(),
+                index: 1,
+            },
+            &ctx,
+        );
+        assert!(
+            app.backend.take_remote_play_requests().is_empty(),
+            "the list waits for the station of its chosen song"
+        );
+        let generation = app.station_play.as_ref().expect("a held list").generation;
+        app.handle_backend_events(vec![Event::Radio {
+            seed: "spotify:track:b".into(),
+            generation,
+            result: Ok(vec![
+                radio_song("b", "B"),
+                radio_song("c", "C"),
+                radio_song("x", "X"),
+                radio_song("x", "X"),
+            ]),
+        }]);
+        let requests = app.backend.take_remote_play_requests();
+        let [
+            ApiRequest::Remote {
+                action: RemoteAction::Play,
+                device_id,
+                play: Some(play),
+                ..
+            },
+        ] = requests.as_slice()
+        else {
+            panic!("one remote play, got {requests:?}");
+        };
+        assert_eq!(device_id.as_deref(), Some("speaker"));
+        assert_eq!(
+            play.uris,
+            ["spotify:track:b", "spotify:track:c", "spotify:track:x"]
+        );
+        assert_eq!(play.offset_position, Some(0));
+        assert!(app.station_play.is_none());
+        app.backend.shutdown();
+    }
+
+    /// A station that fails, or answers after the wait, leaves the list to
+    /// play as it was asked for. A late answer changes nothing.
+    #[test]
+    fn a_track_list_plays_as_asked_when_its_station_fails_or_is_late() {
+        let ctx = egui::Context::default();
+        let mut app = test_app("track-list-station-fallback");
+        app.local.connected = true;
+        app.selected_device = Some("speaker".into());
+        let rows: Vec<String> = ["a", "b", "c"]
+            .iter()
+            .map(|id| format!("spotify:track:{id}"))
+            .collect();
+        let choose = |app: &mut App| {
+            app.apply(
+                Action::PlayFromRow {
+                    context: RowContext::Uris(rows.clone().into()),
+                    uri: "spotify:track:b".into(),
+                    index: 1,
+                },
+                &ctx,
+            );
+        };
+        let sent = |app: &mut App| match app.backend.take_remote_play_requests().as_slice() {
+            [
+                ApiRequest::Remote {
+                    play: Some(play), ..
+                },
+            ] => (play.uris.clone(), play.offset_position),
+            other => panic!("one remote play, got {other:?}"),
+        };
+        choose(&mut app);
+        let generation = app.station_play.as_ref().expect("a held list").generation;
+        app.handle_backend_events(vec![Event::Radio {
+            seed: "spotify:track:b".into(),
+            generation,
+            result: Err("Couldn't load this radio. Try again.".into()),
+        }]);
+        assert_eq!(
+            sent(&mut app),
+            (rows.clone(), Some(1)),
+            "the station failed"
+        );
+
+        choose(&mut app);
+        let generation = app.station_play.as_ref().expect("a held list").generation;
+        app.station_play.as_mut().expect("a held list").deadline = Instant::now();
+        app.tick(&ctx);
+        assert_eq!(sent(&mut app), (rows.clone(), Some(1)), "the wait ended");
+        assert!(app.station_play.is_none());
+
+        app.handle_backend_events(vec![Event::Radio {
+            seed: "spotify:track:b".into(),
+            generation,
+            result: Ok(vec![radio_song("x", "X")]),
+        }]);
+        assert!(
+            app.backend.take_remote_play_requests().is_empty(),
+            "a late station answer plays nothing"
+        );
+        app.backend.shutdown();
+    }
+
+    /// With Autoplay off, Repeat on, a single song, or a list holding an
+    /// episode, the list plays at once, as it was asked for.
+    #[test]
+    fn a_track_list_waits_for_a_station_only_with_autoplay_and_no_repeat() {
+        let ctx = egui::Context::default();
+        let mut app = test_app("track-list-no-station");
+        app.local.connected = true;
+        app.selected_device = Some("speaker".into());
+        let rows: Vec<String> = ["a", "b", "c"]
+            .iter()
+            .map(|id| format!("spotify:track:{id}"))
+            .collect();
+        let sent = |app: &mut App| match app.backend.take_remote_play_requests().as_slice() {
+            [
+                ApiRequest::Remote {
+                    play: Some(play), ..
+                },
+            ] => (play.uris.clone(), play.offset_position),
+            other => panic!("one remote play, got {other:?}"),
+        };
+        for (autoplay, repeat) in [
+            (false, RepeatMode::Off),
+            (true, RepeatMode::Track),
+            (true, RepeatMode::Context),
+        ] {
+            app.settings.autoplay = autoplay;
+            app.repeat_wanted = repeat;
+            app.apply(
+                Action::PlayFromRow {
+                    context: RowContext::Uris(rows.clone().into()),
+                    uri: "spotify:track:b".into(),
+                    index: 1,
+                },
+                &ctx,
+            );
+            assert!(
+                app.station_play.is_none(),
+                "autoplay {autoplay}, repeat {repeat:?}: no wait"
+            );
+            assert_eq!(sent(&mut app), (rows.clone(), Some(1)));
+        }
+        app.settings.autoplay = true;
+        app.repeat_wanted = RepeatMode::Off;
+        for uris in [
+            vec!["spotify:track:a".to_string()],
+            vec![
+                "spotify:track:a".to_string(),
+                "spotify:episode:e".to_string(),
+            ],
+        ] {
+            let uri = uris[0].clone();
+            app.apply(
+                Action::PlayFromRow {
+                    context: RowContext::Uris(uris.clone().into()),
+                    uri,
+                    index: 0,
+                },
+                &ctx,
+            );
+            assert!(app.station_play.is_none(), "{uris:?} is not a track list");
+            assert_eq!(sent(&mut app), (uris.clone(), Some(0)));
+        }
+        app.backend.shutdown();
+    }
+
+    /// A station fills a track list only up to the 500-row cap.
+    #[test]
+    fn a_station_fills_a_track_list_up_to_the_cap() {
+        let rows: Vec<String> = (0..498).map(|n| format!("spotify:track:row{n}")).collect();
+        let station = ["s1", "s2", "s3"].map(|id| radio_song(id, "S")).to_vec();
+        let list = list_with_station(&PlayRequest::tracks(rows), &station);
+        assert_eq!(list.offset_position, Some(0));
+        assert_eq!(list.uris.len(), MAX_PLAYED_URIS);
+        assert_eq!(
+            list.uris[498..].to_vec(),
+            ["spotify:track:s1", "spotify:track:s2"]
+        );
     }
 
     fn queued_song(uri: &str) -> crate::api::models::PlayableItem {
