@@ -557,14 +557,15 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let panel_id = egui::Id::new("sidebar");
     let resize_id = panel_id.with("__resize");
     let panel_left = ui.available_rect_before_wrap().left();
+    let mut covers_only = app.sidebar_covers_only;
     if let Some(resize) = ui.read_response(resize_id)
         && (resize.dragged() || resize.drag_stopped())
         && let Some(pointer) = resize.interact_pointer_pos()
     {
         let raw_width = pointer.x - panel_left;
-        let next = next_sidebar_covers_only(app.sidebar_covers_only, raw_width);
-        if next != app.sidebar_covers_only {
-            app.sidebar_covers_only = next;
+        let next = next_sidebar_covers_only(covers_only, raw_width);
+        if next != covers_only {
+            covers_only = next;
             app.actions.push(Action::SetSidebarCoversOnly(next));
             if !next {
                 app.settings.sidebar_width =
@@ -574,9 +575,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         }
     }
 
-    let covers_only = app.sidebar_covers_only;
     let palette = app.palette;
-    let expanded_art = has_expanded_art(app);
+    let expanded_art = has_expanded_art(app, covers_only);
     let floating_art = !covers_only && app.settings.sidebar_grid && expanded_art;
     // The traffic lights float over the top-left of the sidebar now, so the
     // first nav row has to start below them.
@@ -618,7 +618,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         if let Some(rect) = art_rect.filter(|_| !floating_art) {
             reserve_expanded_art(ui, rect);
         }
-        contents(app, ui, art_rect.filter(|_| floating_art));
+        contents(app, ui, covers_only, art_rect.filter(|_| floating_art));
         if let Some(rect) = art_rect {
             if floating_art {
                 paint_grid_art_mask(app, ui, rect);
@@ -679,8 +679,8 @@ fn paint_grid_art_mask(app: &App, ui: &egui::Ui, rect: Rect) {
     );
 }
 
-fn has_expanded_art(app: &App) -> bool {
-    !app.sidebar_covers_only
+fn has_expanded_art(app: &App, covers_only: bool) -> bool {
+    !covers_only
         && app.settings.art_expanded
         && app
             .now_playing()
@@ -1089,11 +1089,10 @@ fn nav_row(
 
 /// Draw Library navigation, shelf controls, search, and the visible rows.
 /// Playlist ownership and text filters are applied before ordering and pin placement.
-fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
+fn contents(app: &mut App, ui: &mut egui::Ui, covers_only: bool, grid_art: Option<Rect>) {
     let palette = app.palette;
     let page = app.page().clone();
     let locale = app.locale;
-    let covers_only = app.sidebar_covers_only;
     ui.add_space(4.0);
     if nav_row(
         ui,
@@ -3380,6 +3379,7 @@ mod ordering_tests {
         app.attach(&ctx);
         app.settings.sidebar_width = 250.0;
         let run = |app: &mut App, events: Vec<egui::Event>| -> (f32, f32) {
+            let before = app.sidebar_covers_only;
             let mut panel_width = 0.0;
             let mut resize_x = 0.0;
             let mut output = ctx.run_ui(
@@ -3401,7 +3401,11 @@ mod ordering_tests {
                 },
             );
             output.textures_delta.clear();
-            let _ = std::mem::take(&mut app.actions);
+            assert_eq!(
+                app.sidebar_covers_only, before,
+                "show must queue SetSidebarCoversOnly instead of mutating app.sidebar_covers_only"
+            );
+            apply_actions(app);
             (panel_width, resize_x)
         };
 
@@ -3556,7 +3560,7 @@ mod ordering_tests {
 
         frame(&mut app, vec![]);
         let tree = frame(&mut app, vec![]);
-        assert!(!has_expanded_art(&app));
+        assert!(!has_expanded_art(&app, app.sidebar_covers_only));
         assert!(
             ctx.read_response(egui::Id::new("sidebar-art")).is_none(),
             "expanded artwork must stay hidden in covers-only mode"
