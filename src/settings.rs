@@ -1911,6 +1911,8 @@ pub struct SessionState {
     pub window_maximized: bool,
     /// Whether the queue panel was open.
     pub queue_open: Option<bool>,
+    /// Whether the sidebar was collapsed to covers-only mode.
+    pub sidebar_covers_only: bool,
     /// Which tab the queue panel showed: `queue` or `recents`.
     pub queue_tab: Option<String>,
     /// Last outer position of the Winamp window.
@@ -2044,6 +2046,7 @@ mod session_tests {
         let state: SessionState = serde_json::from_str(r#"{"last_page":"home"}"#).unwrap();
         assert_eq!(state.last_page.as_deref(), Some("home"));
         assert_eq!(state.rootlist, None);
+        assert!(!state.sidebar_covers_only);
         assert_eq!(
             crate::player::RepeatMode::from_api(&state.repeat),
             crate::player::RepeatMode::Off,
@@ -2063,6 +2066,17 @@ mod session_tests {
             crate::player::RepeatMode::from_api(&read.repeat),
             crate::player::RepeatMode::Track
         );
+    }
+
+    #[test]
+    fn sidebar_covers_only_round_trips_in_session_state() {
+        let state = SessionState {
+            sidebar_covers_only: true,
+            ..SessionState::default()
+        };
+        let json = state.encode().unwrap();
+        let read: SessionState = serde_json::from_str(&json).unwrap();
+        assert!(read.sidebar_covers_only);
     }
 
     #[test]

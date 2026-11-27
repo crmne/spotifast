@@ -663,6 +663,7 @@ pub struct App {
     /// Successful uploads stay visible while Spotify propagates the new image.
     uploaded_covers: std::collections::HashMap<String, crate::playlist_cover::PendingCover>,
     pub show_queue_panel: bool,
+    pub sidebar_covers_only: bool,
     pub show_lyrics_panel: bool,
     /// Friend activity takes the right panel's place, so at most one of the
     /// Queue, Lyrics and Friend activity is open.
@@ -1397,6 +1398,7 @@ impl App {
             cover_uploads: HashMap::new(),
             uploaded_covers: Default::default(),
             show_queue_panel: session.queue_open.unwrap_or(false),
+            sidebar_covers_only: session.sidebar_covers_only,
             show_lyrics_panel: false,
             show_friends_panel: false,
             friends: Loadable::NotLoaded,
@@ -13609,6 +13611,10 @@ impl App {
                 self.settings.sidebar_grid = grid;
                 self.mark_settings_dirty();
             }
+            Action::SetSidebarCoversOnly(covers_only) => {
+                self.sidebar_covers_only = covers_only;
+                self.session_dirty = true;
+            }
             Action::ToggleLibraryFolder(id) => {
                 if self.collapsed_folders.contains(&id) {
                     self.collapsed_folders.retain(|held| held != &id);
@@ -15120,6 +15126,7 @@ impl App {
                 window_pos: self.window_geometry.position,
                 window_maximized: self.window_geometry.maximized,
                 queue_open: Some(self.show_queue_panel),
+                sidebar_covers_only: self.sidebar_covers_only,
                 queue_tab: Some(self.queue_tab.encode().to_string()),
                 winamp_pos: self.winamp.geometry.position,
                 milkdrop_pos: self.milkdrop_pos,

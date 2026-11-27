@@ -478,7 +478,7 @@ and `--demo-show` adds surfaces on top of it: a comma separated list of
 `focus`, `winamp`, `playlist`, `eq`, `eq-shade`, `compact`, `update`, `personal-app`, `slow-banner`, `audio-key-banner`,
 `collection-loading`, `shuffle-selected`, `shuffle-started`, `library-list`,
 `library-list-narrow`, `library-list-wide`, `library-grid`, `library-grid-narrow`,
-`library-grid-wide`, `eq-user-presets`, `start-in-tray`, `rtl`, `player-bar-spectrum`, `player-bar-waveform`,
+`library-grid-wide`, `library-covers`, `eq-user-presets`, `start-in-tray`, `rtl`, `player-bar-spectrum`, `player-bar-waveform`,
 `lyrics-fullscreen-view`, `lyrics-fullscreen-instrumental`, `signed-out`, `connecting`,
 `waiting-for-browser`, `sign-in-returning`, `sign-in-malformed`, `sign-in-shared-retired`,
 `sign-in-unknown-client`, `sign-in-not-allowed`, `shared-grant`, and `own-app`. The Library variants show the list or cover grid with
