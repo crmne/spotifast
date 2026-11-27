@@ -1338,6 +1338,7 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
             | "library-grid"
             | "library-grid-narrow"
             | "library-grid-wide" => {
+                app.sidebar_covers_only = false;
                 app.settings.sidebar_grid = surface.starts_with("library-grid");
                 app.settings.art_expanded = false;
                 app.settings.sidebar_width = if surface.ends_with("-narrow") {
@@ -1352,6 +1353,10 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
             "library-by-you-empty" => {
                 app.settings.library_by_you = true;
                 app.library.filter = "No matching playlist".into();
+            }
+            "library-covers" => {
+                app.sidebar_covers_only = true;
+                app.settings.art_expanded = false;
             }
             "queue" => app.show_queue_panel = true,
             "friends" => {

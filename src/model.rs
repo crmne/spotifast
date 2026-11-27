@@ -1396,6 +1396,7 @@ pub enum Action {
         sort: crate::settings::LibrarySort,
     },
     SetLibraryGrid(bool),
+    SetSidebarCoversOnly(bool),
     ToggleLibraryFolder(String),
     ArrangeLibrary {
         pinned: Vec<String>,
