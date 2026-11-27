@@ -806,18 +806,13 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
         } else {
             Icon::PlayFilled
         };
-        let hover = if palette.dark {
-            egui::Color32::WHITE
-        } else {
-            palette.text
-        };
         let mut cell = centered(ui, disc);
         if theme::circle_button(
             &mut cell,
             icon,
             36.0,
             palette.text,
-            hover,
+            palette.text_hover(),
             palette.window,
             &if playing {
                 gettext(app.locale, "Pause")

@@ -104,6 +104,23 @@ impl Palette {
         };
         Color32::from_rgb((r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8)
     }
+
+    /// The hover of a disc filled with the text colour, such as the play
+    /// button. A dark palette brightens the text a quarter in linear light,
+    /// so its own near-white text reaches white while a coloured text keeps
+    /// its hue; a light palette keeps the text, as the disc grows instead.
+    pub fn text_hover(&self) -> Color32 {
+        if !self.dark {
+            return self.text;
+        }
+        let linear = egui::Rgba::from(self.text);
+        let brighten = |channel: f32| (channel * 1.25).min(1.0);
+        Color32::from(egui::Rgba::from_rgb(
+            brighten(linear.r()),
+            brighten(linear.g()),
+            brighten(linear.b()),
+        ))
+    }
 }
 
 impl fastframe_theme::Palette for Palette {
@@ -1082,6 +1099,30 @@ mod tests {
         assert!(!light.dark);
         assert_eq!(light.accent, Color32::from_rgb(140, 63, 165));
         assert_eq!(light.window, Palette::light().window);
+    }
+
+    /// The play button's hover follows the palette's text (#1426): the
+    /// built-in dark text still brightens to white, but a custom red text
+    /// stays red instead of flashing white, and light palettes keep the text.
+    #[test]
+    fn text_hover_follows_the_palettes_text() {
+        // #given the built-in palettes
+        // #then dark brightens to white and light keeps its text
+        assert_eq!(Palette::dark().text_hover(), Color32::WHITE);
+        assert_eq!(Palette::light().text_hover(), Palette::light().text);
+
+        // #given the dark custom palette from the report
+        let custom: Palette = fastframe_theme::parse_palette(
+            r##"{"base":"dark","colors":{"text":"#ff003c","accent":"#ff003c","accent_hover":"#ff295b","on_accent":"#060400"}}"##,
+        )
+        .unwrap();
+
+        // #then the hover stays red, at least as bright as the text
+        let hover = custom.text_hover();
+        assert_ne!(hover, Color32::WHITE);
+        let [r, g, b, a] = hover.to_array();
+        assert_eq!((r, a), (255, 255), "{hover:?}");
+        assert!(g < 0x20 && (0x3c..0x50).contains(&b), "{hover:?}");
     }
 
     /// Ristretto's brown window must not open blue-grey menus.

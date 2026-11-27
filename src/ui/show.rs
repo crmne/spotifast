@@ -381,11 +381,7 @@ pub fn episode_row(
         icon,
         32.0,
         palette.text,
-        if palette.dark {
-            egui::Color32::WHITE
-        } else {
-            palette.text
-        },
+        palette.text_hover(),
         palette.window,
         &gettext(locale, "Play"),
     )
