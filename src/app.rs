@@ -15734,16 +15734,27 @@ fn cap_uris_around(uris: &[String], index: u32) -> (Vec<String>, u32) {
 }
 
 /// The list a held track list plays once its song's station answers: the
-/// rows from the chosen row to the end, then the station's songs that are
-/// not already among those rows. The rows keep their order and repeats, and
-/// the result is capped as a list is.
+/// chosen row first, then the station's songs that are not already queued,
+/// then the rows after the chosen one that are not already queued. The
+/// remaining rows keep their order and repeats, and the result is capped as
+/// a list is.
 fn list_with_station(request: &PlayRequest, station: &[Track]) -> PlayRequest {
     let start = request.offset_position.unwrap_or(0) as usize;
-    let mut uris = request.uris.get(start..).unwrap_or_default().to_vec();
-    let mut seen: HashSet<String> = uris.iter().cloned().collect();
+    let rows = request.uris.get(start..).unwrap_or_default();
+    let mut uris: Vec<String> = Vec::new();
+    let mut queued: HashSet<String> = HashSet::new();
+    if let Some(chosen) = rows.first() {
+        uris.push(chosen.clone());
+        queued.insert(chosen.clone());
+    }
     for track in station {
-        if seen.insert(track.uri.clone()) {
+        if queued.insert(track.uri.clone()) {
             uris.push(track.uri.clone());
+        }
+    }
+    for uri in rows.iter().skip(1) {
+        if !queued.contains(uri) {
+            uris.push(uri.clone());
         }
     }
     let (uris, index) = cap_uris(&uris, 0);
@@ -20370,8 +20381,8 @@ mod tests {
     }
 
     /// A plain track list played to a remote device continues with the
-    /// station of its chosen song: the rows from that song, then the
-    /// station's songs that are not already in them.
+    /// station of its chosen song: the chosen song, then the station's songs
+    /// that are not already queued, then the rows after it that are not.
     #[test]
     fn a_track_list_on_a_remote_device_continues_with_its_station() {
         let ctx = egui::Context::default();
@@ -20385,6 +20396,7 @@ mod tests {
                         "spotify:track:a".to_string(),
                         "spotify:track:b".to_string(),
                         "spotify:track:c".to_string(),
+                        "spotify:track:d".to_string(),
                     ]
                     .into(),
                 ),
@@ -20423,7 +20435,12 @@ mod tests {
         assert_eq!(device_id.as_deref(), Some("speaker"));
         assert_eq!(
             play.uris,
-            ["spotify:track:b", "spotify:track:c", "spotify:track:x"]
+            [
+                "spotify:track:b",
+                "spotify:track:c",
+                "spotify:track:x",
+                "spotify:track:d"
+            ]
         );
         assert_eq!(play.offset_position, Some(0));
         assert!(app.station_play.is_none());
@@ -20566,8 +20583,13 @@ mod tests {
         assert_eq!(list.offset_position, Some(0));
         assert_eq!(list.uris.len(), MAX_PLAYED_URIS);
         assert_eq!(
-            list.uris[498..].to_vec(),
-            ["spotify:track:s1", "spotify:track:s2"]
+            list.uris[..4].to_vec(),
+            [
+                "spotify:track:row0",
+                "spotify:track:s1",
+                "spotify:track:s2",
+                "spotify:track:s3"
+            ]
         );
     }
 
