@@ -3144,12 +3144,19 @@ impl App {
                     generation,
                     result,
                 } => {
-                    if self
+                    let held = self
                         .station_play
                         .as_ref()
-                        .is_some_and(|play| play.generation == generation)
-                    {
-                        self.finish_station_play(result.ok());
+                        .filter(|play| play.generation == generation)
+                        .map(|play| play.deadline);
+                    if let Some(deadline) = held {
+                        // An answer that comes after the wait is too late for the list.
+                        let station = if Instant::now() < deadline {
+                            result.ok()
+                        } else {
+                            None
+                        };
+                        self.finish_station_play(station);
                     } else {
                         self.receive_radio(&seed, generation, result);
                     }
@@ -10639,6 +10646,8 @@ impl App {
     /// in one ordered exchange: two independent requests race, and shuffle
     /// sometimes lost.
     fn play_request(&mut self, request: PlayRequest, shuffle_first: bool) {
+        // A new play ends a track list still waiting for its station.
+        self.station_play = None;
         if self.soloist_waiting() && !self.soloist_recovering() {
             return;
         }
@@ -10665,6 +10674,7 @@ impl App {
         self.resume_load = None;
         self.queued_play = None;
         self.set_play_pending(vec![song.clone()]);
+        self.expect_track(song.clone(), request.position_ms);
         self.load_generation = self.load_generation.wrapping_add(1);
         let generation = self.load_generation;
         self.backend.send(Command::Radio {
@@ -10699,6 +10709,9 @@ impl App {
             || waiting
             || !self.settings.autoplay
             || self.repeat_wanted != RepeatMode::Off
+            || self.remote_fresh().is_some_and(|remote| {
+                RepeatMode::from_api(&remote.state.repeat_state) != RepeatMode::Off
+            })
             || !self.local.connected
         {
             return None;
@@ -12740,6 +12753,9 @@ impl App {
             Action::TogglePlay | Action::Next | Action::Previous
         ) {
             self.supersede_play_search();
+            // A track list held for its station must not start after a pause
+            // or skip.
+            self.station_play = None;
         }
         match action {
             Action::Open(page) => self.open(page),

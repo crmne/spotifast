@@ -696,6 +696,12 @@ The same play reported both locally and by Spotify appears once.
 The local list is stored in `history.json` and is never uploaded. Settings →
 Storage shows its location and has a **Clear history** button.
 
+When a track list plays on a remote device with Autoplay on and Repeat off,
+Spotifast first looks up the chosen song's station and waits up to 3 seconds
+for it. The list then plays with the station's songs after its own songs. If
+the station is late or fails, the list plays alone. This needs the built-in
+player on this computer to be signed in. Pause, Next, Previous, or starting
+another play cancels the wait.
 On Windows, the main window's minimize, maximize, and close buttons share the
 top bar with Spotifast's controls. Drag an empty part of that bar to move or
 snap the window, and drag a window edge or corner to resize it.

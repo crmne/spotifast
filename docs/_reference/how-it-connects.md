@@ -70,6 +70,10 @@ Spotifast uses separate credentials for Web API access and local playback:
    private response can change without notice. Radio pages come only from
    this session: the Web API has no stations. Opening one resolves the
    station and reads its songs' details in one batched request.
+   A track list played to a remote device with Autoplay on and Repeat off also
+   asks this session for its chosen song's station. The list waits up to 3
+   seconds for the answer, then plays alone on timeout or failure. Without a
+   signed-in built-in player, the list plays alone and no station is requested.
    Play counts on album pages and an artist's popular songs come from the
    same Pathfinder queries Spotify's own album and artist pages make, with the
    session's token and an already verified Web API grant. Albums are read once
