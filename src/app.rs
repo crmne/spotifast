@@ -10721,11 +10721,12 @@ impl App {
             .get(request.offset_position.unwrap_or(0) as usize)?;
         util::station_uri(song)?;
         // The backend keeps one pending station lookup per song. A radio page
-        // still loading this song's station would lose its lookup to this one.
+        // still loading or refreshing this song's station would lose its
+        // lookup to this one.
         if self
             .radio_pages
             .get(song)
-            .is_some_and(|page| page.songs.is_loading())
+            .is_some_and(|page| page.songs.is_loading() || page.refreshing)
         {
             return None;
         }
@@ -10743,6 +10744,25 @@ impl App {
             None => play.request,
         };
         self.start_play(request, false);
+    }
+
+    /// Drops a track list held for its station. The intent for its chosen
+    /// song goes with it, but an intent for any other song stays.
+    fn cancel_station_play(&mut self) {
+        let Some(play) = self.station_play.take() else {
+            return;
+        };
+        let chosen = play
+            .request
+            .uris
+            .get(play.request.offset_position.unwrap_or(0) as usize);
+        if self
+            .intent_track
+            .as_ref()
+            .is_some_and(|intent| Some(&intent.uri) == chosen)
+        {
+            self.intent_track = None;
+        }
     }
 
     /// A playback choice made now: a play-search still in flight must not
@@ -12755,7 +12775,7 @@ impl App {
             self.supersede_play_search();
             // A track list held for its station must not start after a pause
             // or skip.
-            self.station_play = None;
+            self.cancel_station_play();
         }
         match action {
             Action::Open(page) => self.open(page),
@@ -12890,7 +12910,12 @@ impl App {
                     let request = PlayRequest::tracks(uris).starting_at_index(index);
                     self.play_track_list(request);
                 }
-                RowContext::Queue => self.play_queue_item(index as usize, uri),
+                RowContext::Queue => {
+                    // A queue row plays now, so a list still waiting for its
+                    // station must not start after it.
+                    self.cancel_station_play();
+                    self.play_queue_item(index as usize, uri)
+                }
                 RowContext::View {
                     uris, context_uri, ..
                 } => {
@@ -15750,27 +15775,28 @@ fn cap_uris_around(uris: &[String], index: u32) -> (Vec<String>, u32) {
 }
 
 /// The list a held track list plays once its song's station answers: the
-/// chosen row first, then the station's songs that are not already queued,
-/// then the rows after the chosen one that are not already queued. The
-/// remaining rows keep their order and repeats, and the result is capped as
-/// a list is.
+/// rows from the chosen one on, in their order, then the station's songs
+/// that are not among those rows. A later copy of the chosen song is left
+/// out only when the station has that song. The result is capped as a list
+/// is.
 fn list_with_station(request: &PlayRequest, station: &[Track]) -> PlayRequest {
     let start = request.offset_position.unwrap_or(0) as usize;
     let rows = request.uris.get(start..).unwrap_or_default();
+    let chosen = rows.first();
+    let station_has_chosen =
+        chosen.is_some_and(|chosen| station.iter().any(|track| &track.uri == chosen));
     let mut uris: Vec<String> = Vec::new();
-    let mut queued: HashSet<String> = HashSet::new();
-    if let Some(chosen) = rows.first() {
-        uris.push(chosen.clone());
-        queued.insert(chosen.clone());
-    }
-    for track in station {
-        if queued.insert(track.uri.clone()) {
-            uris.push(track.uri.clone());
+    for (index, uri) in rows.iter().enumerate() {
+        let later_copy_of_chosen = index > 0 && Some(uri) == chosen;
+        if !(later_copy_of_chosen && station_has_chosen) {
+            uris.push(uri.clone());
         }
     }
-    for uri in rows.iter().skip(1) {
-        if !queued.contains(uri) {
-            uris.push(uri.clone());
+    let suffix: HashSet<&str> = rows.iter().map(String::as_str).collect();
+    let mut added: HashSet<&str> = HashSet::new();
+    for track in station {
+        if !suffix.contains(track.uri.as_str()) && added.insert(track.uri.as_str()) {
+            uris.push(track.uri.clone());
         }
     }
     let (uris, index) = cap_uris(&uris, 0);
@@ -20397,8 +20423,8 @@ mod tests {
     }
 
     /// A plain track list played to a remote device continues with the
-    /// station of its chosen song: the chosen song, then the station's songs
-    /// that are not already queued, then the rows after it that are not.
+    /// station of its chosen song: the rows from the chosen song on, then the
+    /// station's songs that are not among those rows.
     #[test]
     fn a_track_list_on_a_remote_device_continues_with_its_station() {
         let ctx = egui::Context::default();
@@ -20454,8 +20480,8 @@ mod tests {
             [
                 "spotify:track:b",
                 "spotify:track:c",
-                "spotify:track:x",
-                "spotify:track:d"
+                "spotify:track:d",
+                "spotify:track:x"
             ]
         );
         assert_eq!(play.offset_position, Some(0));
@@ -20598,14 +20624,11 @@ mod tests {
         let list = list_with_station(&PlayRequest::tracks(rows), &station);
         assert_eq!(list.offset_position, Some(0));
         assert_eq!(list.uris.len(), MAX_PLAYED_URIS);
+        assert_eq!(list.uris[0], "spotify:track:row0");
         assert_eq!(
-            list.uris[..4].to_vec(),
-            [
-                "spotify:track:row0",
-                "spotify:track:s1",
-                "spotify:track:s2",
-                "spotify:track:s3"
-            ]
+            list.uris[498..].to_vec(),
+            ["spotify:track:s1", "spotify:track:s2"],
+            "the rows fill the list first; the station's songs take what is left"
         );
     }
 
