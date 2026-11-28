@@ -10704,14 +10704,16 @@ impl App {
             Target::Remote(device_id) => device_id.is_some() || self.remote_elsewhere().is_some(),
         };
         let waiting = self.soloist_waiting() && !self.soloist_recovering();
+        // The device's own Repeat, which set_repeat updates at once. The saved
+        // preference stands in only while the device's state is unknown.
+        let repeat = self.remote_fresh().map_or(self.repeat_wanted, |remote| {
+            RepeatMode::from_api(&remote.state.repeat_state)
+        });
         if !plain
             || !remote
             || waiting
             || !self.settings.autoplay
-            || self.repeat_wanted != RepeatMode::Off
-            || self.remote_fresh().is_some_and(|remote| {
-                RepeatMode::from_api(&remote.state.repeat_state) != RepeatMode::Off
-            })
+            || repeat != RepeatMode::Off
             || !self.local.connected
         {
             return None;
@@ -10746,8 +10748,8 @@ impl App {
         self.start_play(request, false);
     }
 
-    /// Drops a track list held for its station. The intent for its chosen
-    /// song goes with it, but an intent for any other song stays.
+    /// Drops a track list held for its station. The intent and the pending
+    /// play for its chosen song go with it, but those for any other song stay.
     fn cancel_station_play(&mut self) {
         let Some(play) = self.station_play.take() else {
             return;
@@ -10762,6 +10764,11 @@ impl App {
             .is_some_and(|intent| Some(&intent.uri) == chosen)
         {
             self.intent_track = None;
+        }
+        // Clear the pending play only when it names the chosen song, which
+        // the hold set.
+        if chosen.is_some_and(|song| self.pending_play_keys == [song.clone()]) {
+            self.clear_play_pending();
         }
     }
 
