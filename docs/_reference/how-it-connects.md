@@ -74,6 +74,8 @@ Spotifast uses separate credentials for Web API access and local playback:
    asks this session for its chosen song's station. The list waits up to 3
    seconds for the answer, then plays alone on timeout or failure. Without a
    signed-in built-in player, the list plays alone and no station is requested.
+On Soloist, the chosen song plays alone and the songs after it are queued under
+Playing next, since Soloist keeps no songs after a track list's chosen one.
    Play counts on album pages and an artist's popular songs come from the
    same Pathfinder queries Spotify's own album and artist pages make, with the
    session's token and an already verified Web API grant. Albums are read once

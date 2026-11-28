@@ -721,6 +721,9 @@ pub struct App {
     /// A track list to a remote device, held until its song's station
     /// answers or the wait ends.
     station_play: Option<StationPlay>,
+    /// The songs after a track list's chosen song on Soloist. They are
+    /// queued once Soloist accepts the play of the chosen song.
+    soloist_list_tail: Vec<String>,
     /// Last list sent to local playback. Used for autoplay because librespot
     /// cannot continue a list without a context URI.
     local_list: Option<Vec<String>>,
@@ -1439,6 +1442,7 @@ impl App {
             pending_play_at: None,
             queued_play: None,
             station_play: None,
+            soloist_list_tail: Vec::new(),
             local_list: None,
             pending_transfer_to: None,
             remote_recheck_at: None,
@@ -9893,6 +9897,10 @@ impl App {
                     Ok(()) => {
                         self.remote_recheck_at = Some(Instant::now() + REMOTE_RECHECK);
                         self.remote_command_at = Some(Instant::now());
+                        if action == RemoteAction::Play {
+                            let tail = std::mem::take(&mut self.soloist_list_tail);
+                            self.queue_list_tail(tail);
+                        }
                         if action == RemoteAction::Shuffle {
                             self.queue_recheck_at = Some(Instant::now() + QUEUE_RECHECK);
                             if let Some(pending) = &mut self.queue_shuffle_pending {
@@ -9905,6 +9913,9 @@ impl App {
                     Err(error) => {
                         self.optimistic_playing = None;
                         self.pending_remote_position = None;
+                        if action == RemoteAction::Play {
+                            self.soloist_list_tail.clear();
+                        }
                         if matches!(action, RemoteAction::Volume { .. }) {
                             self.pending_remote_volume = None;
                         }
@@ -10933,6 +10944,15 @@ impl App {
                         play: request,
                     });
                 } else {
+                    // Soloist keeps no next songs for a track list, so only
+                    // its chosen song plays here; the rest are queued after
+                    // Soloist accepts this play (see `soloist_list_split`).
+                    let (request, tail) = if self.targets_own_soloist() {
+                        soloist_list_split(&request).unwrap_or((request, Vec::new()))
+                    } else {
+                        (request, Vec::new())
+                    };
+                    self.soloist_list_tail = tail;
                     self.backend.api(ApiRequest::Remote {
                         action: RemoteAction::Play,
                         device_id,
@@ -11956,6 +11976,21 @@ impl App {
             return;
         }
         self.write_queue_adds(vec![uri], pending_start);
+    }
+
+    /// Queues the songs a Soloist track list plays after its chosen song, in
+    /// order, as one batch. Unlike `queue_album_tracks`, it shows no toast:
+    /// the list plays on, and the queue shows the songs.
+    fn queue_list_tail(&mut self, uris: Vec<String>) {
+        let uris: Vec<String> = uris.into_iter().filter(|uri| self.can_queue(uri)).collect();
+        if uris.is_empty() {
+            return;
+        }
+        let pending_start = self.pending_queue_adds.len();
+        for uri in &uris {
+            self.show_queued_song(uri, "");
+        }
+        self.write_queue_adds(uris, pending_start);
     }
 
     fn show_queued_song(&mut self, uri: &str, label: &str) {
@@ -15812,6 +15847,28 @@ fn list_with_station(request: &PlayRequest, station: &[Track]) -> PlayRequest {
         ..request.clone()
     }
     .starting_at_index(index)
+}
+
+/// The chosen song of a plain track list that Soloist plays, and the songs
+/// after it. Soloist's Next up holds the songs of a context, and a track list
+/// is not one, so a list sent whole plays its first song and then stops. The
+/// chosen song plays alone and the rest are queued after it. `None` for
+/// anything but a plain list of two or more tracks.
+fn soloist_list_split(request: &PlayRequest) -> Option<(PlayRequest, Vec<String>)> {
+    let plain = request.context_uri.is_none()
+        && request.offset_uri.is_none()
+        && request.uris.len() > 1
+        && request
+            .uris
+            .iter()
+            .all(|uri| uri.starts_with("spotify:track:"));
+    let start = request.offset_position.unwrap_or(0) as usize;
+    if !plain || start >= request.uris.len() {
+        return None;
+    }
+    let mut chosen = PlayRequest::tracks(vec![request.uris[start].clone()]).starting_at_index(0);
+    chosen.position_ms = request.position_ms;
+    Some((chosen, request.uris[start + 1..].to_vec()))
 }
 
 fn evict_lru_map<V>(
@@ -20494,6 +20551,123 @@ mod tests {
         assert_eq!(play.offset_position, Some(0));
         assert!(app.station_play.is_none());
         app.backend.shutdown();
+    }
+
+    /// On Soloist a track list plays its chosen song alone. The songs after
+    /// it are queued only once Soloist has accepted that play.
+    #[test]
+    fn a_track_list_on_soloist_plays_its_chosen_song_and_queues_the_rest() {
+        let ctx = egui::Context::default();
+        let mut app = test_app("track-list-soloist");
+        app.soloist_device_id = Some("soloist".into());
+        app.selected_device = Some("soloist".into());
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Uris(
+                    vec![
+                        "spotify:track:a".to_string(),
+                        "spotify:track:b".to_string(),
+                        "spotify:track:c".to_string(),
+                        "spotify:track:d".to_string(),
+                    ]
+                    .into(),
+                ),
+                uri: "spotify:track:b".into(),
+                index: 1,
+            },
+            &ctx,
+        );
+        let requests = app.backend.take_remote_play_requests();
+        let [
+            ApiRequest::Remote {
+                action: RemoteAction::Play,
+                device_id,
+                play: Some(play),
+                ..
+            },
+        ] = requests.as_slice()
+        else {
+            panic!("one remote play, got {requests:?}");
+        };
+        assert_eq!(device_id.as_deref(), Some("soloist"));
+        assert_eq!(play.uris, ["spotify:track:b"]);
+        assert!(
+            app.backend.take_queue_requests().is_empty(),
+            "the rest waits until Soloist accepts the play"
+        );
+        app.handle_api(ApiResponse::Remote {
+            action: RemoteAction::Play,
+            result: Ok(()),
+        });
+        let queued = app.backend.take_queue_requests();
+        let [
+            ApiRequest::AddManyToQueue {
+                uris, device_id, ..
+            },
+        ] = queued.as_slice()
+        else {
+            panic!("one queue batch, got {queued:?}");
+        };
+        assert_eq!(device_id.as_deref(), Some("soloist"));
+        assert_eq!(uris, &["spotify:track:c", "spotify:track:d"]);
+        app.backend.shutdown();
+    }
+
+    /// A Soloist play that Soloist refuses queues nothing.
+    #[test]
+    fn a_refused_soloist_play_queues_none_of_its_list() {
+        let ctx = egui::Context::default();
+        let mut app = test_app("track-list-soloist-refused");
+        app.soloist_device_id = Some("soloist".into());
+        app.selected_device = Some("soloist".into());
+        app.apply(
+            Action::PlayFromRow {
+                context: RowContext::Uris(
+                    vec!["spotify:track:a".to_string(), "spotify:track:b".to_string()].into(),
+                ),
+                uri: "spotify:track:a".into(),
+                index: 0,
+            },
+            &ctx,
+        );
+        app.backend.take_remote_play_requests();
+        app.handle_api(ApiResponse::Remote {
+            action: RemoteAction::Play,
+            result: Err(crate::api::ApiError::Network("refused".into())),
+        });
+        assert!(app.backend.take_queue_requests().is_empty());
+        assert!(app.soloist_list_tail.is_empty());
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn soloist_splits_only_a_plain_track_list() {
+        let list = PlayRequest::tracks(vec![
+            "spotify:track:a".into(),
+            "spotify:track:b".into(),
+            "spotify:track:c".into(),
+        ])
+        .starting_at_index(1);
+        let (chosen, tail) = soloist_list_split(&list).expect("a plain list splits");
+        assert_eq!(chosen.uris, ["spotify:track:b"]);
+        assert_eq!(chosen.offset_position, Some(0));
+        assert_eq!(tail, ["spotify:track:c"]);
+        assert!(
+            soloist_list_split(&PlayRequest::tracks(vec!["spotify:track:a".into()])).is_none(),
+            "a lone song has nothing to queue"
+        );
+        assert!(
+            soloist_list_split(&PlayRequest::context("spotify:album:x")).is_none(),
+            "a context keeps its own next songs"
+        );
+        assert!(
+            soloist_list_split(&PlayRequest::tracks(vec![
+                "spotify:episode:e".into(),
+                "spotify:track:b".into(),
+            ]))
+            .is_none(),
+            "a list with an episode is not split"
+        );
     }
 
     /// A station that fails, or answers after the wait, leaves the list to

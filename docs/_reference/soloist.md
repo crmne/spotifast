@@ -161,6 +161,9 @@ restarts the player, as described under Setup.
 Starting a collection at a chosen row goes
 through the existing Spotify playback request, retaining its context and
 position; it does not skip through earlier songs or shorten the playlist.
+A track list, such as a Home row, a Recent row or a filtered view, has no
+context on Soloist, so Soloist keeps no songs after its chosen one. Spotifast
+plays the chosen song alone and queues the songs after it under Playing next.
 
 Lyrics also keep their existing sources. Spotify's own lyrics are tried when
 the separate librespot session is signed in, even while Soloist plays. Soloist
